@@ -89,6 +89,8 @@ const icons = {
   calendar: "M3 9h18 M8 3v4 M16 3v4 M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5z",
   film: "M2 8h20 M2 16h20 M6 2v20 M18 2v20 M2 2h20v20H2z",
   alert: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z M12 9v4 M12 17h.01",
+  invoice: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
+  building: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10",
 };
 
 // ─── UTILITY: Date helpers ───────────────────────────────────────────────────
@@ -229,7 +231,7 @@ const LANG = {
   en: {
     // Nav
     navDashboard: "Dashboard", navEquipment: "Equipment", navJobs: "Job Bookings",
-    navTeam: "Team", navReports: "Reports",
+    navTeam: "Team", navReports: "Reports", navInvoice: "Invoice",
     // Employee tabs
     tabToday: "Today", tabSchedule: "Schedule", tabProfile: "Profile", tabReport: "Report",
     // Today tab
@@ -286,7 +288,7 @@ const LANG = {
   th: {
     // Nav
     navDashboard: "ภาพรวม", navEquipment: "อุปกรณ์", navJobs: "งาน",
-    navTeam: "ทีม", navReports: "แจ้งปัญหา",
+    navTeam: "ทีม", navReports: "แจ้งปัญหา", navInvoice: "ใบแจ้งหนี้",
     // Employee tabs
     tabToday: "วันนี้", tabSchedule: "ตาราง", tabProfile: "โปรไฟล์", tabReport: "แจ้งปัญหา",
     // Today tab
@@ -595,7 +597,48 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
 }
 
 // ─── JOBS PAGE ────────────────────────────────────────────────────────────────
-function JobsPage({ jobs, setJobs, equipment, checkouts }) {
+// ─── PRODUCTION COMBOBOX ─────────────────────────────────────────────────────
+function ProductionCombobox({ value, onChange, companies }) {
+  const [query, setQuery] = useState(value || "");
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => { setQuery(value || ""); }, [value]);
+
+  const filtered = companies.filter(c =>
+    !query.trim() || c.name.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const select = (name) => { setQuery(name); onChange(name); setOpen(false); };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        style={S.input}
+        value={query}
+        placeholder="e.g. One More Films"
+        onChange={e => { setQuery(e.target.value); onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && filtered.length > 0 && (
+        <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 300, background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: "var(--btn-radius,7px)", boxShadow: "0 8px 24px rgba(0,0,0,0.4)", overflow: "hidden", maxHeight: 200, overflowY: "auto" }}>
+          {filtered.map((co, i) => (
+            <div
+              key={co.id}
+              onMouseDown={() => select(co.name)}
+              style={{ padding: "10px 14px", cursor: "pointer", fontSize: 13, color: "var(--text,#e8e4dc)", borderBottom: i < filtered.length - 1 ? "1px solid var(--divider-color,#1e2030)" : "none", background: co.name === value ? "rgba(232,184,75,0.08)" : "transparent" }}
+            >
+              <div style={{ fontWeight: co.name === value ? 700 : 400 }}>{co.name}</div>
+              {co.address && <div style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 2 }}>{co.address.split("\n")[0]}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies }) {
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
@@ -768,7 +811,10 @@ function JobsPage({ jobs, setJobs, equipment, checkouts }) {
           <div style={S.col}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div style={{ gridColumn: "1/-1" }}><label style={S.label}>Job Name</label><input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. TVC Toyota — Hero Film" /></div>
-              <div style={{ gridColumn: "1/-1" }}><label style={S.label}>Production Company</label><input style={S.input} value={form.production} onChange={e => setForm(p => ({ ...p, production: e.target.value }))} placeholder="e.g. One More Films" /></div>
+              <div style={{ gridColumn: "1/-1" }}>
+                <label style={S.label}>Production Company</label>
+                <ProductionCombobox value={form.production} onChange={v => setForm(p => ({ ...p, production: v }))} companies={productionCompanies} />
+              </div>
               <div>
                 <label style={S.label}>Job Status</label>
                 <select style={S.select} value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
@@ -2054,7 +2100,98 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName }) 
   );
 }
 
-// ─── TOP NAV DROPDOWN ─────────────────────────────────────────────────────────
+// ─── INVOICE PAGE ─────────────────────────────────────────────────────────────
+function InvoicePage({ productionCompanies, setProductionCompanies }) {
+  const [modal, setModal] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [form, setForm] = useState({ name: "", address: "" });
+
+  const open = (co = null) => {
+    setEditTarget(co);
+    setForm(co ? { name: co.name, address: co.address || "" } : { name: "", address: "" });
+    setModal(true);
+  };
+
+  const save = () => {
+    if (!form.name.trim()) return;
+    if (editTarget) {
+      setProductionCompanies(p => p.map(c => c.id === editTarget.id ? { ...c, ...form, name: form.name.trim() } : c));
+    } else {
+      setProductionCompanies(p => [...p, { id: "co" + Date.now(), name: form.name.trim(), address: form.address.trim() }]);
+    }
+    setModal(false);
+  };
+
+  const del = (id) => {
+    if (window.confirm("Remove this production company?")) setProductionCompanies(p => p.filter(c => c.id !== id));
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+        <div>
+          <h1 style={S.pageTitle}>Invoice</h1>
+          <p style={S.pageSubtitle}>Production companies & billing addresses</p>
+        </div>
+        <button style={S.btn("primary")} onClick={() => open()}><Icon d={icons.plus} size={15} /> Add Company</button>
+      </div>
+
+      {productionCompanies.length === 0 ? (
+        <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
+          <Icon d={icons.building} size={36} color="var(--text-muted,#444)" />
+          <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No production companies yet.</p>
+          <p style={{ color: "var(--text-muted,#555)", fontSize: 12, marginTop: 4 }}>Add one here — it will appear as a suggestion when creating jobs.</p>
+        </div>
+      ) : (
+        <div style={S.col}>
+          {productionCompanies.map(co => (
+            <div key={co.id} style={{ ...S.card, display: "flex", alignItems: "flex-start", gap: 14 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
+                <Icon d={icons.building} size={16} color="var(--accent,#e8b84b)" />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--text,#e8e4dc)" }}>{co.name}</p>
+                {co.address
+                  ? <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#666)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{co.address}</p>
+                  : <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#444)", fontStyle: "italic" }}>No billing address</p>
+                }
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => open(co)}><Icon d={icons.edit} size={13} /></button>
+                <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => del(co.id)}><Icon d={icons.trash} size={13} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modal && (
+        <Modal title={editTarget ? "Edit Production Company" : "Add Production Company"} onClose={() => setModal(false)}>
+          <div style={S.col}>
+            <div>
+              <label style={S.label}>Company Name</label>
+              <input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. One More Films" autoFocus />
+            </div>
+            <div>
+              <label style={S.label}>Billing Address</label>
+              <textarea
+                style={{ ...S.input, height: 100, resize: "vertical", lineHeight: 1.5 }}
+                value={form.address}
+                onChange={e => setForm(p => ({ ...p, address: e.target.value }))}
+                placeholder={"e.g. 123 Silom Rd\nBangkok 10500\nThailand"}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button style={S.btn("ghost")} onClick={() => setModal(false)}>Cancel</button>
+              <button style={S.btn("primary")} onClick={save}>{editTarget ? "Save Changes" : "Add Company"}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 // ─── ADMIN THEME SELECTOR ────────────────────────────────────────────────────
 function ThemeSelector({ themeStyle, setThemeStyle, themePalette, setThemePalette }) {
   const [open, setOpen] = useState(false);
@@ -2164,6 +2301,7 @@ function AdminBottomNav({ activePage, setActivePage, unresolvedCount }) {
     { key: "equipment", label: t("navEquipment"), icon: icons.camera },
     { key: "jobs", label: t("navJobs"), icon: icons.calendar },
     { key: "reports", label: t("navReports"), icon: icons.alert },
+    { key: "invoice", label: t("navInvoice"), icon: icons.invoice },
     { key: "settings", label: t("navTeam"), icon: icons.user },
   ];
 
@@ -2219,6 +2357,7 @@ export default function App() {
   const [checkouts, setCheckouts] = useState([]);
   const [employees, setEmployees] = useState(INITIAL_EMPLOYEES);
   const [reports, setReports] = useState([]);
+  const [productionCompanies, setProductionCompanies] = useState([]);
   const [companyName, setCompanyName] = useState("GEAR DESK");
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
@@ -2246,6 +2385,7 @@ export default function App() {
         if (d.checkouts) setCheckouts(d.checkouts);
         if (d.employees) setEmployees(d.employees);
         if (d.reports) setReports(d.reports);
+        if (d.productionCompanies) setProductionCompanies(d.productionCompanies);
         if (d.companyName != null) setCompanyName(d.companyName);
       })
       .catch(() => {})
@@ -2257,11 +2397,11 @@ export default function App() {
     if (!loaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api.putData({ equipment, jobs, checkouts, employees, reports, companyName })
+      api.putData({ equipment, jobs, checkouts, employees, reports, productionCompanies, companyName })
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, companyName, loaded]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, companyName, loaded]);
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
 
@@ -2291,8 +2431,9 @@ export default function App() {
           <main style={{ ...S.main, paddingBottom: 80 }}>
             {activePage === "dashboard" && <DashboardPage jobs={jobs} equipment={equipment} checkouts={checkouts} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
-            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} />}
+            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
+            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} />}
             {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
