@@ -2030,10 +2030,10 @@ export default function App() {
   useEffect(() => {
     api.getData()
       .then(d => {
-        if (d.equipment?.length) setEquipment(d.equipment);
+        if (d.equipment) setEquipment(d.equipment);
         if (d.jobs) setJobs(d.jobs);
         if (d.checkouts) setCheckouts(d.checkouts);
-        if (d.employees?.length) setEmployees(d.employees);
+        if (d.employees) setEmployees(d.employees);
         if (d.reports) setReports(d.reports);
       })
       .catch(() => {})
