@@ -28,7 +28,8 @@ const api = {
   getData: () => fetch("/api/data").then(r => r.ok ? r.json() : {}),
   putData: (body) => fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   getProfile: (empId) => fetch(`/api/profile/${empId}`).then(r => r.ok ? r.json() : null),
-  putProfile: (empId, photo) => fetch(`/api/profile/${empId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ photo }) }),
+  putProfile: (empId, profileObj) => fetch(`/api/profile/${empId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profileObj) }),
+  notify: (body) => fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {}),
 };
 
 // ─── ADMIN THEME SYSTEM ───────────────────────────────────────────────────────
@@ -232,6 +233,11 @@ const LANG = {
     // Nav
     navDashboard: "Dashboard", navEquipment: "Equipment", navJobs: "Job Bookings",
     navTeam: "Team", navReports: "Reports", navInvoice: "Invoice",
+    tabInvoice: "Invoice",
+    personalInfo: "Personal Info", documents: "Documents", legalAddress: "Legal Address",
+    phone: "Phone", email: "Email", lineId: "Line ID", idCard: "ID Card", promptPayQR: "PromptPay / Bank QR",
+    myInvoices: "My Invoices", createInvoice: "Create Invoice", noInvoicesYet: "No invoices yet.",
+    confirmJobs: "Confirmed Jobs", selectJob: "Select a confirmed job to invoice",
     // Employee tabs
     tabToday: "Today", tabSchedule: "Schedule", tabProfile: "Profile", tabReport: "Report",
     // Today tab
@@ -289,6 +295,11 @@ const LANG = {
     // Nav
     navDashboard: "ภาพรวม", navEquipment: "อุปกรณ์", navJobs: "งาน",
     navTeam: "ทีม", navReports: "แจ้งปัญหา", navInvoice: "ใบแจ้งหนี้",
+    tabInvoice: "ใบแจ้งหนี้",
+    personalInfo: "ข้อมูลส่วนตัว", documents: "เอกสาร", legalAddress: "ที่อยู่ตามทะเบียนบ้าน",
+    phone: "โทรศัพท์", email: "อีเมล", lineId: "ไลน์ไอดี", idCard: "บัตรประชาชน", promptPayQR: "พร้อมเพย์ / QR ธนาคาร",
+    myInvoices: "ใบแจ้งหนี้ของฉัน", createInvoice: "สร้างใบแจ้งหนี้", noInvoicesYet: "ยังไม่มีใบแจ้งหนี้",
+    confirmJobs: "งานที่ยืนยันแล้ว", selectJob: "เลือกงานที่ต้องการออกใบแจ้งหนี้",
     // Employee tabs
     tabToday: "วันนี้", tabSchedule: "ตาราง", tabProfile: "โปรไฟล์", tabReport: "แจ้งปัญหา",
     // Today tab
@@ -597,6 +608,178 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
 }
 
 // ─── JOBS PAGE ────────────────────────────────────────────────────────────────
+// ─── INVOICE HELPERS ─────────────────────────────────────────────────────────
+const POSITIONS = ["1st Steadicam Assistant", "2nd Steadicam Assistant", "Remote Head Tech"];
+
+function fmtMoney(v) {
+  const n = parseFloat((v || "").toString().replace(/,/g, "")) || 0;
+  return n > 0 ? n.toLocaleString() : null;
+}
+
+function calcTotal(inv) {
+  return [inv.laborFee, inv.overtime, inv.travelFee, inv.perDiem]
+    .map(v => parseFloat((v || "").toString().replace(/,/g, "")) || 0)
+    .reduce((a, b) => a + b, 0);
+}
+
+function printInvoice({ invoice, employee, profileInfo, promptPayQR, productionCompanies, companyName }) {
+  const prodCo = productionCompanies.find(c => c.name === invoice.productionCompany);
+  const total = calcTotal(invoice);
+  const feeRows = [
+    { label: "Labor Fee", val: invoice.laborFee },
+    { label: "Overtime", val: invoice.overtime },
+    { label: "Travel Fee", val: invoice.travelFee },
+    { label: "Per Diem", val: invoice.perDiem },
+  ].filter(f => fmtMoney(f.val));
+  const dateStr = (invoice.shootDates || [])
+    .map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ");
+  const invDate = new Date(invoice.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
+  const html = `<!DOCTYPE html><html><head><title>${invoice.invoiceNo}</title><style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',Arial,sans-serif;padding:48px;color:#111;font-size:13px}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px}
+    .divider{border-top:2px solid #111;margin-bottom:24px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:28px}
+    .job-box{background:#f8f8f8;border-radius:6px;padding:16px 20px;margin-bottom:24px}
+    .label{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:6px}
+    table{width:100%;border-collapse:collapse}
+    th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:8px 0;border-bottom:1px solid #ddd}
+    td{padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
+    td:last-child,th:last-child{text-align:right}
+    .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:14px;padding-top:12px}
+    .qr{margin-top:24px;padding-top:20px;border-top:1px solid #eee}
+    @media print{body{padding:24px}}
+  </style></head><body>
+  <div class="hdr">
+    <div>
+      <div style="font-size:22px;font-weight:800">${companyName || "GEAR DESK"}</div>
+      <div style="font-size:11px;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-top:4px">Camera Crew Services</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:28px;font-weight:900;letter-spacing:.04em">INVOICE</div>
+      <div style="font-size:12px;color:#555;margin-top:4px">#${invoice.invoiceNo}</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">${invDate}</div>
+    </div>
+  </div>
+  <div class="divider"></div>
+  <div class="grid2">
+    <div>
+      <div class="label">Bill To</div>
+      <div style="font-weight:700;font-size:14px">${invoice.productionCompany || "—"}</div>
+      ${prodCo?.address ? `<div style="font-size:12px;color:#555;white-space:pre-wrap;margin-top:4px;line-height:1.5">${prodCo.address}</div>` : ""}
+    </div>
+    <div>
+      <div class="label">From</div>
+      <div style="font-weight:700;font-size:14px">${employee.name}</div>
+      ${profileInfo?.legalAddress ? `<div style="font-size:12px;color:#555;white-space:pre-wrap;margin-top:4px;line-height:1.5">${profileInfo.legalAddress}</div>` : ""}
+      ${profileInfo?.phone ? `<div style="font-size:12px;color:#555;margin-top:4px">📞 ${profileInfo.phone}</div>` : ""}
+      ${profileInfo?.email ? `<div style="font-size:12px;color:#555;margin-top:2px">✉ ${profileInfo.email}</div>` : ""}
+    </div>
+  </div>
+  <div class="job-box">
+    <div style="font-weight:700;font-size:14px;margin-bottom:4px">${invoice.jobName}</div>
+    <div style="font-size:12px;color:#555">Position: <strong>${invoice.position || "—"}</strong></div>
+    ${dateStr ? `<div style="font-size:12px;color:#555;margin-top:2px">Shoot Dates: ${dateStr}</div>` : ""}
+  </div>
+  <table>
+    <thead><tr><th>Description</th><th>Amount (฿)</th></tr></thead>
+    <tbody>${feeRows.map(f => `<tr><td>${f.label}</td><td>${fmtMoney(f.val)?.toLocaleString?.() ?? fmtMoney(f.val)}</td></tr>`).join("")}</tbody>
+    <tfoot><tr class="total-row"><td>TOTAL</td><td>฿${total.toLocaleString()}</td></tr></tfoot>
+  </table>
+  ${promptPayQR ? `<div class="qr"><div class="label">Payment — PromptPay / QR Code</div><img src="${promptPayQR}" style="width:140px;height:140px;object-fit:contain;border:1px solid #ddd;border-radius:8px;margin-top:10px"/></div>` : ""}
+  <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();}</script>
+  </body></html>`;
+
+  const win = window.open("", "_blank", "width=820,height=1060");
+  if (win) { win.document.write(html); win.document.close(); }
+}
+
+function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose }) {
+  const [form, setForm] = useState({
+    jobName: existingInvoice?.jobName || job?.name || "",
+    productionCompany: existingInvoice?.productionCompany || job?.production || "",
+    shootDates: existingInvoice?.shootDates || job?.dates || [],
+    position: existingInvoice?.position || "",
+    laborFee: existingInvoice?.laborFee || "",
+    overtime: existingInvoice?.overtime || "",
+    travelFee: existingInvoice?.travelFee || "",
+    perDiem: existingInvoice?.perDiem || "",
+  });
+
+  const f = (key) => e => setForm(p => ({ ...p, [key]: e.target.value }));
+  const total = calcTotal(form);
+
+  const save = () => {
+    const now = Date.now();
+    const tag = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const invNo = existingInvoice?.invoiceNo || `INV-${tag}-${employee.id.slice(-4).toUpperCase()}`;
+    onSave({
+      id: existingInvoice?.id || "inv" + now,
+      invoiceNo: invNo,
+      employeeId: employee.id,
+      employeeName: employee.name,
+      jobId: job?.id || existingInvoice?.jobId || "",
+      createdAt: existingInvoice?.createdAt || now,
+      updatedAt: now,
+      ...form,
+    });
+  };
+
+  const dateStr = (form.shootDates || [])
+    .map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ");
+
+  return (
+    <Modal title={existingInvoice ? "Edit Invoice" : "Create Invoice"} onClose={onClose} wide>
+      <div style={S.col}>
+        <div style={{ ...S.card, background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)" }}>
+          <p style={S.sectionTitle}>Job Info</p>
+          <div style={S.col}>
+            <div>
+              <label style={S.label}>Job Name</label>
+              <input style={S.input} value={form.jobName} onChange={f("jobName")} />
+            </div>
+            <div>
+              <label style={S.label}>Production Company</label>
+              <input style={S.input} value={form.productionCompany} onChange={f("productionCompany")} />
+            </div>
+            {dateStr && <p style={{ fontSize: 12, color: "var(--text-muted,#666)", margin: 0 }}>Dates: {dateStr}</p>}
+          </div>
+        </div>
+
+        <div>
+          <label style={S.label}>Position</label>
+          <select style={S.select} value={form.position} onChange={f("position")}>
+            <option value="">Select position…</option>
+            {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {[["laborFee", "Labor Fee (฿)"], ["overtime", "Overtime (฿)"], ["travelFee", "Travel Fee (฿)"], ["perDiem", "Per Diem (฿)"]].map(([key, lbl]) => (
+            <div key={key}>
+              <label style={S.label}>{lbl}</label>
+              <input style={S.input} type="number" min="0" placeholder="0" value={form[key]} onChange={f(key)} />
+            </div>
+          ))}
+        </div>
+
+        {total > 0 && (
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, paddingTop: 12, borderTop: "1px solid var(--divider-color,#252830)" }}>
+            <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>Total</span>
+            <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</span>
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button style={S.btn("ghost")} onClick={onClose}>Cancel</button>
+          <button style={S.btn("primary")} onClick={save}>Save Invoice</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── PRODUCTION COMBOBOX ─────────────────────────────────────────────────────
 function ProductionCombobox({ value, onChange, companies }) {
   const [query, setQuery] = useState(value || "");
@@ -638,7 +821,7 @@ function ProductionCombobox({ value, onChange, companies }) {
   );
 }
 
-function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies }) {
+function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees }) {
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
@@ -665,10 +848,20 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies }) 
 
   const saveJob = () => {
     if (!form.name.trim() || form.dates.length === 0) return;
+    const isNew = !editTarget;
+    const statusChanged = editTarget && editTarget.status !== form.status;
     if (editTarget) {
       setJobs(p => p.map(j => j.id === editTarget.id ? { ...j, ...form } : j));
     } else {
       setJobs(p => [...p, { ...form, id: "job" + Date.now(), assignedEquipment: [] }]);
+    }
+    // Line notification on new job or status change
+    if (isNew || statusChanged) {
+      const emoji = form.status === "Confirmed" ? "✅" : form.status === "Cancelled" ? "❌" : "📋";
+      const dateStr = (form.dates || []).slice(0, 3).map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ") + (form.dates.length > 3 ? "…" : "");
+      const msg = `${emoji} [${form.status}] ${form.name}\nProduction: ${form.production || "—"}\nDates: ${dateStr}\nLocation: ${form.location}`;
+      const lineIds = (employees || []).filter(e => e.lineUserId).map(e => e.lineUserId);
+      if (lineIds.length > 0) api.notify({ userIds: lineIds, message: msg });
     }
     setModal(null);
   };
@@ -1354,41 +1547,63 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, setLang, onLogout }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout }) {
   const t = useT();
   const lang = useContext(LangCtx);
-  const [tab, setTab] = useState("today"); // today | calendar | profile | report
+  const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
   const [showReportModal, setShowReportModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
   const [checkedItems, setCheckedItems] = useState({});
-  const [phase, setPhase] = useState("select"); // select | pick | photo_pick | done_pick | return | photo_return | done_return
+  const [phase, setPhase] = useState("select");
   const [capturePhoto, setCapturePhoto] = useState(null);
   const [captureLocation, setCaptureLocation] = useState(null);
   const [profilePhoto, setProfilePhoto] = useState(null);
+  const [profileInfo, setProfileInfo] = useState({ phone: "", email: "", lineId: "", legalAddress: "" });
+  const [idCard, setIdCard] = useState(null);
+  const [promptPayQR, setPromptPayQR] = useState(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [invoiceModal, setInvoiceModal] = useState(null); // null | { job, existing }
+  const [expandedInv, setExpandedInv] = useState(null);
   const profileFileRef = useRef(null);
+  const idCardRef = useRef(null);
+  const promptPayRef = useRef(null);
   const profileSaveTimer = useRef(null);
 
   const todayStr = today();
   const availableJobs = jobs.filter(j => j.status === "Confirmed" && j.dates.includes(todayStr) && (j.assignedEquipment || []).length > 0);
   const myReports = reports.filter(r => r.reportedBy?.id === employee.id);
 
-  // Load profile photo from cloud
+  // Load full profile from cloud
   useEffect(() => {
-    api.getProfile(employee.id).then(d => d?.photo && setProfilePhoto(d.photo)).catch(() => {});
+    api.getProfile(employee.id).then(d => {
+      if (!d) return;
+      if (d.photo) setProfilePhoto(d.photo);
+      setProfileInfo({ phone: d.phone || "", email: d.email || "", lineId: d.lineId || "", legalAddress: d.legalAddress || "" });
+      if (d.idCard) setIdCard(d.idCard);
+      if (d.promptPayQR) setPromptPayQR(d.promptPayQR);
+    }).catch(() => {}).finally(() => setProfileLoaded(true));
   }, [employee.id]);
 
-  // Save profile photo to cloud (debounced)
+  // Save full profile to cloud (debounced, only after initial load)
   useEffect(() => {
+    if (!profileLoaded) return;
     clearTimeout(profileSaveTimer.current);
     profileSaveTimer.current = setTimeout(() => {
-      api.putProfile(employee.id, profilePhoto || null).catch(() => {});
+      api.putProfile(employee.id, { photo: profilePhoto, ...profileInfo, idCard, promptPayQR }).catch(() => {});
     }, 800);
-  }, [profilePhoto, employee.id]);
+  }, [profilePhoto, profileInfo, idCard, promptPayQR, profileLoaded, employee.id]);
 
   const handleProfileUpload = (e) => {
     const f = e.target.files[0]; if (!f) return;
     const r = new FileReader();
     r.onload = (ev) => setProfilePhoto(ev.target.result);
+    r.readAsDataURL(f);
+  };
+
+  const handleDocUpload = (setter) => (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => setter(ev.target.result);
     r.readAsDataURL(f);
   };
 
@@ -1549,6 +1764,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           { key: "calendar", label: t("tabSchedule"), icon: icons.calendar },
           { key: "profile", label: t("tabProfile"), icon: icons.user },
           { key: "report", label: t("tabReport"), icon: icons.alert },
+          { key: "invoice", label: t("tabInvoice"), icon: icons.invoice },
         ].map(tItem => (
           <button key={tItem.key} onClick={() => setTab(tItem.key)} style={{
             flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px 8px",
@@ -1682,6 +1898,62 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               )}
             </div>
 
+            {/* Personal Information */}
+            <div style={S.card}>
+              <p style={S.sectionTitle}>{t("personalInfo")}</p>
+              <div style={S.col}>
+                {[
+                  { key: "phone", label: t("phone"), type: "tel", placeholder: "+66 81 234 5678" },
+                  { key: "email", label: t("email"), type: "email", placeholder: "you@email.com" },
+                  { key: "lineId", label: t("lineId"), type: "text", placeholder: "@yourlineid" },
+                ].map(f => (
+                  <div key={f.key}>
+                    <label style={S.label}>{f.label}</label>
+                    <input style={S.input} type={f.type} placeholder={f.placeholder} value={profileInfo[f.key]}
+                      onChange={e => setProfileInfo(p => ({ ...p, [f.key]: e.target.value }))} />
+                  </div>
+                ))}
+                <div>
+                  <label style={S.label}>{t("legalAddress")}</label>
+                  <textarea style={{ ...S.input, height: 80, resize: "vertical", lineHeight: 1.5 }}
+                    placeholder={"123 Moo 4\nBangkok 10400"}
+                    value={profileInfo.legalAddress}
+                    onChange={e => setProfileInfo(p => ({ ...p, legalAddress: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+
+            {/* Documents */}
+            <div style={S.card}>
+              <p style={S.sectionTitle}>{t("documents")}</p>
+              <div style={S.col}>
+                {/* ID Card */}
+                <div>
+                  <label style={S.label}>{t("idCard")}</label>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    {idCard && <img src={idCard} alt="ID" style={{ width: 100, height: 66, objectFit: "cover", borderRadius: 6, border: "1px solid #2e3340" }} />}
+                    <input ref={idCardRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDocUpload(setIdCard)} />
+                    <button style={S.btn("ghost")} onClick={() => idCardRef.current.click()}>
+                      <Icon d={icons.photo} size={14} /> {idCard ? "Replace" : "Upload"}
+                    </button>
+                    {idCard && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setIdCard(null)}><Icon d={icons.x} size={13} /></button>}
+                  </div>
+                </div>
+                {/* PromptPay / Bank QR */}
+                <div>
+                  <label style={S.label}>{t("promptPayQR")}</label>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    {promptPayQR && <img src={promptPayQR} alt="QR" style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff" }} />}
+                    <input ref={promptPayRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDocUpload(setPromptPayQR)} />
+                    <button style={S.btn("ghost")} onClick={() => promptPayRef.current.click()}>
+                      <Icon d={icons.photo} size={14} /> {promptPayQR ? "Replace" : "Upload"}
+                    </button>
+                    {promptPayQR && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setPromptPayQR(null)}><Icon d={icons.x} size={13} /></button>}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* My recent activity */}
             <div style={S.card}>
               <p style={S.sectionTitle}>{t("recentActivity")}</p>
@@ -1702,6 +1974,116 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             </div>
           </div>
         )}
+
+        {/* INVOICE TAB */}
+        {tab === "invoice" && (() => {
+          const confirmedJobs = jobs.filter(j => j.status === "Confirmed").sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1);
+          const myInvoices = invoices.filter(inv => inv.employeeId === employee.id).sort((a, b) => b.updatedAt - a.updatedAt);
+
+          const saveInvoice = (inv) => {
+            setInvoices(p => {
+              const idx = p.findIndex(i => i.id === inv.id);
+              return idx >= 0 ? p.map(i => i.id === inv.id ? inv : i) : [...p, inv];
+            });
+            setInvoiceModal(null);
+          };
+
+          const delInvoice = (id) => {
+            if (window.confirm("Delete this invoice?")) setInvoices(p => p.filter(i => i.id !== id));
+          };
+
+          return (
+            <div style={S.col}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("myInvoices")}</h1>
+                  <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{t("selectJob")}</p>
+                </div>
+              </div>
+
+              {/* Confirmed jobs to invoice */}
+              <div style={S.card}>
+                <p style={S.sectionTitle}>{t("confirmJobs")}</p>
+                {confirmedJobs.length === 0
+                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#666)" }}>No confirmed jobs.</p>
+                  : confirmedJobs.map(job => {
+                    const hasInvoice = myInvoices.some(inv => inv.jobId === job.id);
+                    return (
+                      <div key={job.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--divider-color,#1e2030)" }}>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{job.name}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{job.production} · {(job.dates || []).slice(0, 2).map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ")}</p>
+                        </div>
+                        {hasInvoice
+                          ? <span style={S.badge("green")}>✓ Invoiced</span>
+                          : <button style={{ ...S.btn("primary"), padding: "5px 10px", fontSize: 11 }} onClick={() => setInvoiceModal({ job, existing: null })}>
+                              <Icon d={icons.invoice} size={13} /> {t("createInvoice")}
+                            </button>
+                        }
+                      </div>
+                    );
+                  })
+                }
+              </div>
+
+              {/* My saved invoices */}
+              {myInvoices.length > 0 && (
+                <div style={S.col}>
+                  {myInvoices.map(inv => {
+                    const total = calcTotal(inv);
+                    const isExpanded = expandedInv === inv.id;
+                    return (
+                      <div key={inv.id} style={S.card}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }} onClick={() => setExpandedInv(isExpanded ? null : inv.id)}>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{inv.invoiceNo}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 14, fontWeight: 700 }}>{inv.jobName}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.position || "—"} · ฿{total.toLocaleString()}</p>
+                          </div>
+                          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s", opacity: 0.5 }}><path d="M9 18l6-6-6-6" /></svg>
+                        </div>
+                        {isExpanded && (
+                          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--divider-color,#252830)" }}>
+                            {[["Labor Fee", inv.laborFee], ["Overtime", inv.overtime], ["Travel Fee", inv.travelFee], ["Per Diem", inv.perDiem]].filter(([, v]) => fmtMoney(v)).map(([label, val]) => (
+                              <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
+                                <span style={{ color: "var(--text-muted,#888)" }}>{label}</span>
+                                <span>฿{fmtMoney(val)}</span>
+                              </div>
+                            ))}
+                            {total > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--divider-color,#252830)" }}>
+                              <span>Total</span><span style={{ color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</span>
+                            </div>}
+                            <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+                              <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => setInvoiceModal({ job: null, existing: inv })}>
+                                <Icon d={icons.edit} size={13} /> Edit
+                              </button>
+                              <button style={{ ...S.btn("primary"), fontSize: 12, padding: "6px 10px" }} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, productionCompanies, companyName })}>
+                                🖨 Print
+                              </button>
+                              <button style={{ ...S.btn("danger"), fontSize: 12, padding: "6px 10px" }} onClick={() => delInvoice(inv.id)}>
+                                <Icon d={icons.trash} size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {invoiceModal && (
+                <InvoiceCreateModal
+                  job={invoiceModal.job}
+                  existingInvoice={invoiceModal.existing}
+                  employee={employee}
+                  onSave={saveInvoice}
+                  onClose={() => setInvoiceModal(null)}
+                />
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -2060,6 +2442,15 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName }) 
                     {showPin[e.id] ? "hide" : "show"}
                   </button>
                 </p>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <span style={{ fontSize: 10, color: "#555", flexShrink: 0 }}>LINE ID:</span>
+                  <input
+                    style={{ ...S.input, fontSize: 11, padding: "3px 8px", height: "auto" }}
+                    value={e.lineUserId || ""}
+                    placeholder="Uxxxxxxxxxx…"
+                    onChange={ev => setEmployees(p => p.map(emp => emp.id === e.id ? { ...emp, lineUserId: ev.target.value } : emp))}
+                  />
+                </div>
               </div>
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                 <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openEdit(e)}><Icon d={icons.edit} size={13} /></button>
@@ -2068,6 +2459,23 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName }) 
             </div>
           ))}
         </div>
+      </div>
+
+      <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>Line OA Notifications</p>
+        <p style={{ fontSize: 13, color: "var(--text-muted,#666)", marginBottom: 12 }}>
+          When a job is created or status changes, team members with a Line User ID (above) are notified automatically via your Line Official Account.
+        </p>
+        <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.7 }}>
+          <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>Setup (one-time):</strong>
+          1. Go to <strong>developers.line.biz</strong> → Create a Messaging API channel<br />
+          2. Copy the <strong>Channel access token (long-lived)</strong><br />
+          3. In Cloudflare Pages → Settings → Environment variables, add:<br />
+          <code style={{ background: "rgba(232,184,75,0.1)", color: "var(--accent,#e8b84b)", padding: "1px 6px", borderRadius: 4, display: "inline-block", margin: "4px 0" }}>LINE_CHANNEL_ACCESS_TOKEN = &lt;your token&gt;</code><br />
+          4. Have each team member add your OA as a friend (scan QR in OA Manager)<br />
+          5. Get their <strong>Line User ID</strong> from OA Manager → Chat → User details (starts with "U…"), then enter it above
+        </div>
+        <p style={{ fontSize: 11, color: "var(--text-muted,#555)", marginTop: 10 }}>Free tier: 200 messages/month. Each job notification counts as 1 message per team member.</p>
       </div>
 
       <div style={S.card}>
@@ -2101,7 +2509,8 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName }) 
 }
 
 // ─── INVOICE PAGE ─────────────────────────────────────────────────────────────
-function InvoicePage({ productionCompanies, setProductionCompanies }) {
+function InvoicePage({ productionCompanies, setProductionCompanies, invoices, employees }) {
+  const [activeTab, setActiveTab] = useState("companies");
   const [modal, setModal] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", address: "" });
@@ -2128,41 +2537,85 @@ function InvoicePage({ productionCompanies, setProductionCompanies }) {
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <div>
           <h1 style={S.pageTitle}>Invoice</h1>
-          <p style={S.pageSubtitle}>Production companies & billing addresses</p>
+          <p style={S.pageSubtitle}>Production companies & team invoices</p>
         </div>
-        <button style={S.btn("primary")} onClick={() => open()}><Icon d={icons.plus} size={15} /> Add Company</button>
+        {activeTab === "companies" && <button style={S.btn("primary")} onClick={() => open()}><Icon d={icons.plus} size={15} /> Add Company</button>}
       </div>
 
-      {productionCompanies.length === 0 ? (
-        <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
-          <Icon d={icons.building} size={36} color="var(--text-muted,#444)" />
-          <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No production companies yet.</p>
-          <p style={{ color: "var(--text-muted,#555)", fontSize: 12, marginTop: 4 }}>Add one here — it will appear as a suggestion when creating jobs.</p>
-        </div>
-      ) : (
-        <div style={S.col}>
-          {productionCompanies.map(co => (
-            <div key={co.id} style={{ ...S.card, display: "flex", alignItems: "flex-start", gap: 14 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
-                <Icon d={icons.building} size={16} color="var(--accent,#e8b84b)" />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--text,#e8e4dc)" }}>{co.name}</p>
-                {co.address
-                  ? <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#666)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{co.address}</p>
-                  : <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#444)", fontStyle: "italic" }}>No billing address</p>
-                }
-              </div>
-              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => open(co)}><Icon d={icons.edit} size={13} /></button>
-                <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => del(co.id)}><Icon d={icons.trash} size={13} /></button>
-              </div>
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+        {[["companies", "🏢 Companies"], ["invoices", `📄 All Invoices${invoices.length ? " (" + invoices.length + ")" : ""}`]].map(([key, lbl]) => (
+          <button key={key} style={{ ...S.btn(activeTab === key ? "primary" : "ghost"), fontSize: 12, padding: "7px 14px" }} onClick={() => setActiveTab(key)}>{lbl}</button>
+        ))}
+      </div>
+
+      {/* Companies tab */}
+      {activeTab === "companies" && (
+        <>
+          {productionCompanies.length === 0 ? (
+            <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
+              <Icon d={icons.building} size={36} color="var(--text-muted,#444)" />
+              <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No production companies yet.</p>
+              <p style={{ color: "var(--text-muted,#555)", fontSize: 12, marginTop: 4 }}>Add one — it will appear as a suggestion when creating jobs.</p>
             </div>
-          ))}
-        </div>
+          ) : (
+            <div style={S.col}>
+              {productionCompanies.map(co => (
+                <div key={co.id} style={{ ...S.card, display: "flex", alignItems: "flex-start", gap: 14 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
+                    <Icon d={icons.building} size={16} color="var(--accent,#e8b84b)" />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--text,#e8e4dc)" }}>{co.name}</p>
+                    {co.address ? <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#666)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{co.address}</p>
+                      : <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#444)", fontStyle: "italic" }}>No billing address</p>}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => open(co)}><Icon d={icons.edit} size={13} /></button>
+                    <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => del(co.id)}><Icon d={icons.trash} size={13} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* All Invoices tab */}
+      {activeTab === "invoices" && (
+        <>
+          {invoices.length === 0 ? (
+            <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
+              <Icon d={icons.invoice} size={36} color="var(--text-muted,#444)" />
+              <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No invoices submitted yet.</p>
+            </div>
+          ) : (
+            <div style={S.col}>
+              {[...invoices].sort((a, b) => b.updatedAt - a.updatedAt).map(inv => {
+                const total = calcTotal(inv);
+                return (
+                  <div key={inv.id} style={S.card}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{inv.invoiceNo}</p>
+                        <p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 14 }}>{inv.jobName}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.employeeName} · {inv.position || "—"}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.productionCompany}</p>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</p>
+                        <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{new Date(inv.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
 
       {modal && (
@@ -2174,12 +2627,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies }) {
             </div>
             <div>
               <label style={S.label}>Billing Address</label>
-              <textarea
-                style={{ ...S.input, height: 100, resize: "vertical", lineHeight: 1.5 }}
-                value={form.address}
-                onChange={e => setForm(p => ({ ...p, address: e.target.value }))}
-                placeholder={"e.g. 123 Silom Rd\nBangkok 10500\nThailand"}
-              />
+              <textarea style={{ ...S.input, height: 100, resize: "vertical", lineHeight: 1.5 }} value={form.address} onChange={e => setForm(p => ({ ...p, address: e.target.value }))} placeholder={"e.g. 123 Silom Rd\nBangkok 10500\nThailand"} />
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button style={S.btn("ghost")} onClick={() => setModal(false)}>Cancel</button>
@@ -2358,6 +2806,7 @@ export default function App() {
   const [employees, setEmployees] = useState(INITIAL_EMPLOYEES);
   const [reports, setReports] = useState([]);
   const [productionCompanies, setProductionCompanies] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [companyName, setCompanyName] = useState("GEAR DESK");
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
@@ -2386,6 +2835,7 @@ export default function App() {
         if (d.employees) setEmployees(d.employees);
         if (d.reports) setReports(d.reports);
         if (d.productionCompanies) setProductionCompanies(d.productionCompanies);
+        if (d.invoices) setInvoices(d.invoices);
         if (d.companyName != null) setCompanyName(d.companyName);
       })
       .catch(() => {})
@@ -2397,11 +2847,11 @@ export default function App() {
     if (!loaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api.putData({ equipment, jobs, checkouts, employees, reports, productionCompanies, companyName })
+      api.putData({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName })
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, companyName, loaded]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, loaded]);
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
 
@@ -2415,7 +2865,7 @@ export default function App() {
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} setLang={setLang} onLogout={() => setUser(null)} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} />
       ) : (
         <div id="admin-layout" style={S.app}>
           <AdminTopBar
@@ -2431,9 +2881,9 @@ export default function App() {
           <main style={{ ...S.main, paddingBottom: 80 }}>
             {activePage === "dashboard" && <DashboardPage jobs={jobs} equipment={equipment} checkouts={checkouts} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
-            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} />}
+            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
-            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} />}
+            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} employees={employees} />}
             {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />

@@ -9,16 +9,17 @@ export async function onRequestOptions() {
 }
 
 export async function onRequestGet({ env }) {
-  const [equipment, jobs, checkouts, employees, reports, productionCompanies, companyName] = await Promise.all([
+  const [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName] = await Promise.all([
     env.KV.get("equipment", "json"),
     env.KV.get("jobs", "json"),
     env.KV.get("checkouts", "json"),
     env.KV.get("employees", "json"),
     env.KV.get("reports", "json"),
     env.KV.get("productionCompanies", "json"),
+    env.KV.get("invoices", "json"),
     env.KV.get("companyName", "json"),
   ]);
-  return Response.json({ equipment, jobs, checkouts, employees, reports, productionCompanies, companyName }, { headers: CORS });
+  return Response.json({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName }, { headers: CORS });
 }
 
 export async function onRequestPut({ request, env }) {
@@ -36,6 +37,8 @@ export async function onRequestPut({ request, env }) {
     ops.push(env.KV.put("reports", JSON.stringify(body.reports)));
   if (body.productionCompanies !== undefined)
     ops.push(env.KV.put("productionCompanies", JSON.stringify(body.productionCompanies)));
+  if (body.invoices !== undefined)
+    ops.push(env.KV.put("invoices", JSON.stringify(body.invoices)));
   if (body.companyName !== undefined)
     ops.push(env.KV.put("companyName", JSON.stringify(body.companyName)));
   await Promise.all(ops);

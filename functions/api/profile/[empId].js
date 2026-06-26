@@ -9,17 +9,19 @@ export async function onRequestOptions() {
 }
 
 export async function onRequestGet({ env, params }) {
-  const photo = await env.KV.get(`profile_${params.empId}`);
-  if (!photo) return new Response(null, { status: 404, headers: CORS });
-  return Response.json({ photo }, { headers: CORS });
+  const raw = await env.KV.get(`profile_${params.empId}`);
+  if (!raw) return new Response(null, { status: 404, headers: CORS });
+  try {
+    const parsed = JSON.parse(raw);
+    return Response.json(parsed, { headers: CORS });
+  } catch {
+    // Legacy: raw value was just the photo base64 string
+    return Response.json({ photo: raw }, { headers: CORS });
+  }
 }
 
 export async function onRequestPut({ request, env, params }) {
-  const { photo } = await request.json();
-  if (photo) {
-    await env.KV.put(`profile_${params.empId}`, photo);
-  } else {
-    await env.KV.delete(`profile_${params.empId}`);
-  }
+  const body = await request.json();
+  await env.KV.put(`profile_${params.empId}`, JSON.stringify(body));
   return Response.json({ ok: true }, { headers: CORS });
 }
