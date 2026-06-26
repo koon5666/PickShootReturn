@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const ADMIN_PIN = "1234";
-const EMPLOYEES = [
+const INITIAL_EMPLOYEES = [
   { id: "e1", name: "Somchai", pin: "1111" },
   { id: "e2", name: "Nong", pin: "2222" },
   { id: "e3", name: "Arthit", pin: "3333" },
@@ -218,17 +218,31 @@ function calcAvailable(equipment, jobs, checkouts, targetDate) {
 }
 
 // ─── EQUIPMENT PAGE ───────────────────────────────────────────────────────────
+const EQ_SORT_OPTIONS = [
+  { key: "name_az", label: "Name A→Z" },
+  { key: "name_za", label: "Name Z→A" },
+  { key: "cat",     label: "Category" },
+  { key: "qty_lo",  label: "Qty ↑" },
+  { key: "qty_hi",  label: "Qty ↓" },
+  { key: "latest",  label: "Latest Used" },
+  { key: "most",    label: "Most Used" },
+];
+
 function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
-  const [modal, setModal] = useState(null); // null | 'add' | 'edit' | 'history'
+  const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", category: "", total: 1, notes: "", photo: null });
+  const [newCatInput, setNewCatInput] = useState("");
   const [histTarget, setHistTarget] = useState(null);
+  const [sortBy, setSortBy] = useState("name_az");
+  const [filterCat, setFilterCat] = useState(null);
   const fileRef = useRef(null);
 
   const availableList = calcAvailable(equipment, jobs, checkouts, today());
+  const existingCategories = [...new Set(equipment.map(e => e.category).filter(Boolean))].sort();
 
-  const openAdd = () => { setForm({ name: "", category: "", total: 1, notes: "", photo: null }); setModal("add"); };
-  const openEdit = (eq) => { setEditTarget(eq); setForm({ ...eq }); setModal("edit"); };
+  const openAdd = () => { setForm({ name: "", category: "", total: 1, notes: "", photo: null }); setNewCatInput(""); setModal("add"); };
+  const openEdit = (eq) => { setEditTarget(eq); setForm({ ...eq }); setNewCatInput(""); setModal("edit"); };
   const openHistory = (eq) => { setHistTarget(eq); setModal("history"); };
 
   const handlePhoto = (e) => {
@@ -238,77 +252,149 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
 
   const save = () => {
     if (!form.name.trim()) return;
+    const cat = form.category === "__new__" ? newCatInput.trim() : form.category;
+    if (!cat) return;
+    const saved = { ...form, category: cat, total: +form.total };
     if (modal === "add") {
-      setEquipment(p => [...p, { ...form, id: "eq" + Date.now(), total: +form.total }]);
+      setEquipment(p => [...p, { ...saved, id: "eq" + Date.now() }]);
     } else {
-      setEquipment(p => p.map(e => e.id === editTarget.id ? { ...e, ...form, total: +form.total } : e));
+      setEquipment(p => p.map(e => e.id === editTarget.id ? { ...e, ...saved } : e));
     }
     setModal(null);
   };
 
   const del = (id) => { if (window.confirm("Delete this equipment?")) setEquipment(p => p.filter(e => e.id !== id)); };
 
-  const getHistory = (eqId) => {
-    return checkouts.filter(c => c.eqId === eqId).sort((a, b) => b.ts - a.ts).slice(0, 20);
-  };
+  const getHistory = (eqId) => checkouts.filter(c => c.eqId === eqId).sort((a, b) => b.ts - a.ts).slice(0, 20);
 
   const AvStatus = ({ av }) => {
-    if (av.available === 0) return <span style={S.badge("red")}>Unavailable</span>;
-    if (av.available < av.total) return <span style={S.badge("amber")}>{av.available}/{av.total} Available</span>;
-    return <span style={S.badge("green")}>{av.available}/{av.total} Available</span>;
+    if (av.available === 0) return <span style={{ ...S.badge("red"), fontSize: 10 }}>Unavail.</span>;
+    if (av.available < av.total) return <span style={{ ...S.badge("amber"), fontSize: 10 }}>{av.available}/{av.total}</span>;
+    return <span style={{ ...S.badge("green"), fontSize: 10 }}>{av.available}/{av.total}</span>;
   };
+
+  // Sort + filter
+  const filtered = filterCat ? availableList.filter(e => e.category === filterCat) : availableList;
+  const sortedList = [...filtered].sort((a, b) => {
+    switch (sortBy) {
+      case "name_az": return a.name.localeCompare(b.name);
+      case "name_za": return b.name.localeCompare(a.name);
+      case "cat":     return (a.category || "").localeCompare(b.category || "") || a.name.localeCompare(b.name);
+      case "qty_lo":  return a.total - b.total || a.name.localeCompare(b.name);
+      case "qty_hi":  return b.total - a.total || a.name.localeCompare(b.name);
+      case "latest": {
+        const aTs = Math.max(0, ...checkouts.filter(c => c.eqId === a.id).map(c => c.ts), 0);
+        const bTs = Math.max(0, ...checkouts.filter(c => c.eqId === b.id).map(c => c.ts), 0);
+        return bTs - aTs;
+      }
+      case "most": {
+        const aC = checkouts.filter(c => c.eqId === a.id).length;
+        const bC = checkouts.filter(c => c.eqId === b.id).length;
+        return bC - aC || a.name.localeCompare(b.name);
+      }
+      default: return 0;
+    }
+  });
+
+  // Build category-grouped view when sortBy === "cat"
+  const renderGrid = (items) => (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+      {items.map(eq => (
+        <div key={eq.id} style={{ ...S.card, padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {/* Square photo */}
+          <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", overflow: "hidden", background: "#0f1117", flexShrink: 0 }}>
+            {eq.photo
+              ? <img src={eq.photo} alt={eq.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <Icon d={icons.camera} size={36} color="#252830" />
+                </div>
+            }
+            <div style={{ position: "absolute", top: 5, left: 5 }}><AvStatus av={eq} /></div>
+          </div>
+          {/* Info */}
+          <div style={{ padding: "8px 10px 8px", flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
+            <span style={S.tag}>{eq.category}</span>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: 12, lineHeight: 1.3, color: "#e8e4dc" }}>{eq.name}</p>
+            {eq.notes && <p style={{ margin: 0, fontSize: 10, color: "#555", lineHeight: 1.3 }}>{eq.notes}</p>}
+            <div style={{ marginTop: 3 }}><AvailBar available={eq.available} total={eq.total} /></div>
+            <div style={{ display: "flex", gap: 3, marginTop: 5, justifyContent: "flex-end" }}>
+              <button style={{ ...S.btn("ghost"), padding: "3px 6px" }} onClick={() => openHistory(eq)}><Icon d={icons.history} size={11} /></button>
+              <button style={{ ...S.btn("ghost"), padding: "3px 6px" }} onClick={() => openEdit(eq)}><Icon d={icons.edit} size={11} /></button>
+              <button style={{ ...S.btn("danger"), padding: "3px 6px" }} onClick={() => del(eq.id)}><Icon d={icons.trash} size={11} /></button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
           <h1 style={S.pageTitle}>Equipment Library</h1>
-          <p style={S.pageSubtitle}>{equipment.length} items · {availableList.filter(e => e.available > 0).length} types available today</p>
+          <p style={S.pageSubtitle}>{equipment.length} items · {availableList.filter(e => e.available > 0).length} available today</p>
         </div>
-        <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> Add Equipment</button>
+        <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> Add</button>
       </div>
 
-      <div style={S.cardGrid}>
-        {availableList.map(eq => (
-          <div key={eq.id} style={{ ...S.card, display: "flex", flexDirection: "column", gap: 12 }}>
-            {eq.photo ? (
-              <img src={eq.photo} alt={eq.name} style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 7, marginBottom: 4 }} />
-            ) : (
-              <div style={{ width: "100%", height: 100, background: "#0f1117", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
-                <Icon d={icons.camera} size={32} color="#2e3340" />
-              </div>
-            )}
-            <div>
-              <span style={S.tag}>{eq.category}</span>
-              <h3 style={{ margin: "6px 0 4px", fontSize: 15, fontWeight: 700 }}>{eq.name}</h3>
-              {eq.notes && <p style={{ fontSize: 12, color: "#666", margin: 0 }}>{eq.notes}</p>}
-            </div>
-            <AvailBar available={eq.available} total={eq.total} />
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <AvStatus av={eq} />
-              <div style={{ display: "flex", gap: 6 }}>
-                <button style={{ ...S.btn("ghost"), padding: "5px 8px" }} onClick={() => openHistory(eq)}><Icon d={icons.history} size={14} /></button>
-                <button style={{ ...S.btn("ghost"), padding: "5px 8px" }} onClick={() => openEdit(eq)}><Icon d={icons.edit} size={14} /></button>
-                <button style={{ ...S.btn("danger"), padding: "5px 8px" }} onClick={() => del(eq.id)}><Icon d={icons.trash} size={14} /></button>
-              </div>
-            </div>
-          </div>
+      {/* Category filter chips */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        <button onClick={() => setFilterCat(null)} style={{ ...S.badge(filterCat === null ? "amber" : "gray"), cursor: "pointer", border: "none", padding: "4px 10px" }}>All</button>
+        {existingCategories.map(c => (
+          <button key={c} onClick={() => setFilterCat(filterCat === c ? null : c)} style={{ ...S.badge(filterCat === c ? "amber" : "gray"), cursor: "pointer", border: "none", padding: "4px 10px" }}>{c}</button>
         ))}
       </div>
+
+      {/* Sort bar */}
+      <div style={{ display: "flex", gap: 5, overflowX: "auto", marginBottom: 14, paddingBottom: 2 }}>
+        {EQ_SORT_OPTIONS.map(s => (
+          <button key={s.key} onClick={() => setSortBy(s.key)} style={{ ...S.btn(sortBy === s.key ? "primary" : "ghost"), padding: "5px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>{s.label}</button>
+        ))}
+      </div>
+
+      {/* Grid — grouped by category when cat sort is active */}
+      {sortBy === "cat"
+        ? existingCategories.filter(cat => !filterCat || cat === filterCat).map(cat => {
+            const items = sortedList.filter(e => e.category === cat);
+            if (!items.length) return null;
+            return (
+              <div key={cat} style={{ marginBottom: 20 }}>
+                <p style={{ ...S.sectionTitle, marginBottom: 10 }}>{cat}</p>
+                {renderGrid(items)}
+              </div>
+            );
+          })
+        : renderGrid(sortedList)
+      }
 
       {/* Add/Edit Modal */}
       {(modal === "add" || modal === "edit") && (
         <Modal title={modal === "add" ? "Add Equipment" : "Edit Equipment"} onClose={() => setModal(null)}>
           <div style={S.col}>
             <div><label style={S.label}>Item Name</label><input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. ARRI Alexa Mini LF" /></div>
-            <div><label style={S.label}>Category</label><input style={S.input} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} placeholder="e.g. Camera, Lens, Power…" /></div>
+            <div>
+              <label style={S.label}>Category</label>
+              {form.category === "__new__" ? (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input style={{ ...S.input, flex: 1 }} value={newCatInput} onChange={e => setNewCatInput(e.target.value)} placeholder="New category name…" autoFocus />
+                  <button style={{ ...S.btn("ghost"), padding: "8px 10px", flexShrink: 0 }} onClick={() => setForm(p => ({ ...p, category: "" }))}>✕</button>
+                </div>
+              ) : (
+                <select style={S.select} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
+                  <option value="">— Select category —</option>
+                  {existingCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                  <option value="__new__">＋ Add new category…</option>
+                </select>
+              )}
+            </div>
             <div><label style={S.label}>Total Units Owned</label><input style={S.input} type="number" min={1} value={form.total} onChange={e => setForm(p => ({ ...p, total: e.target.value }))} /></div>
             <div><label style={S.label}>Notes</label><input style={S.input} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" /></div>
             <div>
               <label style={S.label}>Photo</label>
               <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handlePhoto} />
               <button style={S.btn("ghost")} onClick={() => fileRef.current.click()}><Icon d={icons.photo} size={14} /> {form.photo ? "Change Photo" : "Upload Photo"}</button>
-              {form.photo && <img src={form.photo} alt="preview" style={{ width: 80, height: 60, objectFit: "cover", borderRadius: 6, marginTop: 8 }} />}
+              {form.photo && <img src={form.photo} alt="preview" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 6, marginTop: 8 }} />}
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
               <button style={S.btn("ghost")} onClick={() => setModal(null)}>Cancel</button>
@@ -1365,7 +1451,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, onLo
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
-function Login({ onLogin }) {
+function Login({ onLogin, employees }) {
   const [mode, setMode] = useState("choose"); // choose | admin | employee
   const [pin, setPin] = useState("");
   const [selectedEmp, setSelectedEmp] = useState(null);
@@ -1376,7 +1462,7 @@ function Login({ onLogin }) {
       if (pin === ADMIN_PIN) { onLogin({ role: "admin" }); }
       else { setError("Incorrect PIN."); setPin(""); }
     } else if (mode === "employee" && selectedEmp) {
-      const emp = EMPLOYEES.find(e => e.id === selectedEmp);
+      const emp = employees.find(e => e.id === selectedEmp);
       if (pin === emp.pin) { onLogin({ role: "employee", ...emp }); }
       else { setError("Incorrect PIN."); setPin(""); }
     }
@@ -1408,7 +1494,7 @@ function Login({ onLogin }) {
           <div style={{ marginBottom: 20 }}>
             <label style={S.label}>Select Employee</label>
             <div style={S.col}>
-              {EMPLOYEES.map(e => (
+              {employees.map(e => (
                 <div key={e.id} onClick={() => setSelectedEmp(e.id)} style={{ ...S.card, background: selectedEmp === e.id ? "rgba(232,184,75,0.1)" : "#1a1e27", borderColor: selectedEmp === e.id ? "#e8b84b" : "#252830", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, padding: 12 }}>
                   <Icon d={icons.user} size={16} color={selectedEmp === e.id ? "#e8b84b" : "#666"} />
                   <span style={{ fontWeight: 600, color: selectedEmp === e.id ? "#e8b84b" : "#e8e4dc" }}>{e.name}</span>
@@ -1437,41 +1523,111 @@ function Login({ onLogin }) {
         <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", padding: "12px" }} onClick={tryLogin} disabled={mode === "employee" && !selectedEmp}>
           Unlock
         </button>
-        <p style={{ fontSize: 11, color: "#444", textAlign: "center", marginTop: 16 }}>Demo: Admin PIN = 1234 · Employee PINs = 1111, 2222, 3333</p>
+        <p style={{ fontSize: 11, color: "#444", textAlign: "center", marginTop: 16 }}>Admin PIN: {ADMIN_PIN}</p>
       </div>
     </div>
   );
 }
 
 // ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage() {
+function SettingsPage({ employees, setEmployees }) {
+  const [modal, setModal] = useState(null); // null | "add" | "edit"
+  const [editTarget, setEditTarget] = useState(null);
+  const [form, setForm] = useState({ name: "", pin: "" });
+  const [formErr, setFormErr] = useState("");
+  const [showPin, setShowPin] = useState({});
+
+  const openAdd = () => { setForm({ name: "", pin: "" }); setEditTarget(null); setFormErr(""); setModal("add"); };
+  const openEdit = (emp) => { setForm({ name: emp.name, pin: emp.pin }); setEditTarget(emp); setFormErr(""); setModal("edit"); };
+
+  const validate = () => {
+    if (!form.name.trim()) return "Name is required.";
+    if (!form.pin.trim()) return "PIN is required.";
+    if (!/^\d{4,6}$/.test(form.pin)) return "PIN must be 4–6 digits.";
+    return null;
+  };
+
+  const saveEmployee = () => {
+    const err = validate();
+    if (err) { setFormErr(err); return; }
+    if (modal === "add") {
+      setEmployees(p => [...p, { id: "e" + Date.now(), name: form.name.trim(), pin: form.pin }]);
+    } else {
+      setEmployees(p => p.map(e => e.id === editTarget.id ? { ...e, name: form.name.trim(), pin: form.pin } : e));
+    }
+    setModal(null);
+  };
+
+  const delEmployee = (id) => {
+    if (window.confirm("Remove this team member?")) setEmployees(p => p.filter(e => e.id !== id));
+  };
+
   return (
     <div>
-      <h1 style={S.pageTitle}>Team & Settings</h1>
-      <p style={S.pageSubtitle}>Employee access and system configuration</p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+        <div>
+          <h1 style={S.pageTitle}>Team & Settings</h1>
+          <p style={S.pageSubtitle}>Manage crew access</p>
+        </div>
+        <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> Add Member</button>
+      </div>
+
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>Team Members</p>
+        <p style={S.sectionTitle}>Team Members ({employees.length})</p>
         <div style={S.col}>
-          {EMPLOYEES.map(e => (
-            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #252830" }}>
-              <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon d={icons.user} size={16} color="#e8b84b" />
+          {employees.length === 0 && <p style={{ fontSize: 13, color: "#666" }}>No team members yet.</p>}
+          {employees.map((e, i) => (
+            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: i < employees.length - 1 ? 14 : 0, marginBottom: i < employees.length - 1 ? 14 : 0, borderBottom: i < employees.length - 1 ? "1px solid #252830" : "none" }}>
+              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Icon d={icons.user} size={17} color="#e8b84b" />
               </div>
-              <div>
-                <p style={{ margin: 0, fontWeight: 600 }}>{e.name}</p>
-                <p style={{ margin: 0, fontSize: 12, color: "#666" }}>PIN: {e.pin} · Employee</p>
+              <div style={{ flex: 1 }}>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{e.name}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666", display: "flex", alignItems: "center", gap: 6 }}>
+                  PIN:&nbsp;
+                  <span style={{ fontFamily: "monospace", letterSpacing: 2 }}>
+                    {showPin[e.id] ? e.pin : "•".repeat(e.pin.length)}
+                  </span>
+                  <button onClick={() => setShowPin(p => ({ ...p, [e.id]: !p[e.id] }))} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 11, padding: 0 }}>
+                    {showPin[e.id] ? "hide" : "show"}
+                  </button>
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openEdit(e)}><Icon d={icons.edit} size={13} /></button>
+                <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => delEmployee(e.id)}><Icon d={icons.trash} size={13} /></button>
               </div>
             </div>
           ))}
         </div>
-        <p style={{ fontSize: 12, color: "#666", marginTop: 16 }}>To add/modify employees, update the EMPLOYEES constant in the source code.</p>
       </div>
+
       <div style={S.card}>
         <p style={S.sectionTitle}>System Info</p>
         <p style={{ fontSize: 13, color: "#666" }}>All data is stored in Cloudflare KV — synced across all devices automatically.</p>
         <p style={{ fontSize: 13, color: "#666", marginTop: 8 }}>Geo-locked photos use the browser's camera API — location metadata is embedded in the image stamp.</p>
-        <p style={{ fontSize: 13, color: "#666", marginTop: 8 }}>Admin PIN: <strong style={{ color: "#e8b84b" }}>1234</strong></p>
+        <p style={{ fontSize: 13, color: "#666", marginTop: 8 }}>Admin PIN: <strong style={{ color: "#e8b84b" }}>{ADMIN_PIN}</strong></p>
       </div>
+
+      {(modal === "add" || modal === "edit") && (
+        <Modal title={modal === "add" ? "Add Team Member" : "Edit Team Member"} onClose={() => setModal(null)}>
+          <div style={S.col}>
+            <div>
+              <label style={S.label}>Name</label>
+              <input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Somchai" autoFocus />
+            </div>
+            <div>
+              <label style={S.label}>PIN (4–6 digits)</label>
+              <input style={S.input} type="text" inputMode="numeric" maxLength={6} value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 1234" />
+            </div>
+            {formErr && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>{formErr}</p>}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button style={S.btn("ghost")} onClick={() => setModal(null)}>Cancel</button>
+              <button style={S.btn("primary")} onClick={saveEmployee}>{modal === "add" ? "Add Member" : "Save Changes"}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1556,6 +1712,7 @@ export default function App() {
   const [equipment, setEquipment] = useState(SAMPLE_EQUIPMENT);
   const [jobs, setJobs] = useState([]);
   const [checkouts, setCheckouts] = useState([]);
+  const [employees, setEmployees] = useState(INITIAL_EMPLOYEES);
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
   const saveTimer = useRef(null);
@@ -1567,6 +1724,7 @@ export default function App() {
         if (d.equipment?.length) setEquipment(d.equipment);
         if (d.jobs) setJobs(d.jobs);
         if (d.checkouts) setCheckouts(d.checkouts);
+        if (d.employees?.length) setEmployees(d.employees);
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -1577,11 +1735,11 @@ export default function App() {
     if (!loaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api.putData({ equipment, jobs, checkouts })
+      api.putData({ equipment, jobs, checkouts, employees })
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, loaded]);
+  }, [equipment, jobs, checkouts, employees, loaded]);
 
   if (!loaded) return (
     <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
@@ -1590,7 +1748,7 @@ export default function App() {
     </div>
   );
 
-  if (!user) return <Login onLogin={setUser} />;
+  if (!user) return <Login onLogin={setUser} employees={employees} />;
 
   if (user.role === "employee") {
     return <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} onLogout={() => setUser(null)} />;
@@ -1603,7 +1761,7 @@ export default function App() {
         {activePage === "dashboard" && <DashboardPage jobs={jobs} equipment={equipment} checkouts={checkouts} />}
         {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
         {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} />}
-        {activePage === "settings" && <SettingsPage />}
+        {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} />}
       </main>
     </div>
   );
