@@ -200,9 +200,48 @@ function GeoPhoto({ onCapture, label }) {
 // ─── LANG / TRANSLATIONS ─────────────────────────────────────────────────────
 const LANG = {
   en: {
+    // Nav
     navDashboard: "Dashboard", navEquipment: "Equipment", navJobs: "Job Bookings",
     navTeam: "Team", navReports: "Reports",
+    // Employee tabs
     tabToday: "Today", tabSchedule: "Schedule", tabProfile: "Profile", tabReport: "Report",
+    // Today tab
+    crew: "Crew",
+    todaysJobs: "Today's Jobs",
+    noJobsToday: "No confirmed jobs with assigned equipment today.",
+    allReturned: "✓ All Returned",
+    onShoot: "🎬 On Shoot — Tap to Return",
+    readyPick: "Ready to Pick Up",
+    itemsAssigned: "items assigned",
+    // Schedule tab
+    jobSchedule: "Job Schedule",
+    tapJobBar: "Tap any job bar to see details",
+    // Profile tab
+    myProfile: "My Profile",
+    crewCard: "Your crew card",
+    cameraCrew: "Camera Crew",
+    uploadPhoto: "Upload Photo",
+    takeSelfie: "Take Selfie",
+    removePhoto: "Remove Photo",
+    recentActivity: "My Recent Activity",
+    noActivity: "No activity yet.",
+    pickEvt: "PICK", returnEvt: "RETURN",
+    // Checkout flow
+    pickPhase: "Pick Up", returnPhase: "Return",
+    tickWhenReady: "— Tick each item when ready",
+    alreadyProcessed: "Already processed",
+    tickAllWarning: "⚠ Tick all items before proceeding.",
+    proceedPhoto: "Proceed to Photo Verification →",
+    pickUpPhoto: "Pick-Up Photo", returnPhoto: "Return Photo",
+    photoInstruction: "Take a group photo of all equipment — it will be geo-stamped as proof.",
+    photoLiveWarning: "Photo must be taken live. Gallery not allowed.",
+    capturePickPhoto: "Capture Equipment Pick-Up Photo",
+    captureReturnPhoto: "Capture Equipment Return Photo",
+    confirmPickUp: "Confirm Pick Up", confirmReturn: "Confirm Return",
+    backToJobs: "← Back to Jobs",
+    gearPickedUp: "Gear Picked Up!", gearReturned: "Gear Returned!",
+    savedGPS: "Saved with timestamp and GPS.", savedNoGPS: "Saved with timestamp.",
+    // Reports
     reportTitle: "Damage Reports", reportNew: "New Report", reportNone: "No damage reports yet.",
     reportDescription: "Description *", reportDate: "Date & Time of Incident",
     reportEquipment: "Related Equipment", reportNoEquipment: "— No specific equipment —",
@@ -212,13 +251,54 @@ const LANG = {
     reportStatusOpen: "Open", reportStatusSolved: "Solved", reportStatusDiscarded: "Discarded",
     reportSolve: "Mark Solved", reportDiscard: "Discard", reportUnresolved: "unresolved",
     reportBy: "Reported by", reportAll: "All",
-    cancel: "Cancel", save: "Save", logout: "Log Out", back: "Back", loading: "Loading…",
     myReports: "My damage reports",
+    // Common
+    cancel: "Cancel", save: "Save", logout: "Log Out", back: "Back", loading: "Loading…",
+    qty: "Qty",
   },
   th: {
+    // Nav
     navDashboard: "ภาพรวม", navEquipment: "อุปกรณ์", navJobs: "งาน",
     navTeam: "ทีม", navReports: "แจ้งปัญหา",
+    // Employee tabs
     tabToday: "วันนี้", tabSchedule: "ตาราง", tabProfile: "โปรไฟล์", tabReport: "แจ้งปัญหา",
+    // Today tab
+    crew: "ทีมงาน",
+    todaysJobs: "งานวันนี้",
+    noJobsToday: "ไม่มีงานยืนยันที่มีอุปกรณ์พร้อมในวันนี้",
+    allReturned: "✓ คืนครบแล้ว",
+    onShoot: "🎬 กำลังถ่าย — แตะเพื่อคืน",
+    readyPick: "พร้อมรับอุปกรณ์",
+    itemsAssigned: "รายการ",
+    // Schedule tab
+    jobSchedule: "ตารางงาน",
+    tapJobBar: "แตะแถบงานเพื่อดูรายละเอียด",
+    // Profile tab
+    myProfile: "โปรไฟล์ของฉัน",
+    crewCard: "บัตรทีมงาน",
+    cameraCrew: "ทีมกล้อง",
+    uploadPhoto: "อัปโหลดรูป",
+    takeSelfie: "ถ่ายเซลฟี่",
+    removePhoto: "ลบรูป",
+    recentActivity: "กิจกรรมล่าสุด",
+    noActivity: "ยังไม่มีกิจกรรม",
+    pickEvt: "รับ", returnEvt: "คืน",
+    // Checkout flow
+    pickPhase: "รับอุปกรณ์", returnPhase: "คืนอุปกรณ์",
+    tickWhenReady: "— ติ๊กรายการเมื่อพร้อม",
+    alreadyProcessed: "ดำเนินการแล้ว",
+    tickAllWarning: "⚠ ติ๊กรายการทั้งหมดก่อนดำเนินการต่อ",
+    proceedPhoto: "ไปถ่ายรูปยืนยัน →",
+    pickUpPhoto: "รูปรับอุปกรณ์", returnPhoto: "รูปคืนอุปกรณ์",
+    photoInstruction: "ถ่ายรูปอุปกรณ์ทั้งหมด — จะประทับ GPS เป็นหลักฐาน",
+    photoLiveWarning: "ต้องถ่ายสดเท่านั้น ไม่อนุญาตให้เลือกจากคลัง",
+    capturePickPhoto: "ถ่ายรูปรับอุปกรณ์",
+    captureReturnPhoto: "ถ่ายรูปคืนอุปกรณ์",
+    confirmPickUp: "ยืนยันการรับ", confirmReturn: "ยืนยันการคืน",
+    backToJobs: "← กลับสู่รายการงาน",
+    gearPickedUp: "รับอุปกรณ์เรียบร้อย!", gearReturned: "คืนอุปกรณ์เรียบร้อย!",
+    savedGPS: "บันทึกพร้อมวันเวลาและ GPS", savedNoGPS: "บันทึกพร้อมวันเวลา",
+    // Reports
     reportTitle: "รายงานอุปกรณ์เสียหาย", reportNew: "แจ้งปัญหาใหม่", reportNone: "ยังไม่มีรายงาน",
     reportDescription: "รายละเอียด *", reportDate: "วันและเวลาที่เกิดเหตุ",
     reportEquipment: "อุปกรณ์ที่เกี่ยวข้อง", reportNoEquipment: "— ไม่มีอุปกรณ์ที่เกี่ยวข้อง —",
@@ -228,8 +308,10 @@ const LANG = {
     reportStatusOpen: "รอดำเนินการ", reportStatusSolved: "แก้ไขแล้ว", reportStatusDiscarded: "ยกเลิก",
     reportSolve: "แก้ไขแล้ว", reportDiscard: "ยกเลิก", reportUnresolved: "รายการรอแก้ไข",
     reportBy: "แจ้งโดย", reportAll: "ทั้งหมด",
-    cancel: "ยกเลิก", save: "บันทึก", logout: "ออกจากระบบ", back: "กลับ", loading: "กำลังโหลด…",
     myReports: "รายงานของฉัน",
+    // Common
+    cancel: "ยกเลิก", save: "บันทึก", logout: "ออกจากระบบ", back: "กลับ", loading: "กำลังโหลด…",
+    qty: "จำนวน",
   },
 };
 
@@ -1201,6 +1283,7 @@ function StepBar({ currentStep }) {
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
 function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, setLang, onLogout }) {
   const t = useT();
+  const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | report
   const [showReportModal, setShowReportModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
@@ -1291,10 +1374,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           <div style={{ textAlign: "center", maxWidth: 400 }}>
             <StepBar currentStep={phase === "done_pick" ? 1 : 2} />
             <div style={{ fontSize: 60, marginBottom: 16 }}>{phase === "done_pick" ? "✅" : "🏁"}</div>
-            <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>{phase === "done_pick" ? "Gear Picked Up!" : "Gear Returned!"}</h2>
+            <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>{phase === "done_pick" ? t("gearPickedUp") : t("gearReturned")}</h2>
             {capturePhoto && <img src={capturePhoto} alt="evidence" style={{ width: "100%", borderRadius: 8, marginBottom: 12 }} />}
-            <p style={{ color: "#666", marginBottom: 24 }}>Saved with timestamp{captureLocation ? " and GPS" : ""}.</p>
-            <button style={S.btn("primary")} onClick={() => { setSelectedJob(null); setPhase("select"); setCapturePhoto(null); setCaptureLocation(null); setCheckedItems({}); }}>← Back to Jobs</button>
+            <p style={{ color: "#666", marginBottom: 24 }}>{captureLocation ? t("savedGPS") : t("savedNoGPS")}</p>
+            <button style={S.btn("primary")} onClick={() => { setSelectedJob(null); setPhase("select"); setCapturePhoto(null); setCaptureLocation(null); setCheckedItems({}); }}>{t("backToJobs")}</button>
           </div>
         </div>
       );
@@ -1303,17 +1386,17 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     if (phase === "photo_pick" || phase === "photo_return") {
       return (
         <div style={{ ...S.main, maxWidth: 500 }}>
-          <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => setPhase(phase === "photo_pick" ? "pick" : "return")}><Icon d={icons.arrow_left} size={15} /> Back</button>
+          <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => setPhase(phase === "photo_pick" ? "pick" : "return")}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
           <StepBar currentStep={phase === "photo_pick" ? 0 : 2} />
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{phase === "photo_pick" ? "Pick-Up Photo" : "Return Photo"}</h2>
-          <p style={{ fontSize: 13, color: "#666", marginBottom: 20 }}>Take a group photo of all equipment — it will be geo-stamped as proof.</p>
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{phase === "photo_pick" ? t("pickUpPhoto") : t("returnPhoto")}</h2>
+          <p style={{ fontSize: 13, color: "#666", marginBottom: 20 }}>{t("photoInstruction")}</p>
           <div style={{ ...S.card, background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)", marginBottom: 20 }}>
-            <p style={{ margin: 0, fontSize: 12, color: "#f87171", display: "flex", gap: 8, alignItems: "center" }}><Icon d={icons.lock} size={14} /> Photo must be taken live. Gallery not allowed.</p>
+            <p style={{ margin: 0, fontSize: 12, color: "#f87171", display: "flex", gap: 8, alignItems: "center" }}><Icon d={icons.lock} size={14} /> {t("photoLiveWarning")}</p>
           </div>
-          <GeoPhoto label={phase === "photo_pick" ? "Capture Equipment Pick-Up Photo" : "Capture Equipment Return Photo"} onCapture={(dataUrl, loc) => { setCapturePhoto(dataUrl); setCaptureLocation(loc); }} />
+          <GeoPhoto label={phase === "photo_pick" ? t("capturePickPhoto") : t("captureReturnPhoto")} onCapture={(dataUrl, loc) => { setCapturePhoto(dataUrl); setCaptureLocation(loc); }} />
           {capturePhoto && (
             <button style={{ ...S.btn("primary"), width: "100%", marginTop: 16, justifyContent: "center" }} onClick={submitCheckout}>
-              <Icon d={icons.check} size={15} /> Confirm {phase === "photo_pick" ? "Pick Up" : "Return"}
+              <Icon d={icons.check} size={15} /> {phase === "photo_pick" ? t("confirmPickUp") : t("confirmReturn")}
             </button>
           )}
         </div>
@@ -1324,13 +1407,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     const isReturn = phase === "return";
     return (
       <div style={{ ...S.main, maxWidth: 600 }}>
-        <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => { setSelectedJob(null); setPhase("select"); }}><Icon d={icons.arrow_left} size={15} /> Back</button>
+        <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => { setSelectedJob(null); setPhase("select"); }}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
         <StepBar currentStep={isReturn ? 2 : 0} />
         <div style={{ ...S.card, marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{selectedJob.name}</h2>
           <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{selectedJob.production} · {selectedJob.location} · {selectedJob.shootTime}</p>
         </div>
-        <p style={S.sectionTitle}>{isReturn ? "Return" : "Pick Up"} — Tick each item when ready</p>
+        <p style={S.sectionTitle}>{isReturn ? t("returnPhase") : t("pickPhase")} {t("tickWhenReady")}</p>
         <div style={S.col}>
           {(selectedJob.assignedEquipment || []).map(ae => {
             const eq = equipment.find(e => e.id === ae.eqId);
@@ -1345,16 +1428,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 {eq.photo && <img src={eq.photo} alt="" style={{ width: 48, height: 40, objectFit: "cover", borderRadius: 6 }} />}
                 <div style={{ flex: 1 }}>
                   <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{eq.name}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666" }}>{eq.category} · Qty: {ae.qty}{done ? " · Already processed" : ""}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666" }}>{eq.category} · {t("qty")}: {ae.qty}{done ? ` · ${t("alreadyProcessed")}` : ""}</p>
                 </div>
               </div>
             );
           })}
         </div>
         <div style={{ marginTop: 20 }}>
-          {!allSelected && <p style={{ fontSize: 12, color: "#f87171", marginBottom: 12 }}>⚠ Tick all items before proceeding.</p>}
+          {!allSelected && <p style={{ fontSize: 12, color: "#f87171", marginBottom: 12 }}>{t("tickAllWarning")}</p>}
           <button style={{ ...S.btn(allSelected ? "primary" : "ghost"), width: "100%", justifyContent: "center" }} onClick={proceedToPhoto} disabled={!allSelected}>
-            <Icon d={icons.camera} size={15} /> Proceed to Photo Verification →
+            <Icon d={icons.camera} size={15} /> {t("proceedPhoto")}
           </button>
         </div>
       </div>
@@ -1375,7 +1458,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           }
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#e8e4dc", lineHeight: 1.2 }}>{employee.name}</div>
-            <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: "0.06em" }}>Crew</div>
+            <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("crew")}</div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -1414,13 +1497,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {tab === "today" && (
           <div style={S.col}>
             <div>
-              <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>Today's Jobs</h1>
-              <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long" })}</p>
+              <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("todaysJobs")}</h1>
+              <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{new Date().toLocaleDateString(lang === "th" ? "th-TH" : "en-GB", { weekday: "long", day: "2-digit", month: "long" })}</p>
             </div>
             {availableJobs.length === 0 ? (
               <div style={{ ...S.card, textAlign: "center", padding: 40 }}>
                 <Icon d={icons.calendar} size={40} color="#2e3340" />
-                <p style={{ color: "#666", marginTop: 12 }}>No confirmed jobs with assigned equipment today.</p>
+                <p style={{ color: "#666", marginTop: 12 }}>{t("noJobsToday")}</p>
               </div>
             ) : availableJobs.map(job => {
               const { allPicked, allReturned } = getJobCheckoutState(job);
@@ -1429,12 +1512,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                        {allReturned ? <span style={S.badge("green")}>✓ All Returned</span> : allPicked ? <span style={S.badge("amber")}>🎬 On Shoot — Tap to Return</span> : <span style={S.badge("blue")}>Ready to Pick Up</span>}
+                        {allReturned ? <span style={S.badge("green")}>{t("allReturned")}</span> : allPicked ? <span style={S.badge("amber")}>{t("onShoot")}</span> : <span style={S.badge("blue")}>{t("readyPick")}</span>}
                         <span style={S.badge("gray")}>{job.shootTime}</span>
                       </div>
                       <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{job.name}</h3>
                       <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{job.production} · {job.location}</p>
-                      <p style={{ margin: "4px 0 0", fontSize: 12, color: "#8a8f9d" }}>{(job.assignedEquipment || []).length} items assigned</p>
+                      <p style={{ margin: "4px 0 0", fontSize: 12, color: "#8a8f9d" }}>{(job.assignedEquipment || []).length} {t("itemsAssigned")}</p>
                     </div>
                     <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
                   </div>
@@ -1448,8 +1531,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {tab === "calendar" && (
           <div style={S.col}>
             <div>
-              <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>Job Schedule</h1>
-              <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>Tap any job bar to see details</p>
+              <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("jobSchedule")}</h1>
+              <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{t("tapJobBar")}</p>
             </div>
             <DashboardCalendar jobs={jobs} equipment={equipment} />
           </div>
@@ -1494,8 +1577,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {tab === "profile" && (
           <div style={S.col}>
             <div>
-              <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>My Profile</h1>
-              <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>Your crew card</p>
+              <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("myProfile")}</h1>
+              <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{t("crewCard")}</p>
             </div>
 
             {/* Profile photo */}
@@ -1510,32 +1593,32 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </div>
               <div style={{ textAlign: "center" }}>
                 <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#e8e4dc" }}>{employee.name}</p>
-                <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>Camera Crew</p>
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{t("cameraCrew")}</p>
               </div>
               <input ref={profileFileRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={handleProfileUpload} />
               <div style={{ display: "flex", gap: 10 }}>
                 <button style={S.btn("primary")} onClick={() => { profileFileRef.current.removeAttribute("capture"); profileFileRef.current.click(); }}>
-                  <Icon d={icons.photo} size={14} /> Upload Photo
+                  <Icon d={icons.photo} size={14} /> {t("uploadPhoto")}
                 </button>
                 <button style={S.btn("ghost")} onClick={() => { profileFileRef.current.setAttribute("capture", "user"); profileFileRef.current.click(); }}>
-                  <Icon d={icons.camera} size={14} /> Take Selfie
+                  <Icon d={icons.camera} size={14} /> {t("takeSelfie")}
                 </button>
               </div>
               {profilePhoto && (
-                <button style={{ ...S.btn("danger"), fontSize: 12 }} onClick={() => setProfilePhoto(null)}>Remove Photo</button>
+                <button style={{ ...S.btn("danger"), fontSize: 12 }} onClick={() => setProfilePhoto(null)}>{t("removePhoto")}</button>
               )}
             </div>
 
             {/* My recent activity */}
             <div style={S.card}>
-              <p style={S.sectionTitle}>My Recent Activity</p>
+              <p style={S.sectionTitle}>{t("recentActivity")}</p>
               {checkouts.filter(c => c.employeeId === employee.id).length === 0
-                ? <p style={{ fontSize: 13, color: "#666" }}>No activity yet.</p>
+                ? <p style={{ fontSize: 13, color: "#666" }}>{t("noActivity")}</p>
                 : checkouts.filter(c => c.employeeId === employee.id).slice(-8).reverse().map((c, i, arr) => {
                     const eq = equipment.find(e => e.id === c.eqId);
                     return (
                       <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", paddingBottom: 10, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none", marginBottom: 10 }}>
-                        <span style={{ ...S.badge(c.type === "pick" || c.type === "checkout" ? "amber" : "green"), flexShrink: 0 }}>{c.type === "pick" || c.type === "checkout" ? "PICK" : "RETURN"}</span>
+                        <span style={{ ...S.badge(c.type === "pick" || c.type === "checkout" ? "amber" : "green"), flexShrink: 0 }}>{c.type === "pick" || c.type === "checkout" ? t("pickEvt") : t("returnEvt")}</span>
                         <div>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{eq?.name || "Unknown"}</p>
                           <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{c.jobName} · {formatDateTime(c.ts)}</p>
