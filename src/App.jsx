@@ -31,6 +31,38 @@ const api = {
   putProfile: (empId, photo) => fetch(`/api/profile/${empId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ photo }) }),
 };
 
+// ─── ADMIN THEME SYSTEM ───────────────────────────────────────────────────────
+const PALETTES = {
+  "black-white":  { bg: "#111", s1: "#1e1e1e", s2: "#2b2b2b", bdr: "#3a3a3a", text: "#f0f0f0", muted: "#888", acc: "#e0e0e0", accT: "#111" },
+  "teal-orange":  { bg: "#051414", s1: "#0c2424", s2: "#153535", bdr: "#225050", text: "#dff5f0", muted: "#5a9a8a", acc: "#ff6a2a", accT: "#fff" },
+  "black-red":    { bg: "#0e0808", s1: "#1c0e0e", s2: "#281414", bdr: "#3e1818", text: "#f0dddd", muted: "#9a6060", acc: "#dd3333", accT: "#fff" },
+  "white-blue":   { bg: "#edf2f8", s1: "#ffffff", s2: "#dce8f5", bdr: "#b8d0e8", text: "#162030", muted: "#5878a0", acc: "#1a60d0", accT: "#fff" },
+  "black-yellow": { bg: "#0e0e08", s1: "#191910", s2: "#232318", bdr: "#353520", text: "#f0f0dc", muted: "#8a8a68", acc: "#e8b84b", accT: "#0e0e08" },
+  "black-blue":   { bg: "#07090e", s1: "#0e121e", s2: "#151c2c", bdr: "#1c2c44", text: "#c8d8f0", muted: "#5878a8", acc: "#3a80e8", accT: "#fff" },
+};
+const hexRgb = (h) => { const n = parseInt(h.replace("#",""), 16); return `${(n>>16)&255},${(n>>8)&255},${n&255}`; };
+const isLight = (hex) => { const n = parseInt(hex.replace("#",""),16); const r=(n>>16)&255,g=(n>>8)&255,b=n&255; return (0.299*r+0.587*g+0.114*b)>128; };
+
+function buildThemeCss(style, palette) {
+  const p = PALETTES[palette]; if (!p) return "";
+  const light = isLight(p.bg);
+  const [accR, s1R, bgR, txtR] = [hexRgb(p.acc), hexRgb(p.s1), hexRgb(p.bg), hexRgb(p.text)];
+
+  const base = `#admin-layout{--bg:${p.bg};--surface:${p.s1};--surface2:${p.s2};--border-color:${p.bdr};--text:${p.text};--text-muted:${p.muted};--accent:${p.acc};--accent-text:${p.accT};--btn-primary-bg:${p.acc};--btn-primary-color:${p.accT};--section-title-color:${p.muted};--divider-color:${p.bdr};--tag-bg:${p.s2};--tag-color:${p.muted};}`;
+
+  let sv = "";
+  if (style === "neumorphism") {
+    const dSh = light ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.48)";
+    const lSh = light ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.04)";
+    sv = `#admin-layout{--card-border:none;--card-radius:18px;--card-backdrop:none;--card-shadow:8px 8px 18px ${dSh},-5px -5px 12px ${lSh};--input-bg:${p.bg};--input-border:none;--input-shadow:inset 4px 4px 9px ${dSh},inset -3px -3px 6px ${lSh};--btn-radius:12px;--btn-shadow:5px 5px 12px ${dSh},-3px -3px 7px ${lSh};--topbar-bg:${p.s1};--topbar-border:none;--topbar-shadow:0 4px 18px ${dSh};--nav-bg:${p.s1};--nav-border:none;--nav-shadow:0 -4px 18px ${dSh};}`;
+  } else if (style === "glassmorphism") {
+    sv = `#admin-layout{--bg:radial-gradient(ellipse at 20% 20%,rgba(${accR},0.22) 0%,transparent 52%),radial-gradient(ellipse at 80% 78%,rgba(${s1R},0.42) 0%,transparent 55%),${p.bg};--surface:rgba(${s1R},0.2);--card-border:1px solid rgba(${txtR},0.1);--card-radius:16px;--card-shadow:0 8px 32px rgba(0,0,0,0.25);--card-backdrop:blur(20px);--input-bg:rgba(${bgR},0.52);--input-border:1px solid rgba(${txtR},0.14);--input-shadow:none;--btn-radius:10px;--btn-shadow:0 4px 16px rgba(0,0,0,0.2);--topbar-bg:rgba(${bgR},0.65);--topbar-border:none;--topbar-shadow:none;--nav-bg:rgba(${bgR},0.72);--nav-border:none;--nav-shadow:none;--tag-bg:rgba(${s1R},0.45);}`;
+  } else if (style === "skeuomorphism") {
+    sv = `#admin-layout{--surface:linear-gradient(145deg,${p.s2} 0%,${p.s1} 100%);--card-border:1px solid ${p.bdr};--card-radius:8px;--card-backdrop:none;--card-shadow:0 2px 0 rgba(0,0,0,0.5),0 6px 20px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.07);--input-bg:${p.bg};--input-border:2px solid ${p.bdr};--input-shadow:inset 0 2px 5px rgba(0,0,0,0.45);--btn-radius:6px;--btn-shadow:0 3px 0 rgba(0,0,0,0.5),0 5px 12px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.15);--topbar-bg:linear-gradient(180deg,${p.s2} 0%,${p.bg} 100%);--topbar-border:1px solid ${p.bdr};--topbar-shadow:0 3px 12px rgba(0,0,0,0.4);--nav-bg:linear-gradient(0deg,${p.bg} 0%,${p.s2} 100%);--nav-border:1px solid ${p.bdr};--nav-shadow:0 -3px 12px rgba(0,0,0,0.4);}`;
+  }
+  return base + sv;
+}
+
 // ─── ICON COMPONENTS ─────────────────────────────────────────────────────────
 const Icon = ({ d, size = 18, color = "currentColor", fill = "none", strokeW = 1.8 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color} strokeWidth={strokeW} strokeLinecap="round" strokeLinejoin="round">
@@ -65,38 +97,33 @@ const formatDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", 
 const formatDateTime = (ts) => new Date(ts).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
+// CSS variables with fallbacks — admin layout overrides via #admin-layout selector.
+// Employee view never has #admin-layout so always uses the fallback (dark cinema).
 const S = {
-  // Layout
-  app: { minHeight: "100vh", background: "#0f1117", color: "#e8e4dc", fontFamily: "'Inter', 'SF Pro Display', system-ui, sans-serif", fontSize: 14 },
-  topbar: { height: 54, background: "#161920", borderBottom: "1px solid #252830", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", position: "sticky", top: 0, zIndex: 100 },
+  app: { minHeight: "100vh", background: "var(--bg,#0f1117)", color: "var(--text,#e8e4dc)", fontFamily: "'Inter','SF Pro Display',system-ui,sans-serif", fontSize: 14 },
+  topbar: { height: 54, background: "var(--topbar-bg,#161920)", borderBottom: "var(--topbar-border,1px solid #252830)", boxShadow: "var(--topbar-shadow,none)", backdropFilter: "var(--card-backdrop,none)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", position: "sticky", top: 0, zIndex: 100 },
   main: { minHeight: "calc(100vh - 54px)", padding: "20px 16px" },
-  // Nav (kept for reference, unused)
   logo: { display: "flex", alignItems: "center", gap: 8 },
-  logoText: { fontSize: 15, fontWeight: 700, letterSpacing: "0.04em", color: "#e8b84b" },
-  logoSub: { fontSize: 10, color: "#666", letterSpacing: "0.12em", textTransform: "uppercase" },
-  navItem: (active) => ({ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", cursor: "pointer", color: active ? "#e8b84b" : "#e8e4dc", background: active ? "rgba(232,184,75,0.07)" : "transparent", borderLeft: active ? "3px solid #e8b84b" : "3px solid transparent", fontSize: 14, fontWeight: active ? 700 : 400 }),
-  // Cards
-  card: { background: "#1a1e27", border: "1px solid #252830", borderRadius: 10, padding: 20 },
-  cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 },
-  // Badges
+  logoText: { fontSize: 15, fontWeight: 700, letterSpacing: "0.04em", color: "var(--accent,#e8b84b)" },
+  logoSub: { fontSize: 10, color: "var(--text-muted,#666)", letterSpacing: "0.12em", textTransform: "uppercase" },
+  navItem: (active) => ({ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", cursor: "pointer", color: active ? "var(--accent,#e8b84b)" : "var(--text,#e8e4dc)", background: active ? "rgba(232,184,75,0.07)" : "transparent", borderLeft: active ? "3px solid var(--accent,#e8b84b)" : "3px solid transparent", fontSize: 14, fontWeight: active ? 700 : 400 }),
+  card: { background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: "var(--card-radius,10px)", padding: 20, boxShadow: "var(--card-shadow,none)", backdropFilter: "var(--card-backdrop,none)" },
+  cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 14 },
   badge: (color) => ({ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", ...(color === "green" ? { background: "rgba(52,211,153,0.12)", color: "#34d399" } : color === "amber" ? { background: "rgba(232,184,75,0.12)", color: "#e8b84b" } : color === "red" ? { background: "rgba(239,68,68,0.12)", color: "#f87171" } : color === "blue" ? { background: "rgba(96,165,250,0.12)", color: "#60a5fa" } : color === "gray" ? { background: "rgba(148,163,184,0.1)", color: "#94a3b8" } : {}) }),
-  // Form elements
-  input: { width: "100%", background: "#0f1117", border: "1px solid #2e3340", borderRadius: 7, padding: "9px 12px", color: "#e8e4dc", fontSize: 13, outline: "none", boxSizing: "border-box" },
-  select: { width: "100%", background: "#0f1117", border: "1px solid #2e3340", borderRadius: 7, padding: "9px 12px", color: "#e8e4dc", fontSize: 13, outline: "none", boxSizing: "border-box", cursor: "pointer" },
-  label: { display: "block", marginBottom: 5, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", color: "#8a8f9d", textTransform: "uppercase" },
-  // Buttons
+  input: { width: "100%", background: "var(--input-bg,#0f1117)", border: "var(--input-border,1px solid #2e3340)", boxShadow: "var(--input-shadow,none)", borderRadius: "var(--btn-radius,7px)", padding: "9px 12px", color: "var(--text,#e8e4dc)", fontSize: 13, outline: "none", boxSizing: "border-box" },
+  select: { width: "100%", background: "var(--input-bg,#0f1117)", border: "var(--input-border,1px solid #2e3340)", boxShadow: "var(--input-shadow,none)", borderRadius: "var(--btn-radius,7px)", padding: "9px 12px", color: "var(--text,#e8e4dc)", fontSize: 13, outline: "none", boxSizing: "border-box", cursor: "pointer" },
+  label: { display: "block", marginBottom: 5, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", color: "var(--section-title-color,#8a8f9d)", textTransform: "uppercase" },
   btn: (variant = "primary") => ({
-    display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", border: "none", transition: "all 0.15s",
-    ...(variant === "primary" ? { background: "#e8b84b", color: "#0f1117" } : variant === "ghost" ? { background: "transparent", color: "#8a8f9d", border: "1px solid #2e3340" } : variant === "danger" ? { background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.2)" } : variant === "success" ? { background: "rgba(52,211,153,0.12)", color: "#34d399", border: "1px solid rgba(52,211,153,0.2)" } : {})
+    display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: "var(--btn-radius,7px)", fontSize: 13, fontWeight: 600, cursor: "pointer", border: "none", transition: "all 0.15s",
+    ...(variant === "primary" ? { background: "var(--btn-primary-bg,#e8b84b)", color: "var(--btn-primary-color,#0f1117)", boxShadow: "var(--btn-shadow,none)" } : variant === "ghost" ? { background: "transparent", color: "var(--text-muted,#8a8f9d)", border: "var(--input-border,1px solid #2e3340)" } : variant === "danger" ? { background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.2)" } : variant === "success" ? { background: "rgba(52,211,153,0.12)", color: "#34d399", border: "1px solid rgba(52,211,153,0.2)" } : {})
   }),
-  // Misc
-  sectionTitle: { fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#8a8f9d", marginBottom: 16 },
-  pageTitle: { fontSize: 22, fontWeight: 700, marginBottom: 4, color: "#e8e4dc" },
-  pageSubtitle: { fontSize: 13, color: "#666", marginBottom: 28 },
-  divider: { borderTop: "1px solid #252830", margin: "20px 0" },
+  sectionTitle: { fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--section-title-color,#8a8f9d)", marginBottom: 16 },
+  pageTitle: { fontSize: 22, fontWeight: 700, marginBottom: 4, color: "var(--text,#e8e4dc)" },
+  pageSubtitle: { fontSize: 13, color: "var(--text-muted,#666)", marginBottom: 28 },
+  divider: { borderTop: "1px solid var(--divider-color,#252830)", margin: "20px 0" },
   row: { display: "flex", alignItems: "center", gap: 12 },
   col: { display: "flex", flexDirection: "column", gap: 12 },
-  tag: { display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, background: "#252830", color: "#8a8f9d", fontWeight: 500 },
+  tag: { display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, background: "var(--tag-bg,#252830)", color: "var(--tag-color,#8a8f9d)", fontWeight: 500 },
 };
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
@@ -2011,85 +2038,158 @@ function SettingsPage({ employees, setEmployees }) {
 }
 
 // ─── TOP NAV DROPDOWN ─────────────────────────────────────────────────────────
-function TopNav({ activePage, setActivePage, onLogout, saveErr, unresolvedCount, setLang }) {
-  const t = useT();
+// ─── ADMIN THEME SELECTOR ────────────────────────────────────────────────────
+function ThemeSelector({ themeStyle, setThemeStyle, themePalette, setThemePalette }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    document.addEventListener("touchstart", h);
+    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("touchstart", h); };
+  }, [open]);
+
+  const STYLE_OPTS = [
+    { id: "neumorphism", label: "Neu" },
+    { id: "glassmorphism", label: "Glass" },
+    { id: "skeuomorphism", label: "Skeu" },
+  ];
+  const PALETTE_OPTS = [
+    { id: "black-white",  dot: "#e0e0e0", label: "B&W" },
+    { id: "teal-orange",  dot: "#ff6a2a", label: "Teal" },
+    { id: "black-red",    dot: "#dd3333", label: "Red" },
+    { id: "white-blue",   dot: "#1a60d0", label: "W·Blue" },
+    { id: "black-yellow", dot: "#e8b84b", label: "Amber" },
+    { id: "black-blue",   dot: "#3a80e8", label: "Blue" },
+  ];
+  const activeDot = PALETTE_OPTS.find(p => p.id === themePalette)?.dot || "#e8b84b";
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ display: "flex", alignItems: "center", gap: 5, background: open ? "rgba(232,184,75,0.1)" : "transparent", border: `1px solid ${open ? "var(--accent,#e8b84b)" : "var(--border-color,#2e3340)"}`, borderRadius: "var(--btn-radius,7px)", padding: "5px 10px", cursor: "pointer", color: "var(--text-muted,#8a8f9d)" }}
+        title="Theme"
+      >
+        <div style={{ width: 10, height: 10, borderRadius: "50%", background: activeDot, flexShrink: 0 }} />
+        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--accent,#e8b84b)" strokeWidth={1.8} strokeLinecap="round">
+          <path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2v-.5c0-.55.45-1 1-1h1.5a2 2 0 0 0 2-2 10 10 0 0 0-6.5-9.5M8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM12 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM16 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2z" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: "var(--card-radius,10px)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", backdropFilter: "var(--card-backdrop,none)", padding: 16, width: 210, zIndex: 300 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted,#666)", marginBottom: 8, textTransform: "uppercase" }}>Style</div>
+          <div style={{ display: "flex", gap: 5, marginBottom: 14 }}>
+            {STYLE_OPTS.map(s => (
+              <button
+                key={s.id}
+                onClick={() => setThemeStyle(s.id)}
+                style={{ flex: 1, padding: "7px 4px", borderRadius: 6, border: themeStyle === s.id ? "2px solid var(--accent,#e8b84b)" : "1px solid var(--border-color,#2e3340)", background: themeStyle === s.id ? "rgba(232,184,75,0.08)" : "transparent", color: themeStyle === s.id ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em" }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted,#666)", marginBottom: 8, textTransform: "uppercase" }}>Color</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 5 }}>
+            {PALETTE_OPTS.map(pal => (
+              <button
+                key={pal.id}
+                onClick={() => setThemePalette(pal.id)}
+                style={{ padding: "7px 4px", borderRadius: 6, border: themePalette === pal.id ? `2px solid ${pal.dot}` : "1px solid var(--border-color,#2e3340)", background: "transparent", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}
+              >
+                <div style={{ width: 16, height: 16, borderRadius: "50%", background: pal.dot }} />
+                <span style={{ fontSize: 9, color: "var(--text-muted,#666)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>{pal.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ADMIN TOP BAR ────────────────────────────────────────────────────────────
+function AdminTopBar({ onLogout, saveErr, setLang, themeStyle, setThemeStyle, themePalette, setThemePalette }) {
+  return (
+    <header style={S.topbar}>
+      <div style={S.logo}>
+        <Icon d={icons.film} size={20} color="var(--accent,#e8b84b)" />
+        <div>
+          <div style={S.logoText}>GEAR DESK</div>
+          <div style={{ ...S.logoSub, marginTop: 0 }}>Pick Shoot Return</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <ThemeSelector themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} />
+        <LangPill setLang={setLang} />
+        {saveErr && <span title="Sync error" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
+        <button
+          onClick={onLogout}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6, color: "var(--text-muted,#8a8f9d)" }}
+          title="Log out"
+        >
+          <Icon d={icons.logout} size={18} color="var(--text-muted,#8a8f9d)" />
+        </button>
+      </div>
+    </header>
+  );
+}
+
+// ─── ADMIN BOTTOM NAV ─────────────────────────────────────────────────────────
+function AdminBottomNav({ activePage, setActivePage, unresolvedCount }) {
+  const t = useT();
   const navItems = [
     { key: "dashboard", label: t("navDashboard"), icon: icons.film },
     { key: "equipment", label: t("navEquipment"), icon: icons.camera },
     { key: "jobs", label: t("navJobs"), icon: icons.calendar },
-    { key: "reports", label: t("navReports"), icon: icons.alert, badge: unresolvedCount > 0 ? unresolvedCount : 0 },
+    { key: "reports", label: t("navReports"), icon: icons.alert },
     { key: "settings", label: t("navTeam"), icon: icons.user },
   ];
 
-  const active = navItems.find(n => n.key === activePage);
-
-  // Close on outside tap
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
-    return () => { document.removeEventListener("mousedown", handler); document.removeEventListener("touchstart", handler); };
-  }, [open]);
-
   return (
-    <header style={S.topbar}>
-      {/* Logo */}
-      <div style={S.logo}>
-        <Icon d={icons.film} size={20} color="#e8b84b" />
-        <div style={S.logoText}>GEAR DESK</div>
-      </div>
-
-      {/* Right side: lang toggle + sync indicator + dropdown */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }} ref={ref}>
-        <LangPill setLang={setLang} />
-        {saveErr && <span title="Sync error — check connection" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
-        {unresolvedCount > 0 && activePage !== "reports" && (
-          <div onClick={() => setActivePage("reports")} style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 20, padding: "3px 8px 3px 6px" }}>
-            <Icon d={icons.alert} size={13} color="#f87171" />
-            <span style={{ fontSize: 11, fontWeight: 800, color: "#f87171" }}>{unresolvedCount}</span>
-          </div>
-        )}
-        {/* Nav dropdown */}
-        <div style={{ position: "relative" }}>
+    <nav style={{
+      position: "fixed", bottom: 0, left: 0, right: 0,
+      height: 62,
+      background: "var(--nav-bg,var(--topbar-bg,#161920))",
+      borderTop: "var(--nav-border,var(--topbar-border,1px solid #252830))",
+      boxShadow: "var(--nav-shadow,none)",
+      backdropFilter: "var(--card-backdrop,none)",
+      display: "flex", alignItems: "stretch",
+      zIndex: 100,
+      padding: "0 4px",
+      paddingBottom: "env(safe-area-inset-bottom,0px)",
+    }}>
+      {navItems.map(n => {
+        const active = activePage === n.key;
+        return (
           <button
-            onClick={() => setOpen(o => !o)}
-            style={{ display: "flex", alignItems: "center", gap: 7, background: open ? "rgba(232,184,75,0.12)" : "#1a1e27", border: "1px solid " + (open ? "#e8b84b" : "#2e3340"), borderRadius: 8, padding: "7px 12px", color: open ? "#e8b84b" : "#e8e4dc", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            key={n.key}
+            onClick={() => setActivePage(n.key)}
+            style={{
+              flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              gap: 3, border: "none", cursor: "pointer", background: "transparent",
+              color: active ? "var(--accent,#e8b84b)" : "var(--text-muted,#8a8f9d)",
+              position: "relative", padding: "8px 2px 6px",
+            }}
           >
-            <Icon d={active?.icon || icons.film} size={15} color={open ? "#e8b84b" : "#e8b84b"} />
-            {active?.label}
-            <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s", opacity: 0.6 }}>
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          </button>
-
-          {open && (
-            <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: "#1a1e27", border: "1px solid #2e3340", borderRadius: 10, overflow: "hidden", minWidth: 190, boxShadow: "0 8px 32px rgba(0,0,0,0.5)", zIndex: 200 }}>
-              {navItems.map((n, i) => (
-                <div
-                  key={n.key}
-                  onClick={() => { setActivePage(n.key); setOpen(false); }}
-                  style={{ ...S.navItem(activePage === n.key), borderLeft: "none", borderBottom: i < navItems.length - 1 ? "1px solid #252830" : "none", padding: "13px 16px" }}
-                >
-                  <Icon d={n.icon} size={16} color={activePage === n.key ? "#e8b84b" : "#8a8f9d"} />
-                  {n.label}
-                  {n.badge > 0 && <span style={{ marginLeft: 4, background: "#f87171", color: "#fff", fontSize: 10, fontWeight: 800, borderRadius: 10, padding: "1px 6px", minWidth: 18, textAlign: "center" }}>{n.badge}</span>}
-                  {activePage === n.key && <span style={{ marginLeft: "auto", color: "#e8b84b", fontSize: 10 }}>✦</span>}
+            {active && <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: "var(--accent,#e8b84b)", borderRadius: "0 0 3px 3px" }} />}
+            <div style={{ position: "relative" }}>
+              <Icon d={n.icon} size={20} color={active ? "var(--accent,#e8b84b)" : "var(--text-muted,#8a8f9d)"} />
+              {n.key === "reports" && unresolvedCount > 0 && (
+                <div style={{ position: "absolute", top: -4, right: -6, background: "#ef4444", color: "#fff", fontSize: 9, fontWeight: 800, borderRadius: 8, padding: "1px 4px", minWidth: 14, textAlign: "center", lineHeight: "14px" }}>
+                  {unresolvedCount}
                 </div>
-              ))}
-              <div style={{ borderTop: "1px solid #252830", padding: "10px 16px" }}>
-                <button style={{ ...S.btn("ghost"), width: "100%", justifyContent: "center", fontSize: 12, padding: "8px" }} onClick={() => { setOpen(false); onLogout(); }}>
-                  <Icon d={icons.logout} size={13} /> Log Out
-                </button>
-              </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
-    </header>
+            <span style={{ fontSize: 9.5, fontWeight: active ? 700 : 500, letterSpacing: "0.02em" }}>{n.label}</span>
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -2105,9 +2205,19 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
+  const [themeStyle, setThemeStyle] = useState(() => { try { return localStorage.getItem("psr_theme_style") || "glassmorphism"; } catch { return "glassmorphism"; } });
+  const [themePalette, setThemePalette] = useState(() => { try { return localStorage.getItem("psr_theme_palette") || "black-yellow"; } catch { return "black-yellow"; } });
   const saveTimer = useRef(null);
 
   useEffect(() => { try { localStorage.setItem("psr_lang", lang); } catch {} }, [lang]);
+
+  useEffect(() => {
+    const id = "psr-theme-style";
+    let el = document.getElementById(id);
+    if (!el) { el = document.createElement("style"); el.id = id; document.head.appendChild(el); }
+    el.textContent = buildThemeCss(themeStyle, themePalette);
+    try { localStorage.setItem("psr_theme_style", themeStyle); localStorage.setItem("psr_theme_palette", themePalette); } catch {}
+  }, [themeStyle, themePalette]);
 
   // Load all data from cloud on mount
   useEffect(() => {
@@ -2148,15 +2258,24 @@ export default function App() {
       ) : user.role === "employee" ? (
         <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} setLang={setLang} onLogout={() => setUser(null)} />
       ) : (
-        <div style={S.app}>
-          <TopNav activePage={activePage} setActivePage={setActivePage} onLogout={() => setUser(null)} saveErr={saveErr} unresolvedCount={unresolvedCount} setLang={setLang} />
-          <main style={S.main}>
+        <div id="admin-layout" style={S.app}>
+          <AdminTopBar
+            onLogout={() => setUser(null)}
+            saveErr={saveErr}
+            setLang={setLang}
+            themeStyle={themeStyle}
+            setThemeStyle={setThemeStyle}
+            themePalette={themePalette}
+            setThemePalette={setThemePalette}
+          />
+          <main style={{ ...S.main, paddingBottom: 80 }}>
             {activePage === "dashboard" && <DashboardPage jobs={jobs} equipment={equipment} checkouts={checkouts} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
             {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} />}
           </main>
+          <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
         </div>
       )}
     </LangCtx.Provider>
