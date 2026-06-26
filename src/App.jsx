@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const ADMIN_PIN = "1234";
@@ -193,6 +193,61 @@ function GeoPhoto({ onCapture, label }) {
           <p style={{ fontSize: 11, color: "#34d399", marginTop: 8 }}>✓ Photo captured with timestamp{location ? " & GPS" : ""}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── LANG / TRANSLATIONS ─────────────────────────────────────────────────────
+const LANG = {
+  en: {
+    navDashboard: "Dashboard", navEquipment: "Equipment", navJobs: "Job Bookings",
+    navTeam: "Team", navReports: "Reports",
+    tabToday: "Today", tabSchedule: "Schedule", tabProfile: "Profile", tabReport: "Report",
+    reportTitle: "Damage Reports", reportNew: "New Report", reportNone: "No damage reports yet.",
+    reportDescription: "Description *", reportDate: "Date & Time of Incident",
+    reportEquipment: "Related Equipment", reportNoEquipment: "— No specific equipment —",
+    reportOther: "Other / specify below", reportOtherName: "Equipment name",
+    reportPhotos: "Photos", reportCamera: "Camera", reportGallery: "Gallery",
+    reportSubmit: "Submit Report", reportSubmitted: "Report submitted!",
+    reportStatusOpen: "Open", reportStatusSolved: "Solved", reportStatusDiscarded: "Discarded",
+    reportSolve: "Mark Solved", reportDiscard: "Discard", reportUnresolved: "unresolved",
+    reportBy: "Reported by", reportAll: "All",
+    cancel: "Cancel", save: "Save", logout: "Log Out", back: "Back", loading: "Loading…",
+    myReports: "My damage reports",
+  },
+  th: {
+    navDashboard: "ภาพรวม", navEquipment: "อุปกรณ์", navJobs: "งาน",
+    navTeam: "ทีม", navReports: "แจ้งปัญหา",
+    tabToday: "วันนี้", tabSchedule: "ตาราง", tabProfile: "โปรไฟล์", tabReport: "แจ้งปัญหา",
+    reportTitle: "รายงานอุปกรณ์เสียหาย", reportNew: "แจ้งปัญหาใหม่", reportNone: "ยังไม่มีรายงาน",
+    reportDescription: "รายละเอียด *", reportDate: "วันและเวลาที่เกิดเหตุ",
+    reportEquipment: "อุปกรณ์ที่เกี่ยวข้อง", reportNoEquipment: "— ไม่มีอุปกรณ์ที่เกี่ยวข้อง —",
+    reportOther: "อื่นๆ / ระบุด้านล่าง", reportOtherName: "ชื่ออุปกรณ์",
+    reportPhotos: "รูปภาพ", reportCamera: "ถ่ายรูป", reportGallery: "คลังรูป",
+    reportSubmit: "ส่งรายงาน", reportSubmitted: "ส่งรายงานเรียบร้อย!",
+    reportStatusOpen: "รอดำเนินการ", reportStatusSolved: "แก้ไขแล้ว", reportStatusDiscarded: "ยกเลิก",
+    reportSolve: "แก้ไขแล้ว", reportDiscard: "ยกเลิก", reportUnresolved: "รายการรอแก้ไข",
+    reportBy: "แจ้งโดย", reportAll: "ทั้งหมด",
+    cancel: "ยกเลิก", save: "บันทึก", logout: "ออกจากระบบ", back: "กลับ", loading: "กำลังโหลด…",
+    myReports: "รายงานของฉัน",
+  },
+};
+
+const LangCtx = createContext("en");
+const useT = () => {
+  const lang = useContext(LangCtx);
+  return (key) => LANG[lang]?.[key] ?? LANG.en[key] ?? key;
+};
+
+function LangPill({ setLang }) {
+  const lang = useContext(LangCtx);
+  return (
+    <div style={{ display: "flex", background: "#252830", borderRadius: 6, overflow: "hidden", border: "1px solid #2e3340", flexShrink: 0 }}>
+      {["en", "th"].map(l => (
+        <button key={l} onClick={() => setLang(l)} style={{ background: lang === l ? "#e8b84b" : "transparent", color: lang === l ? "#0f1117" : "#555", border: "none", padding: "4px 10px", fontSize: 10, fontWeight: 800, cursor: "pointer", letterSpacing: "0.05em" }}>
+          {l.toUpperCase()}
+        </button>
+      ))}
     </div>
   );
 }
@@ -1144,8 +1199,10 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, onLogout }) {
-  const [tab, setTab] = useState("today"); // today | calendar | profile
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, setLang, onLogout }) {
+  const t = useT();
+  const [tab, setTab] = useState("today"); // today | calendar | profile | report
+  const [showReportModal, setShowReportModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
   const [checkedItems, setCheckedItems] = useState({});
   const [phase, setPhase] = useState("select"); // select | pick | photo_pick | done_pick | return | photo_return | done_return
@@ -1157,6 +1214,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, onLo
 
   const todayStr = today();
   const availableJobs = jobs.filter(j => j.status === "Confirmed" && j.dates.includes(todayStr) && (j.assignedEquipment || []).length > 0);
+  const myReports = reports.filter(r => r.reportedBy?.id === employee.id);
 
   // Load profile photo from cloud
   useEffect(() => {
@@ -1320,28 +1378,36 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, onLo
             <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: "0.06em" }}>Crew</div>
           </div>
         </div>
-        <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={onLogout}>
-          <Icon d={icons.logout} size={13} /> Out
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <LangPill setLang={setLang} />
+          <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={onLogout}>
+            <Icon d={icons.logout} size={13} /> {t("logout")}
+          </button>
+        </div>
       </header>
 
       {/* Tab bar */}
       <div style={{ display: "flex", borderBottom: "1px solid #252830", background: "#161920" }}>
         {[
-          { key: "today", label: "Today", icon: icons.gear },
-          { key: "calendar", label: "Schedule", icon: icons.calendar },
-          { key: "profile", label: "Profile", icon: icons.user },
-        ].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{
+          { key: "today", label: t("tabToday"), icon: icons.gear },
+          { key: "calendar", label: t("tabSchedule"), icon: icons.calendar },
+          { key: "profile", label: t("tabProfile"), icon: icons.user },
+          { key: "report", label: t("tabReport"), icon: icons.alert },
+        ].map(tItem => (
+          <button key={tItem.key} onClick={() => setTab(tItem.key)} style={{
             flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px 8px",
-            background: "transparent", border: "none", borderBottom: tab === t.key ? "2px solid #e8b84b" : "2px solid transparent",
-            color: tab === t.key ? "#e8b84b" : "#666", cursor: "pointer", fontSize: 10, fontWeight: 600, letterSpacing: "0.04em",
+            background: "transparent", border: "none", borderBottom: tab === tItem.key ? "2px solid #e8b84b" : "2px solid transparent",
+            color: tab === tItem.key ? "#e8b84b" : "#666", cursor: "pointer", fontSize: 10, fontWeight: 600, letterSpacing: "0.04em",
           }}>
-            <Icon d={t.icon} size={16} color={tab === t.key ? "#e8b84b" : "#666"} />
-            {t.label}
+            <Icon d={tItem.icon} size={16} color={tab === tItem.key ? "#e8b84b" : "#666"} />
+            {tItem.label}
           </button>
         ))}
       </div>
+
+      {showReportModal && (
+        <ReportModal employee={employee} equipment={equipment} onSubmit={(report) => { setReports(p => [...p, report]); setShowReportModal(false); }} onClose={() => setShowReportModal(false)} />
+      )}
 
       <div style={S.main}>
         {/* TODAY TAB */}
@@ -1386,6 +1452,41 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, onLo
               <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>Tap any job bar to see details</p>
             </div>
             <DashboardCalendar jobs={jobs} equipment={equipment} />
+          </div>
+        )}
+
+        {/* REPORT TAB */}
+        {tab === "report" && (
+          <div style={S.col}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("reportTitle")}</h1>
+                <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{t("myReports")}</p>
+              </div>
+              <button style={S.btn("primary")} onClick={() => setShowReportModal(true)}>
+                <Icon d={icons.alert} size={14} /> {t("reportNew")}
+              </button>
+            </div>
+            {myReports.length === 0 ? (
+              <div style={{ ...S.card, textAlign: "center", padding: 40 }}>
+                <Icon d={icons.alert} size={40} color="#2e3340" />
+                <p style={{ color: "#666", marginTop: 12 }}>{t("reportNone")}</p>
+              </div>
+            ) : [...myReports].sort((a, b) => b.ts - a.ts).map(r => (
+              <div key={r.id} style={{ ...S.card, border: r.status === "open" ? "1px solid rgba(239,68,68,0.25)" : "1px solid #252830" }}>
+                <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                  {{ open: <span style={S.badge("red")}>{t("reportStatusOpen")}</span>, solved: <span style={S.badge("green")}>{t("reportStatusSolved")}</span>, discarded: <span style={S.badge("gray")}>{t("reportStatusDiscarded")}</span> }[r.status]}
+                  {r.eqName && <span style={S.tag}>{r.eqName}</span>}
+                </div>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{r.description}</p>
+                <p style={{ margin: "4px 0 0", fontSize: 11, color: "#666" }}>{formatDateTime(r.ts)}</p>
+                {r.photos?.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                    {r.photos.map((ph, i) => <img key={i} src={ph} alt="" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 6 }} />)}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
@@ -1446,6 +1547,200 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, onLo
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── REPORT MODAL (employee submits a damage report) ─────────────────────────
+function ReportModal({ employee, equipment, onSubmit, onClose }) {
+  const t = useT();
+  const [photos, setPhotos] = useState([]);
+  const [description, setDescription] = useState("");
+  const [incidentTs, setIncidentTs] = useState(() => {
+    const d = new Date();
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
+  const [eqId, setEqId] = useState("");
+  const [customEqName, setCustomEqName] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const camRef = useRef(null);
+  const galRef = useRef(null);
+
+  const addPhotos = (e) => {
+    Array.from(e.target.files).forEach(f => {
+      const r = new FileReader();
+      r.onload = (ev) => setPhotos(p => [...p, ev.target.result]);
+      r.readAsDataURL(f);
+    });
+    e.target.value = "";
+  };
+
+  const submit = () => {
+    if (!description.trim()) return;
+    const eq = equipment.find(e => e.id === eqId);
+    onSubmit({
+      id: "rep" + Date.now(),
+      eqId: eqId === "" || eqId === "other" ? null : eqId,
+      eqName: eqId === "other" ? customEqName.trim() : (eq?.name || ""),
+      description: description.trim(),
+      photos,
+      ts: new Date(incidentTs).getTime() || Date.now(),
+      reportedBy: { id: employee.id, name: employee.name },
+      status: "open",
+      resolvedAt: null,
+    });
+    setSubmitted(true);
+  };
+
+  if (submitted) return (
+    <Modal title={t("reportNew")} onClose={onClose}>
+      <div style={{ textAlign: "center", padding: "24px 0" }}>
+        <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
+        <p style={{ fontSize: 16, fontWeight: 700, color: "#34d399", marginBottom: 8 }}>{t("reportSubmitted")}</p>
+        <button style={{ ...S.btn("primary"), marginTop: 16 }} onClick={onClose}>{t("back")}</button>
+      </div>
+    </Modal>
+  );
+
+  return (
+    <Modal title={t("reportNew")} onClose={onClose}>
+      <div style={S.col}>
+        <div>
+          <label style={S.label}>{t("reportDate")}</label>
+          <input type="datetime-local" style={S.input} value={incidentTs} onChange={e => setIncidentTs(e.target.value)} />
+        </div>
+
+        <div>
+          <label style={S.label}>{t("reportEquipment")}</label>
+          <select style={S.select} value={eqId} onChange={e => setEqId(e.target.value)}>
+            <option value="">{t("reportNoEquipment")}</option>
+            {equipment.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            <option value="other">{t("reportOther")}</option>
+          </select>
+          {eqId === "other" && (
+            <input style={{ ...S.input, marginTop: 8 }} value={customEqName} onChange={e => setCustomEqName(e.target.value)} placeholder={t("reportOtherName")} autoFocus />
+          )}
+        </div>
+
+        <div>
+          <label style={S.label}>{t("reportDescription")}</label>
+          <textarea style={{ ...S.input, minHeight: 90, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} value={description} onChange={e => setDescription(e.target.value)} />
+        </div>
+
+        <div>
+          <label style={S.label}>{t("reportPhotos")}</label>
+          <input ref={camRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={addPhotos} />
+          <input ref={galRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={addPhotos} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+            {photos.map((p, i) => (
+              <div key={i} style={{ position: "relative" }}>
+                <img src={p} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, display: "block", border: "2px solid #e8b84b" }} />
+                <button onClick={() => setPhotos(ps => ps.filter((_, j) => j !== i))} style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "#f87171", border: "2px solid #0f1117", color: "#fff", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}>×</button>
+              </div>
+            ))}
+            <button style={{ ...S.btn("ghost"), flexDirection: "column", gap: 3, width: 72, height: 72, borderRadius: 8, border: "2px dashed #2e3340", fontSize: 10, fontWeight: 600 }} onClick={() => camRef.current.click()}>
+              <Icon d={icons.camera} size={20} color="#555" />{t("reportCamera")}
+            </button>
+            <button style={{ ...S.btn("ghost"), flexDirection: "column", gap: 3, width: 72, height: 72, borderRadius: 8, border: "2px dashed #2e3340", fontSize: 10, fontWeight: 600 }} onClick={() => galRef.current.click()}>
+              <Icon d={icons.photo} size={20} color="#555" />{t("reportGallery")}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button style={S.btn("ghost")} onClick={onClose}>{t("cancel")}</button>
+          <button style={{ ...S.btn("primary"), opacity: description.trim() ? 1 : 0.4 }} onClick={submit} disabled={!description.trim()}>{t("reportSubmit")}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── ADMIN REPORTS PAGE ───────────────────────────────────────────────────────
+function AdminReportsPage({ reports, setReports, equipment }) {
+  const t = useT();
+  const [filter, setFilter] = useState("open");
+  const [expandedId, setExpandedId] = useState(null);
+
+  const resolve = (id, status) =>
+    setReports(p => p.map(r => r.id === id ? { ...r, status, resolvedAt: Date.now() } : r));
+
+  const statusBadge = (status) =>
+    ({ open: <span style={S.badge("red")}>{t("reportStatusOpen")}</span>, solved: <span style={S.badge("green")}>{t("reportStatusSolved")}</span>, discarded: <span style={S.badge("gray")}>{t("reportStatusDiscarded")}</span> }[status] || null);
+
+  const filtered = (filter === "open" ? reports.filter(r => r.status === "open") : reports).sort((a, b) => b.ts - a.ts);
+  const openCount = reports.filter(r => r.status === "open").length;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, gap: 12 }}>
+        <div>
+          <h1 style={S.pageTitle}>{t("reportTitle")}</h1>
+          <p style={{ ...S.pageSubtitle, color: openCount > 0 ? "#f87171" : "#666" }}>{openCount} {t("reportUnresolved")}</p>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <button style={{ ...S.btn(filter === "open" ? "primary" : "ghost"), padding: "7px 14px", fontSize: 12 }} onClick={() => setFilter("open")}>{t("reportStatusOpen")}</button>
+          <button style={{ ...S.btn(filter === "all" ? "primary" : "ghost"), padding: "7px 14px", fontSize: 12 }} onClick={() => setFilter("all")}>{t("reportAll")}</button>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ ...S.card, textAlign: "center", padding: 40 }}>
+          <Icon d={icons.alert} size={40} color="#2e3340" />
+          <p style={{ color: "#666", marginTop: 12 }}>{t("reportNone")}</p>
+        </div>
+      ) : (
+        <div style={S.col}>
+          {filtered.map(r => {
+            const eq = r.eqId ? equipment.find(e => e.id === r.eqId) : null;
+            const open = expandedId === r.id;
+            return (
+              <div key={r.id} style={{ ...S.card, border: r.status === "open" ? "1px solid rgba(239,68,68,0.35)" : "1px solid #252830" }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer" }} onClick={() => setExpandedId(open ? null : r.id)}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
+                      {statusBadge(r.status)}
+                      {(eq || r.eqName) && <span style={S.tag}>{eq?.name || r.eqName}</span>}
+                    </div>
+                    <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#e8e4dc", lineHeight: 1.4 }}>{r.description}</p>
+                    <p style={{ margin: "5px 0 0", fontSize: 11, color: "#666" }}>{t("reportBy")} <strong style={{ color: "#8a8f9d" }}>{r.reportedBy?.name}</strong> · {formatDateTime(r.ts)}</p>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
+                    {r.photos?.length > 0 && <img src={r.photos[0]} alt="" style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 8 }} />}
+                    {r.photos?.length > 1 && <span style={S.badge("gray")}>+{r.photos.length - 1}</span>}
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth={2.5} strokeLinecap="round" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </div>
+                </div>
+
+                {open && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={S.divider} />
+                    {r.photos?.length > 0 && (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                        {r.photos.map((ph, i) => <img key={i} src={ph} alt="" style={{ width: 100, height: 100, objectFit: "cover", borderRadius: 8 }} />)}
+                      </div>
+                    )}
+                    {r.status === "open" ? (
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button style={S.btn("success")} onClick={() => resolve(r.id, "solved")}>
+                          <Icon d={icons.check} size={14} /> {t("reportSolve")}
+                        </button>
+                        <button style={S.btn("danger")} onClick={() => resolve(r.id, "discarded")}>
+                          <Icon d={icons.x} size={14} /> {t("reportDiscard")}
+                        </button>
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 12, color: "#666" }}>{r.status === "solved" ? t("reportStatusSolved") : t("reportStatusDiscarded")} · {r.resolvedAt ? formatDateTime(r.resolvedAt) : ""}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1633,15 +1928,17 @@ function SettingsPage({ employees, setEmployees }) {
 }
 
 // ─── TOP NAV DROPDOWN ─────────────────────────────────────────────────────────
-function TopNav({ activePage, setActivePage, onLogout, saveErr }) {
+function TopNav({ activePage, setActivePage, onLogout, saveErr, unresolvedCount, setLang }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
   const navItems = [
-    { key: "dashboard", label: "Dashboard", icon: icons.film },
-    { key: "equipment", label: "Equipment", icon: icons.camera },
-    { key: "jobs", label: "Job Bookings", icon: icons.calendar },
-    { key: "settings", label: "Team", icon: icons.user },
+    { key: "dashboard", label: t("navDashboard"), icon: icons.film },
+    { key: "equipment", label: t("navEquipment"), icon: icons.camera },
+    { key: "jobs", label: t("navJobs"), icon: icons.calendar },
+    { key: "reports", label: t("navReports"), icon: icons.alert, badge: unresolvedCount > 0 ? unresolvedCount : 0 },
+    { key: "settings", label: t("navTeam"), icon: icons.user },
   ];
 
   const active = navItems.find(n => n.key === activePage);
@@ -1663,9 +1960,16 @@ function TopNav({ activePage, setActivePage, onLogout, saveErr }) {
         <div style={S.logoText}>GEAR DESK</div>
       </div>
 
-      {/* Right side: sync indicator + dropdown */}
+      {/* Right side: lang toggle + sync indicator + dropdown */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }} ref={ref}>
-        {saveErr && <span title="Sync error — check connection" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC ERR</span>}
+        <LangPill setLang={setLang} />
+        {saveErr && <span title="Sync error — check connection" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
+        {unresolvedCount > 0 && activePage !== "reports" && (
+          <div onClick={() => setActivePage("reports")} style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 20, padding: "3px 8px 3px 6px" }}>
+            <Icon d={icons.alert} size={13} color="#f87171" />
+            <span style={{ fontSize: 11, fontWeight: 800, color: "#f87171" }}>{unresolvedCount}</span>
+          </div>
+        )}
         {/* Nav dropdown */}
         <div style={{ position: "relative" }}>
           <button
@@ -1689,6 +1993,7 @@ function TopNav({ activePage, setActivePage, onLogout, saveErr }) {
                 >
                   <Icon d={n.icon} size={16} color={activePage === n.key ? "#e8b84b" : "#8a8f9d"} />
                   {n.label}
+                  {n.badge > 0 && <span style={{ marginLeft: 4, background: "#f87171", color: "#fff", fontSize: 10, fontWeight: 800, borderRadius: 10, padding: "1px 6px", minWidth: 18, textAlign: "center" }}>{n.badge}</span>}
                   {activePage === n.key && <span style={{ marginLeft: "auto", color: "#e8b84b", fontSize: 10 }}>✦</span>}
                 </div>
               ))}
@@ -1713,9 +2018,13 @@ export default function App() {
   const [jobs, setJobs] = useState([]);
   const [checkouts, setCheckouts] = useState([]);
   const [employees, setEmployees] = useState(INITIAL_EMPLOYEES);
+  const [reports, setReports] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
+  const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
   const saveTimer = useRef(null);
+
+  useEffect(() => { try { localStorage.setItem("psr_lang", lang); } catch {} }, [lang]);
 
   // Load all data from cloud on mount
   useEffect(() => {
@@ -1725,6 +2034,7 @@ export default function App() {
         if (d.jobs) setJobs(d.jobs);
         if (d.checkouts) setCheckouts(d.checkouts);
         if (d.employees?.length) setEmployees(d.employees);
+        if (d.reports) setReports(d.reports);
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -1735,34 +2045,37 @@ export default function App() {
     if (!loaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api.putData({ equipment, jobs, checkouts, employees })
+      api.putData({ equipment, jobs, checkouts, employees, reports })
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, loaded]);
+  }, [equipment, jobs, checkouts, employees, reports, loaded]);
 
-  if (!loaded) return (
-    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
-      <Icon d={icons.film} size={40} color="#e8b84b" />
-      <p style={{ color: "#666", fontSize: 13, letterSpacing: "0.08em" }}>LOADING…</p>
-    </div>
-  );
-
-  if (!user) return <Login onLogin={setUser} employees={employees} />;
-
-  if (user.role === "employee") {
-    return <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} onLogout={() => setUser(null)} />;
-  }
+  const unresolvedCount = reports.filter(r => r.status === "open").length;
 
   return (
-    <div style={S.app}>
-      <TopNav activePage={activePage} setActivePage={setActivePage} onLogout={() => setUser(null)} saveErr={saveErr} />
-      <main style={S.main}>
-        {activePage === "dashboard" && <DashboardPage jobs={jobs} equipment={equipment} checkouts={checkouts} />}
-        {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
-        {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} />}
-        {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} />}
-      </main>
-    </div>
+    <LangCtx.Provider value={lang}>
+      {!loaded ? (
+        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
+          <Icon d={icons.film} size={40} color="#e8b84b" />
+          <p style={{ color: "#666", fontSize: 13, letterSpacing: "0.08em" }}>{LANG[lang]?.loading || "LOADING…"}</p>
+        </div>
+      ) : !user ? (
+        <Login onLogin={setUser} employees={employees} />
+      ) : user.role === "employee" ? (
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} setLang={setLang} onLogout={() => setUser(null)} />
+      ) : (
+        <div style={S.app}>
+          <TopNav activePage={activePage} setActivePage={setActivePage} onLogout={() => setUser(null)} saveErr={saveErr} unresolvedCount={unresolvedCount} setLang={setLang} />
+          <main style={S.main}>
+            {activePage === "dashboard" && <DashboardPage jobs={jobs} equipment={equipment} checkouts={checkouts} />}
+            {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
+            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} />}
+            {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
+            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} />}
+          </main>
+        </div>
+      )}
+    </LangCtx.Provider>
   );
 }
