@@ -9,14 +9,15 @@ export async function onRequestOptions() {
 }
 
 export async function onRequestGet({ env }) {
-  const [equipment, jobs, checkouts, employees, reports] = await Promise.all([
+  const [equipment, jobs, checkouts, employees, reports, companyName] = await Promise.all([
     env.KV.get("equipment", "json"),
     env.KV.get("jobs", "json"),
     env.KV.get("checkouts", "json"),
     env.KV.get("employees", "json"),
     env.KV.get("reports", "json"),
+    env.KV.get("companyName", "json"),
   ]);
-  return Response.json({ equipment, jobs, checkouts, employees, reports }, { headers: CORS });
+  return Response.json({ equipment, jobs, checkouts, employees, reports, companyName }, { headers: CORS });
 }
 
 export async function onRequestPut({ request, env }) {
@@ -32,6 +33,8 @@ export async function onRequestPut({ request, env }) {
     ops.push(env.KV.put("employees", JSON.stringify(body.employees)));
   if (body.reports !== undefined)
     ops.push(env.KV.put("reports", JSON.stringify(body.reports)));
+  if (body.companyName !== undefined)
+    ops.push(env.KV.put("companyName", JSON.stringify(body.companyName)));
   await Promise.all(ops);
   return Response.json({ ok: true }, { headers: CORS });
 }

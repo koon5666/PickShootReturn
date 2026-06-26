@@ -1856,7 +1856,7 @@ function AdminReportsPage({ reports, setReports, equipment }) {
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
-function Login({ onLogin, employees }) {
+function Login({ onLogin, employees, companyName }) {
   const [mode, setMode] = useState("choose"); // choose | admin | employee
   const [pin, setPin] = useState("");
   const [selectedEmp, setSelectedEmp] = useState(null);
@@ -1880,7 +1880,7 @@ function Login({ onLogin, employees }) {
     <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div style={{ textAlign: "center", maxWidth: 340 }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}><Icon d={icons.film} size={48} color="#e8b84b" /></div>
-        <h1 style={{ fontSize: 24, fontWeight: 800, color: "#e8e4dc", marginBottom: 4 }}>GEAR DESK</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: "#e8e4dc", marginBottom: 4 }}>{companyName || "GEAR DESK"}</h1>
         <p style={{ color: "#666", marginBottom: 40, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase" }}>Equipment Checkout System</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("admin")}><Icon d={icons.lock} size={16} /> Admin Login</button>
@@ -1935,7 +1935,7 @@ function Login({ onLogin, employees }) {
 }
 
 // ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage({ employees, setEmployees }) {
+function SettingsPage({ employees, setEmployees, companyName, setCompanyName }) {
   const [modal, setModal] = useState(null); // null | "add" | "edit"
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
@@ -1975,6 +1975,23 @@ function SettingsPage({ employees, setEmployees }) {
           <p style={S.pageSubtitle}>Manage crew access</p>
         </div>
         <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> Add Member</button>
+      </div>
+
+      <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>Company</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input
+            style={{ ...S.input, flex: 1 }}
+            value={companyName}
+            onChange={e => setCompanyName(e.target.value)}
+            placeholder="e.g. GEAR DESK"
+            maxLength={40}
+          />
+          {!companyName.trim() && (
+            <span style={{ fontSize: 11, color: "var(--text-muted,#666)", flexShrink: 0 }}>uses default</span>
+          )}
+        </div>
+        <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>Appears in the top bar and login screen.</p>
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
@@ -2113,13 +2130,13 @@ function ThemeSelector({ themeStyle, setThemeStyle, themePalette, setThemePalett
 }
 
 // ─── ADMIN TOP BAR ────────────────────────────────────────────────────────────
-function AdminTopBar({ onLogout, saveErr, setLang, themeStyle, setThemeStyle, themePalette, setThemePalette }) {
+function AdminTopBar({ onLogout, saveErr, setLang, themeStyle, setThemeStyle, themePalette, setThemePalette, companyName }) {
   return (
     <header style={S.topbar}>
       <div style={S.logo}>
         <Icon d={icons.film} size={20} color="var(--accent,#e8b84b)" />
         <div>
-          <div style={S.logoText}>GEAR DESK</div>
+          <div style={S.logoText}>{companyName || "GEAR DESK"}</div>
           <div style={{ ...S.logoSub, marginTop: 0 }}>Pick Shoot Return</div>
         </div>
       </div>
@@ -2202,6 +2219,7 @@ export default function App() {
   const [checkouts, setCheckouts] = useState([]);
   const [employees, setEmployees] = useState(INITIAL_EMPLOYEES);
   const [reports, setReports] = useState([]);
+  const [companyName, setCompanyName] = useState("GEAR DESK");
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
@@ -2228,6 +2246,7 @@ export default function App() {
         if (d.checkouts) setCheckouts(d.checkouts);
         if (d.employees) setEmployees(d.employees);
         if (d.reports) setReports(d.reports);
+        if (d.companyName != null) setCompanyName(d.companyName);
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -2238,11 +2257,11 @@ export default function App() {
     if (!loaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api.putData({ equipment, jobs, checkouts, employees, reports })
+      api.putData({ equipment, jobs, checkouts, employees, reports, companyName })
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, loaded]);
+  }, [equipment, jobs, checkouts, employees, reports, companyName, loaded]);
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
 
@@ -2254,7 +2273,7 @@ export default function App() {
           <p style={{ color: "#666", fontSize: 13, letterSpacing: "0.08em" }}>{LANG[lang]?.loading || "LOADING…"}</p>
         </div>
       ) : !user ? (
-        <Login onLogin={setUser} employees={employees} />
+        <Login onLogin={setUser} employees={employees} companyName={companyName} />
       ) : user.role === "employee" ? (
         <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} setLang={setLang} onLogout={() => setUser(null)} />
       ) : (
@@ -2267,13 +2286,14 @@ export default function App() {
             setThemeStyle={setThemeStyle}
             themePalette={themePalette}
             setThemePalette={setThemePalette}
+            companyName={companyName}
           />
           <main style={{ ...S.main, paddingBottom: 80 }}>
             {activePage === "dashboard" && <DashboardPage jobs={jobs} equipment={equipment} checkouts={checkouts} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
-            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} />}
+            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
         </div>
