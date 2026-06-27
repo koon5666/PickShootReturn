@@ -3737,14 +3737,18 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   const previewInvoice = async (inv) => {
     if (previewing === inv.id) return;
     setPreviewing(inv.id);
+    // Open window immediately while still in user-gesture context — popup blockers only allow
+    // window.open() synchronously from a click handler, not after an await.
+    const win = window.open("", "_blank");
+    if (win) win.document.write('<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:14px">Loading invoice…</body></html>');
     try {
       const emp = employees.find(e => e.id === inv.employeeId) || { name: inv.employeeName, id: inv.employeeId };
       const profileData = await api.getProfile(inv.employeeId).catch(() => null);
       const profileInfo = profileData ? { phone: profileData.phone, email: profileData.email, lineId: profileData.lineId, legalAddress: profileData.legalAddress, bankName: profileData.bankName, bankAccount: profileData.bankAccount, accountName: profileData.accountName } : {};
-      printInvoice({ invoice: inv, employee: emp, profileInfo, promptPayQR: profileData?.promptPayQR || null, idCard: profileData?.idCard || null, signature: profileData?.signature || null, productionCompanies, companyName });
-    } finally {
-      setPreviewing(null);
-    }
+      const html = buildInvoiceHTML({ invoice: inv, employee: emp, profileInfo, promptPayQR: profileData?.promptPayQR || null, idCard: profileData?.idCard || null, signature: profileData?.signature || null, productionCompanies, companyName, autoPrint: false });
+      if (win) { win.document.open(); win.document.write(html); win.document.close(); }
+    } catch { if (win) win.close(); }
+    finally { setPreviewing(null); }
   };
 
   const open = (co = null) => {
