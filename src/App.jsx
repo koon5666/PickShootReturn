@@ -1021,7 +1021,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
       });
       const dateStr = Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
       const locationStr = form.location + (form.locationCity ? ` — ${form.locationCity}` : "");
-      const msg = `${emoji} [${action}] ${form.name}\nProduction: ${form.production || "—"}\nDates: ${dateStr}\nLocation: ${locationStr}\npickshootreturn.pages.dev`;
+      const msg = `${emoji} [${action}] ${form.name}\n🎬 ${form.production || "—"}\n📅 ${dateStr}\n📍 ${locationStr}\n🔗 https://pickshootreturn.pages.dev`;
       if (lineGroupId) {
         api.notify({ userIds: [lineGroupId], message: msg });
       } else {
@@ -2108,7 +2108,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         <ReportModal employee={employee} equipment={equipment} onSubmit={(report) => {
           setReports(p => [...p, report]);
           if (lineGroupId) {
-            const msg = `🚨 [Damage Report] ${employee.name}\nEquipment: ${report.eqName || "—"}\nDetail: ${report.description}\npickshootreturn.pages.dev`;
+            const msg = `🚨 [Damage Report] ${employee.name}\n📷 ${report.eqName || "—"}\n📝 ${report.description}\n🔗 https://pickshootreturn.pages.dev`;
             api.notify({ userIds: [lineGroupId], message: msg });
           }
           setShowReportModal(false);
@@ -2396,7 +2396,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         });
                         const dateStr = Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
                         const purposeStr = gearReqForm.purpose === "work" ? `Job: ${gearReqForm.jobName}${gearReqForm.productionName ? ` — ${gearReqForm.productionName}` : ""}` : "Purpose: Practice";
-                        const msg = `📦 [Gear Request] ${employee.name}\nItems: ${itemLabel}${dateStr ? `\nDates: ${dateStr}` : ""}\n${purposeStr}\npickshootreturn.pages.dev`;
+                        const msg = `📦 [Gear Request] ${employee.name}\n🎥 ${itemLabel}${dateStr ? `\n📅 ${dateStr}` : ""}\n💼 ${purposeStr}\n🔗 https://pickshootreturn.pages.dev`;
                         api.notify({ userIds: [lineGroupId], message: msg });
                       }
                       setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
@@ -2817,7 +2817,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                                 <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => {
                                   const name = profileInfo.firstName ? `${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim() : employee.name;
                                   const total = (() => { const items = inv.items || [{ description: "Labor", qty: 1, rate: (inv.laborFee||0)+(inv.overtime||0)+(inv.travelFee||0)+(inv.perDiem||0) }]; return items.reduce((s, it) => s + (it.qty||1)*(it.rate||0), 0); })();
-                                  const msg = `🧾 Invoice from ${name}\n${fmtInvoiceNo(inv)}\nJob: ${inv.jobName || "—"}\nProduction: ${inv.productionCompany || "—"}\nAmount: ฿${total.toLocaleString()}\nStatus: ${inv.status || "Pending"}\npickshootreturn.pages.dev`;
+                                  const msg = `🧾 Invoice — ${name}\n📄 ${fmtInvoiceNo(inv)}\n🎬 ${inv.jobName || "—"}${inv.productionCompany ? ` · ${inv.productionCompany}` : ""}\n💰 ฿${total.toLocaleString()}\n📋 ${inv.status || "Pending"}\n🔗 https://pickshootreturn.pages.dev`;
                                   api.notify({ userIds: [lineGroupId], message: msg });
                                 }}>
                                   💬 Send to Group
