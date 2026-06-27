@@ -759,57 +759,56 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   const html = `<!DOCTYPE html><html><head><title>${invoice.invoiceNo}</title><meta charset="utf-8"><style>
     @page{size:A4 portrait;margin:0}
     *{box-sizing:border-box;margin:0;padding:0}
-    html,body{height:297mm;overflow:hidden}
-    body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;font-size:10.5px;background:#fff;padding:10mm;display:flex;flex-direction:column}
-    .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
-    .divider{border-top:2px solid #111;margin-bottom:10px}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:8px}
-    .job-box{background:#f7f7f7;border-radius:5px;padding:7px 12px;margin-bottom:8px;border-left:3px solid #111}
-    .lbl{font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:3px}
-    table{width:100%;border-collapse:collapse;margin-bottom:6px}
-    th{text-align:left;font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:4px 7px;border-bottom:1.5px solid #ccc;background:#fafafa}
-    td{padding:4px 7px;border-bottom:1px solid #f0f0f0;font-size:10.5px}
-    .num{text-align:right;width:76px}
-    .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:12px;padding-top:6px}
-    .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:8px 14px;margin-top:auto;display:flex;gap:16px;align-items:center;justify-content:center;flex-shrink:0}
-    .id-wrap{width:120px;flex-shrink:0}
-    .id-img{width:100%;max-height:80px;object-fit:contain;border-radius:4px;display:block;border:1px solid #ddd}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;font-size:10px;background:#fff;padding:8mm}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
+    .divider{border-top:2px solid #111;margin-bottom:5px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px}
+    .job-box{background:#f7f7f7;border-radius:4px;padding:4px 10px;margin-bottom:4px;border-left:3px solid #111}
+    .lbl{font-size:7.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:2px}
+    table{width:100%;border-collapse:collapse;margin-bottom:4px}
+    th{text-align:left;font-size:7.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:3px 6px;border-bottom:1.5px solid #ccc;background:#fafafa}
+    td{padding:3px 6px;border-bottom:1px solid #f0f0f0;font-size:10px}
+    .num{text-align:right;width:70px}
+    .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:11px;padding-top:4px}
+    .bottom-box{border:1.5px solid #ddd;border-radius:6px;padding:8px 12px;margin-top:6px;display:flex;gap:12px;align-items:center;justify-content:center}
+    .id-wrap{width:160px;flex-shrink:0}
+    .id-img{width:100%;border-radius:4px;display:block;border:1px solid #ddd}
     .sig-col{flex-shrink:0;display:flex;flex-direction:column;align-items:center}
-    .sig-img{width:130px;opacity:.95}
+    .sig-img{width:160px;opacity:.95}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>
   <div class="hdr">
     <div>
-      <div style="font-size:20px;font-weight:800;letter-spacing:.01em">${companyName || "GEAR DESK"}</div>
+      <div style="font-size:16px;font-weight:800;letter-spacing:.01em">${companyName || "GEAR DESK"}</div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:26px;font-weight:900;letter-spacing:.04em">INVOICE</div>
-      <div style="font-size:11px;color:#555;margin-top:3px">#${fmtInvoiceNo(invoice)}</div>
-      <div style="font-size:10px;color:#888;margin-top:2px">${invDate}</div>
-      ${invoice.status === "Paid" ? `<div style="margin-top:6px;display:inline-block;padding:2px 10px;border-radius:20px;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:${statusBg};color:${statusColor}">PAID</div>` : ""}
+      <div style="font-size:21px;font-weight:900;letter-spacing:.04em">INVOICE</div>
+      <div style="font-size:10px;color:#555;margin-top:2px">#${fmtInvoiceNo(invoice)}</div>
+      <div style="font-size:9px;color:#888;margin-top:1px">${invDate}</div>
+      ${invoice.status === "Paid" ? `<div style="margin-top:4px;display:inline-block;padding:2px 8px;border-radius:20px;font-size:8.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:${statusBg};color:${statusColor}">PAID</div>` : ""}
     </div>
   </div>
   <div class="divider"></div>
   <div class="grid2">
     <div>
       <div class="lbl">Bill To</div>
-      <div style="font-weight:700;font-size:13px">${invoice.productionCompany || "—"}</div>
-      ${prodCo?.address ? `<div style="font-size:10.5px;color:#555;white-space:pre-wrap;margin-top:3px;line-height:1.5">${prodCo.address}</div>` : ""}
+      <div style="font-weight:700;font-size:11px">${invoice.productionCompany || "—"}</div>
+      ${prodCo?.address ? `<div style="font-size:9.5px;color:#555;white-space:pre-wrap;margin-top:2px;line-height:1.4">${prodCo.address}</div>` : ""}
     </div>
     <div>
       <div class="lbl">From</div>
-      <div style="font-weight:700;font-size:13px">${profileInfo?.firstName ? `${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim() : employee.name}</div>
-      ${profileInfo?.legalAddress ? `<div style="font-size:10.5px;color:#555;white-space:pre-wrap;margin-top:3px;line-height:1.5">${profileInfo.legalAddress}</div>` : ""}
-      ${profileInfo?.phone ? `<div style="font-size:10.5px;color:#555;margin-top:3px">Phone No.: ${profileInfo.phone}</div>` : ""}
-      ${profileInfo?.email ? `<div style="font-size:10.5px;color:#555;margin-top:2px">Email: ${profileInfo.email}</div>` : ""}
+      <div style="font-weight:700;font-size:11px">${profileInfo?.firstName ? `${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim() : employee.name}</div>
+      ${profileInfo?.legalAddress ? `<div style="font-size:9.5px;color:#555;white-space:pre-wrap;margin-top:2px;line-height:1.4">${profileInfo.legalAddress}</div>` : ""}
+      ${profileInfo?.phone ? `<div style="font-size:9.5px;color:#555;margin-top:2px">Phone: ${profileInfo.phone}</div>` : ""}
+      ${profileInfo?.email ? `<div style="font-size:9.5px;color:#555;margin-top:1px">Email: ${profileInfo.email}</div>` : ""}
     </div>
   </div>
   <div class="job-box">
-    <div style="font-weight:700;font-size:13px;margin-bottom:3px">${invoice.jobName}</div>
-    <div style="font-size:11px;color:#555">Position: <strong>${invoice.position || "—"}</strong>${dateStr ? ` &nbsp;|&nbsp; Dates: ${dateStr}` : ""}</div>
+    <div style="font-weight:700;font-size:11px;margin-bottom:2px">${invoice.jobName}</div>
+    <div style="font-size:10px;color:#555">Position: <strong>${invoice.position || "—"}</strong>${dateStr ? ` · ${dateStr}` : ""}</div>
   </div>
   ${invoice.callWrap && Object.keys(invoice.callWrap).some(d => invoice.callWrap[d]?.call || invoice.callWrap[d]?.wrap) ? `
-  <table style="margin-bottom:10px;width:auto;min-width:260px">
+  <table style="margin-bottom:4px;width:auto;min-width:220px">
     <thead><tr><th>Date</th><th>Call Time</th><th>Wrap Time</th></tr></thead>
     <tbody>${Object.keys(invoice.callWrap).sort().map(d => {
       const cw = invoice.callWrap[d];
@@ -828,8 +827,8 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   <div class="bottom-box">
     ${promptPayQR ? `<div style="text-align:center;flex-shrink:0">
       <div class="lbl" style="margin-bottom:6px">PromptPay / QR Payment</div>
-      <img src="${promptPayQR}" style="width:130px;height:130px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
-      ${(profileInfo?.bankName || profileInfo?.bankAccount || profileInfo?.accountName) ? `<div style="margin-top:8px;font-size:10px;color:#444;line-height:1.7;text-align:center">
+      <img src="${promptPayQR}" style="width:208px;height:208px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
+      ${(profileInfo?.bankName || profileInfo?.bankAccount || profileInfo?.accountName) ? `<div style="margin-top:4px;font-size:9px;color:#444;line-height:1.6;text-align:center">
         ${profileInfo.bankName ? `<div style="font-weight:700">${profileInfo.bankName}</div>` : ""}
         ${profileInfo.accountName ? `<div>${profileInfo.accountName}</div>` : ""}
         ${profileInfo.bankAccount ? `<div>${profileInfo.bankAccount}</div>` : ""}
@@ -840,7 +839,7 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
       <img class="id-img" src="${idCard}" />
     </div>` : ""}
     ${signature ? `<div class="sig-col">
-      <div style="font-size:8.5px;color:#888;text-align:center;line-height:1.6;margin-bottom:8px;max-width:180px">
+      <div style="font-size:8px;color:#888;text-align:center;line-height:1.5;margin-bottom:4px;max-width:180px">
         ข้อมูลและสำเนาถูกต้อง<br>ใช้สำหรับงาน <strong>${invoice.jobName || "—"}</strong><br>ของ <strong>${invoice.productionCompany || "—"}</strong>
       </div>
       <img class="sig-img" src="${signature}" />
@@ -848,10 +847,10 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   </div>` : ""}
   <script>
     window.onload=()=>{
-      const a4h=297*96/25.4;
-      const h=document.body.scrollHeight;
-      if(h>a4h){document.documentElement.style.zoom=(a4h/h).toFixed(4);}
-      ${autoPrint ? "setTimeout(()=>{window.print();window.onafterprint=()=>window.close();},600);" : ""}
+      const a4px=297*96/25.4;
+      const h=document.documentElement.scrollHeight;
+      if(h>a4px+2){document.documentElement.style.zoom=String((a4px/h).toFixed(4));}
+      ${autoPrint ? "setTimeout(()=>{window.print();window.onafterprint=()=>window.close();},500);" : ""}
     };
   <\/script>
   </body></html>`;
