@@ -2105,7 +2105,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       </header>
 
       {showReportModal && (
-        <ReportModal employee={employee} equipment={equipment} onSubmit={(report) => { setReports(p => [...p, report]); setShowReportModal(false); }} onClose={() => setShowReportModal(false)} />
+        <ReportModal employee={employee} equipment={equipment} onSubmit={(report) => {
+          setReports(p => [...p, report]);
+          if (lineGroupId) {
+            const msg = `🚨 [Damage Report] ${employee.name}\nEquipment: ${report.eqName || "—"}\nDetail: ${report.description}\npickshootreturn.pages.dev`;
+            api.notify({ userIds: [lineGroupId], message: msg });
+          }
+          setShowReportModal(false);
+        }} onClose={() => setShowReportModal(false)} />
       )}
 
       <div style={{ ...S.main, paddingBottom: 80 }}>
@@ -2377,6 +2384,21 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         resolvedAt: null,
                       };
                       setEquipmentRequests(p => [...p, newReq]);
+                      if (lineGroupId) {
+                        const itemLabel = items.map(it => `${it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`).join(", ");
+                        const groups = {};
+                        [...(gearReqForm.useDates || [])].sort().forEach(d => {
+                          const dt = new Date(d + "T00:00:00");
+                          const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
+                          const label = dt.toLocaleString("en-GB", { month: "short" });
+                          if (!groups[key]) groups[key] = { label, days: [] };
+                          groups[key].days.push(dt.getDate());
+                        });
+                        const dateStr = Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
+                        const purposeStr = gearReqForm.purpose === "work" ? `Job: ${gearReqForm.jobName}${gearReqForm.productionName ? ` — ${gearReqForm.productionName}` : ""}` : "Purpose: Practice";
+                        const msg = `📦 [Gear Request] ${employee.name}\nItems: ${itemLabel}${dateStr ? `\nDates: ${dateStr}` : ""}\n${purposeStr}\npickshootreturn.pages.dev`;
+                        api.notify({ userIds: [lineGroupId], message: msg });
+                      }
                       setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
                       setShowGearRequest(false);
                     }}>Submit Request</button>
