@@ -987,7 +987,7 @@ function ProductionCombobox({ value, onChange, companies }) {
 }
 
 // ─── SHARED JOB FORM MODAL ────────────────────────────────────────────────────
-function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, onClose }) {
+function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, lineGroupId, onClose }) {
   const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "" };
   const [form, setForm] = useState(editTarget ? { ...editTarget } : EMPTY);
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -1013,8 +1013,12 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
       const dateStr = (form.dates || []).slice(0, 3).map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ") + (form.dates.length > 3 ? "…" : "");
       const locationStr = form.location + (form.locationCity ? ` — ${form.locationCity}` : "");
       const msg = `${emoji} [${form.status}] ${form.name}\nProduction: ${form.production || "—"}\nDates: ${dateStr}\nLocation: ${locationStr}`;
-      const lineIds = (employees || []).filter(e => e.lineUserId).map(e => e.lineUserId);
-      if (lineIds.length > 0) api.notify({ userIds: lineIds, message: msg });
+      if (lineGroupId) {
+        api.notify({ userIds: [lineGroupId], message: msg });
+      } else {
+        const lineIds = (employees || []).filter(e => e.lineUserId).map(e => e.lineUserId);
+        if (lineIds.length > 0) api.notify({ userIds: lineIds, message: msg });
+      }
     }
     onClose();
   };
@@ -1104,7 +1108,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
   );
 }
 
-function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees }) {
+function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees, lineGroupId }) {
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
@@ -1209,7 +1213,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
       {/* Form Modal */}
       {modal === "form" && (
-        <JobFormModal editTarget={editTarget} jobs={jobs} setJobs={setJobs} productionCompanies={productionCompanies} employees={employees} onClose={() => setModal(null)} />
+        <JobFormModal editTarget={editTarget} jobs={jobs} setJobs={setJobs} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} onClose={() => setModal(null)} />
       )}
 
       {/* Assign Equipment Modal — kanban style */}
@@ -1570,7 +1574,7 @@ function DashboardCalendar({ jobs, equipment }) {
 }
 
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
-function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests }) {
+function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, lineGroupId }) {
   const todayStr = today();
   const todayJobs = jobs.filter(j => j.dates.includes(todayStr));
   const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
@@ -1830,6 +1834,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           setJobs={setJobs}
           productionCompanies={productionCompanies}
           employees={employees}
+          lineGroupId={lineGroupId}
           onClose={() => setDashJobModal(null)}
         />
       )}
@@ -3131,7 +3136,7 @@ function Login({ onLogin, employees, companyName, adminPin }) {
 }
 
 // ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin }) {
+function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId }) {
   const [modal, setModal] = useState(null); // null | "add" | "edit" | "profile"
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
@@ -3307,19 +3312,32 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
 
       <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>Line OA Notifications</p>
-        <p style={{ fontSize: 13, color: "var(--text-muted,#666)", marginBottom: 12 }}>
-          When a job is created or status changes, team members with a Line User ID (above) are notified automatically via your Line Official Account.
-        </p>
-        <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.7 }}>
-          <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>Setup (one-time):</strong>
-          1. Go to <strong>developers.line.biz</strong> → Create a Messaging API channel<br />
-          2. Copy the <strong>Channel access token (long-lived)</strong><br />
-          3. In Cloudflare Pages → Settings → Environment variables, add:<br />
-          <code style={{ background: "rgba(232,184,75,0.1)", color: "var(--accent,#e8b84b)", padding: "1px 6px", borderRadius: 4, display: "inline-block", margin: "4px 0" }}>LINE_CHANNEL_ACCESS_TOKEN = &lt;your token&gt;</code><br />
-          4. Have each team member add your OA as a friend (scan QR in OA Manager)<br />
-          5. Get their <strong>Line User ID</strong> from OA Manager → Chat → User details (starts with "U…"), then enter it above
+
+        {/* Group chat status */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "10px 14px", borderRadius: 8, background: lineGroupId ? "rgba(52,211,153,0.07)" : "rgba(255,255,255,0.03)", border: `1px solid ${lineGroupId ? "rgba(52,211,153,0.25)" : "#252830"}` }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: lineGroupId ? "#34d399" : "#444", flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: lineGroupId ? "#34d399" : "#666" }}>
+              {lineGroupId ? "Group chat connected" : "No group chat connected"}
+            </p>
+            {lineGroupId && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lineGroupId}</p>}
+          </div>
+          {lineGroupId && (
+            <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11, flexShrink: 0 }} onClick={() => setLineGroupId(null)}>Disconnect</button>
+          )}
         </div>
-        <p style={{ fontSize: 11, color: "var(--text-muted,#555)", marginTop: 10 }}>Free tier: 200 messages/month. Each job notification counts as 1 message per team member.</p>
+
+        <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.8 }}>
+          <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>Connect a Group Chat (one-time):</strong>
+          1. Add your LINE OA to the group chat<br />
+          2. In <strong>LINE Developers Console</strong> → Messaging API → Webhook URL, set:<br />
+          <code style={{ background: "rgba(232,184,75,0.1)", color: "var(--accent,#e8b84b)", padding: "2px 8px", borderRadius: 4, display: "inline-block", margin: "4px 0", fontSize: 11 }}>https://pickshootreturn.pages.dev/api/webhook</code><br />
+          3. Enable <strong>Use webhook</strong> and click <strong>Verify</strong><br />
+          4. The group ID is captured automatically when the OA joins or receives a message in the group
+        </div>
+        <p style={{ fontSize: 11, color: "var(--text-muted,#555)", marginTop: 10 }}>
+          {lineGroupId ? "All job notifications go to the group. Free tier: 200 messages/month." : "Without a group, notifications go to individual team members via their Line User ID above."}
+        </p>
       </div>
 
       <div style={S.card}>
@@ -3754,6 +3772,7 @@ export default function App() {
   const [companyName, setCompanyName] = useState("GEAR DESK");
   const [equipmentRequests, setEquipmentRequests] = useState([]);
   const [adminPin, setAdminPin] = useState("1234");
+  const [lineGroupId, setLineGroupId] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
@@ -3785,6 +3804,7 @@ export default function App() {
         if (d.companyName != null) setCompanyName(d.companyName);
         if (d.equipmentRequests) setEquipmentRequests(d.equipmentRequests);
         if (d.adminPin) setAdminPin(d.adminPin);
+        if (d.lineGroupId) setLineGroupId(d.lineGroupId);
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -3795,11 +3815,11 @@ export default function App() {
     if (!loaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api.putData({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin })
+      api.putData({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin, lineGroupId })
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin, loaded]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin, lineGroupId, loaded]);
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
 
@@ -3827,12 +3847,12 @@ export default function App() {
             companyName={companyName}
           />
           <main style={{ ...S.main, paddingBottom: 80 }}>
-            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} />}
+            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} lineGroupId={lineGroupId} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
-            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} />}
+            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} />}
-            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} />}
+            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
         </div>

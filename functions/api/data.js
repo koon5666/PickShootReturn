@@ -9,7 +9,7 @@ export async function onRequestOptions() {
 }
 
 export async function onRequestGet({ env }) {
-  const [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin] = await Promise.all([
+  const [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin, lineGroupId] = await Promise.all([
     env.KV.get("equipment", "json"),
     env.KV.get("jobs", "json"),
     env.KV.get("checkouts", "json"),
@@ -20,8 +20,9 @@ export async function onRequestGet({ env }) {
     env.KV.get("companyName", "json"),
     env.KV.get("equipmentRequests", "json"),
     env.KV.get("adminPin", "json"),
+    env.KV.get("lineGroupId", "json"),
   ]);
-  return Response.json({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin }, { headers: CORS });
+  return Response.json({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin, lineGroupId }, { headers: CORS });
 }
 
 export async function onRequestPut({ request, env }) {
@@ -47,6 +48,8 @@ export async function onRequestPut({ request, env }) {
     ops.push(env.KV.put("equipmentRequests", JSON.stringify(body.equipmentRequests)));
   if (body.adminPin !== undefined)
     ops.push(env.KV.put("adminPin", JSON.stringify(body.adminPin)));
+  if (body.lineGroupId !== undefined)
+    ops.push(env.KV.put("lineGroupId", JSON.stringify(body.lineGroupId)));
   await Promise.all(ops);
   return Response.json({ ok: true }, { headers: CORS });
 }
