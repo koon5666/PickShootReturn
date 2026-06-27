@@ -1745,7 +1745,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
   const [showReportModal, setShowReportModal] = useState(false);
   const [showGearRequest, setShowGearRequest] = useState(false);
-  const [gearReqForm, setGearReqForm] = useState({ eqId: "", qty: 1, purpose: "practice", productionName: "", jobName: "", reason: "" });
+  const [gearReqForm, setGearReqForm] = useState({ useDate: "", purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
   const [pinChangeForm, setPinChangeForm] = useState({ newPin: "", confirmPin: "" });
   const [pinChangeMsg, setPinChangeMsg] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
@@ -2038,13 +2038,19 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               {myRequests.length === 0 ? (
                 <p style={{ fontSize: 13, color: "#555" }}>No gear requests yet.</p>
               ) : myRequests.slice().reverse().map((req, i) => {
-                const eq = equipment.find(e => e.id === req.eqId);
+                const itemLabel = req.items
+                  ? req.items.map(it => { const e = equipment.find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
+                  : `${equipment.find(e => e.id === req.eqId)?.name || req.eqName} ×${req.qty}`;
                 return (
                   <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < myRequests.length - 1 ? 10 : 0, marginBottom: i < myRequests.length - 1 ? 10 : 0, borderBottom: i < myRequests.length - 1 ? "1px solid #252830" : "none" }}>
                     <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{eq?.name || req.eqName} ×{req.qty}</p>
-                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"} · {new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{itemLabel}</p>
+                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>
+                        {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}
+                        {req.useDate ? ` · For: ${formatDate(req.useDate)}` : ""}
+                        {" · "}{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                      </p>
                       {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{req.reason}</p>}
                     </div>
                   </div>
@@ -2054,19 +2060,76 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
             {/* Gear Request Modal */}
             {showGearRequest && (
-              <Modal title="Request Gear Checkout" onClose={() => setShowGearRequest(false)}>
+              <Modal title="Request Gear Checkout" onClose={() => { setShowGearRequest(false); setGearReqForm({ useDate: "", purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }} wide>
                 <div style={S.col}>
                   <div>
-                    <label style={S.label}>Equipment</label>
-                    <select style={S.select} value={gearReqForm.eqId} onChange={e => setGearReqForm(p => ({ ...p, eqId: e.target.value }))}>
-                      <option value="">— Select equipment —</option>
-                      {equipment.map(eq => <option key={eq.id} value={eq.id}>{eq.name} (×{eq.total})</option>)}
-                    </select>
+                    <label style={S.label}>Date Needed</label>
+                    <input type="date" style={S.input} value={gearReqForm.useDate} onChange={e => setGearReqForm(p => ({ ...p, useDate: e.target.value }))} />
+                    {!gearReqForm.useDate && <p style={{ fontSize: 11, color: "#555", margin: "4px 0 0" }}>Select a date to check availability</p>}
                   </div>
+
                   <div>
-                    <label style={S.label}>Quantity</label>
-                    <input style={S.input} type="number" min={1} max={20} value={gearReqForm.qty} onChange={e => setGearReqForm(p => ({ ...p, qty: Math.max(1, +e.target.value) }))} />
+                    <label style={S.label}>Select Equipment</label>
+                    {(() => {
+                      const avList = gearReqForm.useDate
+                        ? calcAvailable(equipment, jobs, checkouts, gearReqForm.useDate)
+                        : equipment.map(eq => ({ ...eq, available: eq.total, taken: 0 }));
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 300, overflowY: "auto", paddingRight: 4 }}>
+                          {avList.map(eq => {
+                            const currentQty = +gearReqForm.selectedGear[eq.id] || 0;
+                            const isSelected = currentQty > 0;
+                            const maxAvail = eq.available ?? eq.total;
+                            const isMulti = eq.total > 1;
+                            return (
+                              <div key={eq.id}
+                                onClick={() => {
+                                  if (!isSelected && maxAvail === 0) return;
+                                  if (!isSelected) setGearReqForm(p => ({ ...p, selectedGear: { ...p.selectedGear, [eq.id]: 1 } }));
+                                  else setGearReqForm(p => { const g = { ...p.selectedGear }; delete g[eq.id]; return { ...p, selectedGear: g }; });
+                                }}
+                                style={{
+                                  display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10,
+                                  border: isSelected ? "1.5px solid #e8b84b" : maxAvail === 0 ? "1.5px solid #252830" : "1.5px solid #2e3340",
+                                  background: isSelected ? "rgba(232,184,75,0.07)" : maxAvail === 0 ? "rgba(0,0,0,0.2)" : "#0f1117",
+                                  cursor: maxAvail === 0 && !isSelected ? "not-allowed" : "pointer",
+                                  opacity: maxAvail === 0 && !isSelected ? 0.45 : 1,
+                                  transition: "all 0.12s",
+                                }}>
+                                <div style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                                  background: isSelected ? "#e8b84b" : "#1a1e27", border: isSelected ? "none" : "1.5px solid #3a4050" }}>
+                                  {isSelected && <Icon d={icons.check} size={13} color="#0f1117" strokeW={3} />}
+                                </div>
+                                {eq.photo
+                                  ? <img src={eq.photo} alt="" style={{ width: 40, height: 36, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
+                                  : <div style={{ width: 40, height: 36, borderRadius: 6, background: "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                      <Icon d={icons.camera} size={14} color="#444" />
+                                    </div>
+                                }
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: isSelected ? "#e8b84b" : "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eq.name}</p>
+                                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>
+                                    {eq.category}
+                                    {isMulti ? ` · ${maxAvail} of ${eq.total} free` : maxAvail === 0 ? " · Unavailable" : " · Available"}
+                                  </p>
+                                </div>
+                                {isMulti && isSelected && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                                    <button style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #3a4050", background: "#1a1e27", color: "#e8e4dc", fontSize: 16, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                                      onClick={() => setGearReqForm(p => ({ ...p, selectedGear: { ...p.selectedGear, [eq.id]: Math.max(1, (p.selectedGear[eq.id] || 1) - 1) } }))}>−</button>
+                                    <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14, color: "#e8b84b" }}>{currentQty}</span>
+                                    <button style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #3a4050", background: "#1a1e27", color: "#e8e4dc", fontSize: 16, lineHeight: 1, cursor: currentQty >= maxAvail ? "not-allowed" : "pointer", opacity: currentQty >= maxAvail ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}
+                                      onClick={() => setGearReqForm(p => ({ ...p, selectedGear: { ...p.selectedGear, [eq.id]: Math.min(maxAvail, (p.selectedGear[eq.id] || 1) + 1) } }))}>+</button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
+
                   <div>
                     <label style={S.label}>Purpose</label>
                     <select style={S.select} value={gearReqForm.purpose} onChange={e => setGearReqForm(p => ({ ...p, purpose: e.target.value, productionName: "", jobName: "" }))}>
@@ -2078,11 +2141,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     <>
                       <div>
                         <label style={S.label}>Production House</label>
-                        <input style={S.input} value={gearReqForm.productionName} onChange={e => setGearReqForm(p => ({ ...p, productionName: e.target.value }))} placeholder="e.g. One More Films" />
+                        <input style={S.input} value={gearReqForm.productionName} onChange={e => setGearReqForm(p => ({ ...p, productionName: e.target.value }))} placeholder="Production house" />
                       </div>
                       <div>
                         <label style={S.label}>Job Name</label>
-                        <input style={S.input} value={gearReqForm.jobName} onChange={e => setGearReqForm(p => ({ ...p, jobName: e.target.value }))} placeholder="e.g. TVC Brand" />
+                        <input style={S.input} value={gearReqForm.jobName} onChange={e => setGearReqForm(p => ({ ...p, jobName: e.target.value }))} placeholder="Job name" />
                       </div>
                     </>
                   )}
@@ -2090,18 +2153,37 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     <label style={S.label}>Reason</label>
                     <textarea style={{ ...S.input, height: 70, resize: "vertical", lineHeight: 1.5 }} value={gearReqForm.reason} onChange={e => setGearReqForm(p => ({ ...p, reason: e.target.value }))} placeholder="Why do you need this gear?" />
                   </div>
+
+                  {Object.values(gearReqForm.selectedGear).some(q => q > 0) && (
+                    <div style={{ padding: "10px 14px", background: "rgba(232,184,75,0.06)", border: "1px solid rgba(232,184,75,0.15)", borderRadius: 8 }}>
+                      <p style={{ margin: 0, fontSize: 11, color: "#e8b84b", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Selected</p>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {Object.entries(gearReqForm.selectedGear).filter(([, q]) => q > 0).map(([eqId, qty]) => {
+                          const eq = equipment.find(e => e.id === eqId);
+                          return eq ? <span key={eqId} style={S.tag}>{eq.name}{eq.total > 1 ? ` ×${qty}` : ""}</span> : null;
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                    <button style={S.btn("ghost")} onClick={() => setShowGearRequest(false)}>Cancel</button>
+                    <button style={S.btn("ghost")} onClick={() => { setShowGearRequest(false); setGearReqForm({ useDate: "", purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }}>Cancel</button>
                     <button style={S.btn("primary")} onClick={() => {
-                      if (!gearReqForm.eqId) return;
-                      const eq = equipment.find(e => e.id === gearReqForm.eqId);
+                      const selectedItems = Object.entries(gearReqForm.selectedGear).filter(([, q]) => q > 0);
+                      if (selectedItems.length === 0) return;
+                      const items = selectedItems.map(([eqId, qty]) => {
+                        const eq = equipment.find(e => e.id === eqId);
+                        return { eqId, eqName: eq?.name || "", qty };
+                      });
                       const newReq = {
                         id: "req" + Date.now(),
                         employeeId: employee.id,
                         employeeName: employee.name,
-                        eqId: gearReqForm.eqId,
-                        eqName: eq?.name || "",
-                        qty: gearReqForm.qty,
+                        items,
+                        eqId: items[0].eqId,
+                        eqName: items[0].eqName,
+                        qty: items[0].qty,
+                        useDate: gearReqForm.useDate,
                         purpose: gearReqForm.purpose,
                         productionName: gearReqForm.productionName,
                         jobName: gearReqForm.jobName,
@@ -2111,7 +2193,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         resolvedAt: null,
                       };
                       setEquipmentRequests(p => [...p, newReq]);
-                      setGearReqForm({ eqId: "", qty: 1, purpose: "practice", productionName: "", jobName: "", reason: "" });
+                      setGearReqForm({ useDate: "", purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
                       setShowGearRequest(false);
                     }}>Submit Request</button>
                   </div>
@@ -2894,21 +2976,24 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
 
   const approveRequest = (req) => {
     setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: Date.now() } : r));
-    const newCheckout = {
-      id: "co" + Date.now(),
+    const jobName = req.purpose === "work" ? (req.jobName || "Work") : "Personal / Practice";
+    const items = req.items || [{ eqId: req.eqId, eqName: req.eqName, qty: req.qty }];
+    const now = Date.now();
+    const newCheckouts = items.map((item, i) => ({
+      id: "co" + now + i,
       jobId: null,
-      jobName: req.purpose === "work" ? (req.jobName || "Work") : "Personal / Practice",
-      eqId: req.eqId,
-      qty: req.qty,
+      jobName,
+      eqId: item.eqId,
+      qty: item.qty,
       employeeId: req.employeeId,
       employeeName: req.employeeName,
       type: "pick",
-      ts: Date.now(),
+      ts: now,
       photo: null,
       location: null,
       requestId: req.id,
-    };
-    setCheckouts(p => [...p, newCheckout]);
+    }));
+    setCheckouts(p => [...p, ...newCheckouts]);
   };
 
   const denyRequest = (id) => {
@@ -3013,14 +3098,19 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
         {(equipmentRequests || []).length === 0 ? (
           <p style={{ fontSize: 13, color: "#666" }}>No equipment requests yet.</p>
         ) : [...(equipmentRequests || [])].reverse().map((req, i, arr) => {
-          const eq = (equipment || []).find(e => e.id === req.eqId);
+          const itemLabel = req.items
+            ? req.items.map(it => { const e = (equipment || []).find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
+            : `${(equipment || []).find(e => e.id === req.eqId)?.name || req.eqName} ×${req.qty}`;
           return (
             <div key={req.id} style={{ paddingBottom: i < arr.length - 1 ? 14 : 0, marginBottom: i < arr.length - 1 ? 14 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
                 <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.employeeName}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d" }}>{eq?.name || req.eqName} ×{req.qty} · {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d" }}>
+                    {itemLabel} · {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}
+                    {req.useDate ? ` · ${formatDate(req.useDate)}` : ""}
+                  </p>
                   {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.reason}</p>}
                   <p style={{ margin: "2px 0 0", fontSize: 10, color: "#444" }}>{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
                 </div>
