@@ -701,22 +701,22 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
     td{padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:11.5px}
     .num{text-align:right;width:80px}
     .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:13px;padding-top:8px}
-    .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:12px 14px;margin-top:12px;display:flex;gap:14px;align-items:flex-start}
-    .sig-wrap{position:relative;flex:1;max-width:220px}
+    .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:12px 14px;margin-top:12px;display:flex;gap:14px;align-items:center}
+    .sig-wrap{position:relative;width:160px;flex-shrink:0}
     .id-img{width:100%;border-radius:5px;display:block;border:1px solid #ddd}
-    .sig-img{position:absolute;bottom:0;right:0;width:126px;transform:rotate(-15deg);transform-origin:bottom right;opacity:.92}
+    .sig-img{position:absolute;bottom:0;right:0;width:96px;transform:rotate(-15deg);transform-origin:bottom right;opacity:.92}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>
   <div class="hdr">
     <div>
       <div style="font-size:20px;font-weight:800;letter-spacing:.01em">${companyName || "GEAR DESK"}</div>
-      <div style="font-size:9.5px;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-top:3px">Camera Crew Services</div>
+      <div style="font-size:9.5px;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-top:3px">STEADIKOON's Assistant</div>
     </div>
     <div style="text-align:right">
       <div style="font-size:26px;font-weight:900;letter-spacing:.04em">INVOICE</div>
       <div style="font-size:11px;color:#555;margin-top:3px">#${fmtInvoiceNo(invoice)}</div>
       <div style="font-size:10px;color:#888;margin-top:2px">${invDate}</div>
-      <div style="margin-top:6px;display:inline-block;padding:2px 10px;border-radius:20px;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:${statusBg};color:${statusColor}">${invoice.status || "Pending"}</div>
+      ${invoice.status === "Paid" ? `<div style="margin-top:6px;display:inline-block;padding:2px 10px;border-radius:20px;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:${statusBg};color:${statusColor}">PAID</div>` : ""}
     </div>
   </div>
   <div class="divider"></div>
@@ -728,10 +728,10 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
     </div>
     <div>
       <div class="lbl">From</div>
-      <div style="font-weight:700;font-size:13px">${employee.name}</div>
+      <div style="font-weight:700;font-size:13px">${profileInfo?.firstName ? `${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim() : employee.name}</div>
       ${profileInfo?.legalAddress ? `<div style="font-size:10.5px;color:#555;white-space:pre-wrap;margin-top:3px;line-height:1.5">${profileInfo.legalAddress}</div>` : ""}
-      ${profileInfo?.phone ? `<div style="font-size:10.5px;color:#555;margin-top:3px">T: ${profileInfo.phone}</div>` : ""}
-      ${profileInfo?.email ? `<div style="font-size:10.5px;color:#555;margin-top:2px">E: ${profileInfo.email}</div>` : ""}
+      ${profileInfo?.phone ? `<div style="font-size:10.5px;color:#555;margin-top:3px">Phone No.: ${profileInfo.phone}</div>` : ""}
+      ${profileInfo?.email ? `<div style="font-size:10.5px;color:#555;margin-top:2px">Email: ${profileInfo.email}</div>` : ""}
     </div>
   </div>
   <div class="job-box">
@@ -758,7 +758,7 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
   <div class="bottom-box">
     ${promptPayQR ? `<div style="text-align:center;flex-shrink:0">
       <div class="lbl" style="margin-bottom:6px">PromptPay / QR Payment</div>
-      <img src="${promptPayQR}" style="width:110px;height:110px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
+      <img src="${promptPayQR}" style="width:208px;height:208px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
     </div>` : ""}
     ${idCard ? `<div class="sig-wrap">
       <div class="lbl" style="margin-bottom:6px">ID Card</div>
@@ -1752,7 +1752,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [capturePhoto, setCapturePhoto] = useState(null);
   const [captureLocation, setCaptureLocation] = useState(null);
   const [profilePhoto, setProfilePhoto] = useState(null);
-  const [profileInfo, setProfileInfo] = useState({ phone: "", email: "", lineId: "", legalAddress: "" });
+  const [profileInfo, setProfileInfo] = useState({ firstName: "", lastName: "", nickname: "", phone: "", email: "", lineId: "", legalAddress: "" });
   const [idCard, setIdCard] = useState(null);
   const [promptPayQR, setPromptPayQR] = useState(null);
   const [signature, setSignature] = useState(null);
@@ -1782,7 +1782,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     api.getProfile(employee.id).then(d => {
       if (!d) return;
       if (d.photo) setProfilePhoto(d.photo);
-      setProfileInfo({ phone: d.phone || "", email: d.email || "", lineId: d.lineId || "", legalAddress: d.legalAddress || "" });
+      setProfileInfo({ firstName: d.firstName || "", lastName: d.lastName || "", nickname: d.nickname || "", phone: d.phone || "", email: d.email || "", lineId: d.lineId || "", legalAddress: d.legalAddress || "" });
       if (d.idCard) setIdCard(d.idCard);
       if (d.promptPayQR) setPromptPayQR(d.promptPayQR);
       if (d.signature) setSignature(d.signature);
@@ -2180,7 +2180,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 }
               </div>
               <div style={{ textAlign: "center" }}>
-                <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#e8e4dc" }}>{employee.name}</p>
+                <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#e8e4dc" }}>{profileInfo.nickname || employee.name}</p>
+                {profileInfo.firstName && <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d" }}>{profileInfo.firstName} {profileInfo.lastName}</p>}
                 <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{t("cameraCrew")}</p>
               </div>
               <input ref={profileFileRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={handleProfileUpload} />
@@ -2201,6 +2202,20 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             <div style={S.card}>
               <p style={S.sectionTitle}>{t("personalInfo")}</p>
               <div style={S.col}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label style={S.label}>First Name</label>
+                    <input style={S.input} placeholder="Watcharawit" value={profileInfo.firstName} onChange={e => setProfileInfo(p => ({ ...p, firstName: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label style={S.label}>Last Name</label>
+                    <input style={S.input} placeholder="Ya-inta" value={profileInfo.lastName} onChange={e => setProfileInfo(p => ({ ...p, lastName: e.target.value }))} />
+                  </div>
+                </div>
+                <div>
+                  <label style={S.label}>Nickname <span style={{ color: "#666", fontWeight: 400 }}>(shown in portal)</span></label>
+                  <input style={S.input} placeholder="Koon" value={profileInfo.nickname} onChange={e => setProfileInfo(p => ({ ...p, nickname: e.target.value }))} />
+                </div>
                 {[
                   { key: "phone", label: t("phone"), type: "tel", placeholder: "+66 81 234 5678" },
                   { key: "email", label: t("email"), type: "email", placeholder: "you@email.com" },
