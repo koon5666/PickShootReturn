@@ -617,98 +617,171 @@ function fmtMoney(v) {
 }
 
 function calcTotal(inv) {
+  if (inv.items?.length) {
+    return inv.items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0), 0);
+  }
+  // legacy format
   return [inv.laborFee, inv.overtime, inv.travelFee, inv.perDiem]
     .map(v => parseFloat((v || "").toString().replace(/,/g, "")) || 0)
     .reduce((a, b) => a + b, 0);
 }
 
-function printInvoice({ invoice, employee, profileInfo, promptPayQR, productionCompanies, companyName }) {
+function makeSignatureTransparent(base64src) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width; canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < data.data.length; i += 4) {
+        if (data.data[i] > 200 && data.data[i+1] > 200 && data.data[i+2] > 200)
+          data.data[i+3] = 0;
+      }
+      ctx.putImageData(data, 0, 0);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => resolve(base64src);
+    img.src = base64src;
+  });
+}
+
+function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName }) {
   const prodCo = productionCompanies.find(c => c.name === invoice.productionCompany);
   const total = calcTotal(invoice);
-  const feeRows = [
-    { label: "Labor Fee", val: invoice.laborFee },
-    { label: "Overtime", val: invoice.overtime },
-    { label: "Travel Fee", val: invoice.travelFee },
-    { label: "Per Diem", val: invoice.perDiem },
-  ].filter(f => fmtMoney(f.val));
+
+  const items = invoice.items?.length ? invoice.items : [
+    { description: "Labor Fee", qty: 1, rate: invoice.laborFee || 0 },
+    { description: "Overtime", qty: 1, rate: invoice.overtime || 0 },
+    { description: "Travel Fee", qty: 1, rate: invoice.travelFee || 0 },
+    { description: "Per Diem", qty: 1, rate: invoice.perDiem || 0 },
+  ].filter(it => parseFloat(it.rate) > 0);
+
   const dateStr = (invoice.shootDates || [])
     .map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ");
   const invDate = new Date(invoice.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  const statusColor = invoice.status === "Paid" ? "#065f46" : "#92400e";
+  const statusBg = invoice.status === "Paid" ? "#d1fae5" : "#fef3c7";
 
-  const html = `<!DOCTYPE html><html><head><title>${invoice.invoiceNo}</title><style>
+  const itemRows = items.map(it => {
+    const qty = parseFloat(it.qty) || 0;
+    const rate = parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0;
+    const lineTotal = qty * rate;
+    return `<tr>
+      <td>${it.description}</td>
+      <td class="num">${qty % 1 === 0 ? qty : qty.toFixed(2)}</td>
+      <td class="num">฿${rate.toLocaleString()}</td>
+      <td class="num"><strong>฿${lineTotal.toLocaleString()}</strong></td>
+    </tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html><html><head><title>${invoice.invoiceNo}</title><meta charset="utf-8"><style>
+    @page{size:A4;margin:15mm}
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Inter',Arial,sans-serif;padding:48px;color:#111;font-size:13px}
-    .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px}
-    .divider{border-top:2px solid #111;margin-bottom:24px}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:28px}
-    .job-box{background:#f8f8f8;border-radius:6px;padding:16px 20px;margin-bottom:24px}
-    .label{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:6px}
-    table{width:100%;border-collapse:collapse}
-    th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:8px 0;border-bottom:1px solid #ddd}
-    td{padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
-    td:last-child,th:last-child{text-align:right}
-    .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:14px;padding-top:12px}
-    .qr{margin-top:24px;padding-top:20px;border-top:1px solid #eee}
-    @media print{body{padding:24px}}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;font-size:11.5px;background:#fff}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
+    .divider{border-top:2px solid #111;margin-bottom:14px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:12px}
+    .job-box{background:#f7f7f7;border-radius:5px;padding:10px 14px;margin-bottom:12px;border-left:3px solid #111}
+    .lbl{font-size:8.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:4px}
+    table{width:100%;border-collapse:collapse;margin-bottom:8px}
+    th{text-align:left;font-size:8.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:5px 8px;border-bottom:1.5px solid #ccc;background:#fafafa}
+    td{padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:11.5px}
+    .num{text-align:right;width:80px}
+    .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:13px;padding-top:8px}
+    .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:12px 14px;margin-top:12px;display:flex;gap:14px;align-items:flex-start}
+    .sig-wrap{position:relative;flex:1;max-width:220px}
+    .id-img{width:100%;border-radius:5px;display:block;border:1px solid #ddd}
+    .sig-img{position:absolute;bottom:8px;right:6px;width:105px;transform:rotate(-22deg);transform-origin:bottom right;opacity:.9}
+    @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>
   <div class="hdr">
     <div>
-      <div style="font-size:22px;font-weight:800">${companyName || "GEAR DESK"}</div>
-      <div style="font-size:11px;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-top:4px">Camera Crew Services</div>
+      <div style="font-size:20px;font-weight:800;letter-spacing:.01em">${companyName || "GEAR DESK"}</div>
+      <div style="font-size:9.5px;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-top:3px">Camera Crew Services</div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:28px;font-weight:900;letter-spacing:.04em">INVOICE</div>
-      <div style="font-size:12px;color:#555;margin-top:4px">#${invoice.invoiceNo}</div>
-      <div style="font-size:11px;color:#888;margin-top:2px">${invDate}</div>
+      <div style="font-size:26px;font-weight:900;letter-spacing:.04em">INVOICE</div>
+      <div style="font-size:11px;color:#555;margin-top:3px">#${invoice.invoiceNo}</div>
+      <div style="font-size:10px;color:#888;margin-top:2px">${invDate}</div>
+      <div style="margin-top:6px;display:inline-block;padding:2px 10px;border-radius:20px;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:${statusBg};color:${statusColor}">${invoice.status || "Pending"}</div>
     </div>
   </div>
   <div class="divider"></div>
   <div class="grid2">
     <div>
-      <div class="label">Bill To</div>
-      <div style="font-weight:700;font-size:14px">${invoice.productionCompany || "—"}</div>
-      ${prodCo?.address ? `<div style="font-size:12px;color:#555;white-space:pre-wrap;margin-top:4px;line-height:1.5">${prodCo.address}</div>` : ""}
+      <div class="lbl">Bill To</div>
+      <div style="font-weight:700;font-size:13px">${invoice.productionCompany || "—"}</div>
+      ${prodCo?.address ? `<div style="font-size:10.5px;color:#555;white-space:pre-wrap;margin-top:3px;line-height:1.5">${prodCo.address}</div>` : ""}
     </div>
     <div>
-      <div class="label">From</div>
-      <div style="font-weight:700;font-size:14px">${employee.name}</div>
-      ${profileInfo?.legalAddress ? `<div style="font-size:12px;color:#555;white-space:pre-wrap;margin-top:4px;line-height:1.5">${profileInfo.legalAddress}</div>` : ""}
-      ${profileInfo?.phone ? `<div style="font-size:12px;color:#555;margin-top:4px">📞 ${profileInfo.phone}</div>` : ""}
-      ${profileInfo?.email ? `<div style="font-size:12px;color:#555;margin-top:2px">✉ ${profileInfo.email}</div>` : ""}
+      <div class="lbl">From</div>
+      <div style="font-weight:700;font-size:13px">${employee.name}</div>
+      ${profileInfo?.legalAddress ? `<div style="font-size:10.5px;color:#555;white-space:pre-wrap;margin-top:3px;line-height:1.5">${profileInfo.legalAddress}</div>` : ""}
+      ${profileInfo?.phone ? `<div style="font-size:10.5px;color:#555;margin-top:3px">T: ${profileInfo.phone}</div>` : ""}
+      ${profileInfo?.email ? `<div style="font-size:10.5px;color:#555;margin-top:2px">E: ${profileInfo.email}</div>` : ""}
     </div>
   </div>
   <div class="job-box">
-    <div style="font-weight:700;font-size:14px;margin-bottom:4px">${invoice.jobName}</div>
-    <div style="font-size:12px;color:#555">Position: <strong>${invoice.position || "—"}</strong></div>
-    ${dateStr ? `<div style="font-size:12px;color:#555;margin-top:2px">Shoot Dates: ${dateStr}</div>` : ""}
+    <div style="font-weight:700;font-size:13px;margin-bottom:3px">${invoice.jobName}</div>
+    <div style="font-size:11px;color:#555">Position: <strong>${invoice.position || "—"}</strong>${dateStr ? ` &nbsp;|&nbsp; Dates: ${dateStr}` : ""}</div>
   </div>
   <table>
-    <thead><tr><th>Description</th><th>Amount (฿)</th></tr></thead>
-    <tbody>${feeRows.map(f => `<tr><td>${f.label}</td><td>${fmtMoney(f.val)?.toLocaleString?.() ?? fmtMoney(f.val)}</td></tr>`).join("")}</tbody>
-    <tfoot><tr class="total-row"><td>TOTAL</td><td>฿${total.toLocaleString()}</td></tr></tfoot>
+    <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
+    <tbody>${itemRows}</tbody>
+    <tfoot><tr class="total-row"><td colspan="3">TOTAL AMOUNT</td><td class="num">฿${total.toLocaleString()}</td></tr></tfoot>
   </table>
-  ${promptPayQR ? `<div class="qr"><div class="label">Payment — PromptPay / QR Code</div><img src="${promptPayQR}" style="width:140px;height:140px;object-fit:contain;border:1px solid #ddd;border-radius:8px;margin-top:10px"/></div>` : ""}
+  ${(promptPayQR || idCard) ? `
+  <div class="bottom-box">
+    ${promptPayQR ? `<div style="text-align:center;flex-shrink:0">
+      <div class="lbl" style="margin-bottom:6px">PromptPay / QR Payment</div>
+      <img src="${promptPayQR}" style="width:110px;height:110px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
+    </div>` : ""}
+    ${idCard ? `<div class="sig-wrap">
+      <div class="lbl" style="margin-bottom:6px">ID Card</div>
+      <img class="id-img" src="${idCard}" />
+      ${signature ? `<img class="sig-img" src="${signature}" />` : ""}
+    </div>` : (signature ? `<div style="flex:1;text-align:right">
+      <div class="lbl" style="margin-bottom:6px">Signature</div>
+      <img src="${signature}" style="width:120px;transform:rotate(-22deg);transform-origin:bottom right;opacity:.9"/>
+    </div>` : "")}
+  </div>` : ""}
   <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();}</script>
   </body></html>`;
 
-  const win = window.open("", "_blank", "width=820,height=1060");
+  const win = window.open("", "_blank", "width=820,height=1180");
   if (win) { win.document.write(html); win.document.close(); }
 }
 
-function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose }) {
-  const [form, setForm] = useState({
-    jobName: existingInvoice?.jobName || job?.name || "",
-    productionCompany: existingInvoice?.productionCompany || job?.production || "",
-    shootDates: existingInvoice?.shootDates || job?.dates || [],
-    position: existingInvoice?.position || "",
-    laborFee: existingInvoice?.laborFee || "",
-    overtime: existingInvoice?.overtime || "",
-    travelFee: existingInvoice?.travelFee || "",
-    perDiem: existingInvoice?.perDiem || "",
-  });
+const DEFAULT_ITEMS = [
+  { id: "d1", description: "Labor (12hr)", qty: 1, rate: "" },
+  { id: "d2", description: "Overtime", qty: 1, rate: "" },
+  { id: "d3", description: "Travel Day Fee", qty: 1, rate: "" },
+];
 
-  const f = (key) => e => setForm(p => ({ ...p, [key]: e.target.value }));
-  const total = calcTotal(form);
+function migrateItems(inv) {
+  if (inv?.items) return inv.items;
+  const items = [];
+  const add = (desc, val) => { if (parseFloat(val) > 0) items.push({ id: "m" + desc, description: desc, qty: 1, rate: val }); };
+  add("Labor (12hr)", inv?.laborFee); add("Overtime", inv?.overtime);
+  add("Travel Day Fee", inv?.travelFee); add("Per Diem", inv?.perDiem);
+  return items.length ? items : JSON.parse(JSON.stringify(DEFAULT_ITEMS));
+}
+
+function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose }) {
+  const [jobName, setJobName] = useState(existingInvoice?.jobName || job?.name || "");
+  const [productionCompany, setProductionCompany] = useState(existingInvoice?.productionCompany || job?.production || "");
+  const [shootDates] = useState(existingInvoice?.shootDates || job?.dates || []);
+  const [position, setPosition] = useState(existingInvoice?.position || "");
+  const [status, setStatus] = useState(existingInvoice?.status || "Pending");
+  const [items, setItems] = useState(() => migrateItems(existingInvoice));
+
+  const updateItem = (id, field, val) => setItems(p => p.map(it => it.id === id ? { ...it, [field]: val } : it));
+  const addItem = () => setItems(p => [...p, { id: "i" + Date.now(), description: "", qty: 1, rate: "" }]);
+  const removeItem = (id) => setItems(p => p.filter(it => it.id !== id));
+
+  const total = items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0), 0);
 
   const save = () => {
     const now = Date.now();
@@ -722,12 +795,11 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose })
       jobId: job?.id || existingInvoice?.jobId || "",
       createdAt: existingInvoice?.createdAt || now,
       updatedAt: now,
-      ...form,
+      jobName, productionCompany, shootDates, position, status, items,
     });
   };
 
-  const dateStr = (form.shootDates || [])
-    .map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ");
+  const dateStr = shootDates.map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ");
 
   return (
     <Modal title={existingInvoice ? "Edit Invoice" : "Create Invoice"} onClose={onClose} wide>
@@ -735,41 +807,65 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose })
         <div style={{ ...S.card, background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)" }}>
           <p style={S.sectionTitle}>Job Info</p>
           <div style={S.col}>
-            <div>
-              <label style={S.label}>Job Name</label>
-              <input style={S.input} value={form.jobName} onChange={f("jobName")} />
-            </div>
-            <div>
-              <label style={S.label}>Production Company</label>
-              <input style={S.input} value={form.productionCompany} onChange={f("productionCompany")} />
-            </div>
+            <div><label style={S.label}>Job Name</label><input style={S.input} value={jobName} onChange={e => setJobName(e.target.value)} /></div>
+            <div><label style={S.label}>Production Company</label><input style={S.input} value={productionCompany} onChange={e => setProductionCompany(e.target.value)} /></div>
             {dateStr && <p style={{ fontSize: 12, color: "var(--text-muted,#666)", margin: 0 }}>Dates: {dateStr}</p>}
           </div>
         </div>
 
-        <div>
-          <label style={S.label}>Position</label>
-          <select style={S.select} value={form.position} onChange={f("position")}>
-            <option value="">Select position…</option>
-            {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </div>
-
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          {[["laborFee", "Labor Fee (฿)"], ["overtime", "Overtime (฿)"], ["travelFee", "Travel Fee (฿)"], ["perDiem", "Per Diem (฿)"]].map(([key, lbl]) => (
-            <div key={key}>
-              <label style={S.label}>{lbl}</label>
-              <input style={S.input} type="number" min="0" placeholder="0" value={form[key]} onChange={f(key)} />
-            </div>
-          ))}
+          <div>
+            <label style={S.label}>Position</label>
+            <select style={S.select} value={position} onChange={e => setPosition(e.target.value)}>
+              <option value="">Select position…</option>
+              {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Status</label>
+            <select style={S.select} value={status} onChange={e => setStatus(e.target.value)}>
+              <option>Pending</option>
+              <option>Paid</option>
+            </select>
+          </div>
         </div>
 
-        {total > 0 && (
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, paddingTop: 12, borderTop: "1px solid var(--divider-color,#252830)" }}>
-            <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>Total</span>
-            <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</span>
+        {/* Line items */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <p style={{ ...S.sectionTitle, margin: 0 }}>Line Items</p>
+            <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={addItem}><Icon d={icons.plus} size={12} /> Add Item</button>
           </div>
-        )}
+
+          {/* Header */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 80px 32px", gap: 6, marginBottom: 4 }}>
+            {["Description", "Qty", "Rate (฿)", "Total", ""].map((h, i) => (
+              <div key={i} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#666)", textAlign: i >= 2 ? "right" : "left" }}>{h}</div>
+            ))}
+          </div>
+
+          <div style={S.col}>
+            {items.map(it => {
+              const lineTotal = (parseFloat(it.qty) || 0) * (parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0);
+              return (
+                <div key={it.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 80px 32px", gap: 6, alignItems: "center" }}>
+                  <input style={{ ...S.input, fontSize: 12, padding: "7px 10px" }} value={it.description} onChange={e => updateItem(it.id, "description", e.target.value)} placeholder="e.g. Labor (12hr)" />
+                  <input style={{ ...S.input, fontSize: 12, padding: "7px 6px", textAlign: "right" }} type="number" min="0" step="0.5" value={it.qty} onChange={e => updateItem(it.id, "qty", e.target.value)} />
+                  <input style={{ ...S.input, fontSize: 12, padding: "7px 8px", textAlign: "right" }} type="number" min="0" value={it.rate} onChange={e => updateItem(it.id, "rate", e.target.value)} placeholder="0" />
+                  <div style={{ fontSize: 13, fontWeight: 700, textAlign: "right", color: lineTotal > 0 ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)" }}>
+                    {lineTotal > 0 ? `฿${lineTotal.toLocaleString()}` : "—"}
+                  </div>
+                  <button style={{ ...S.btn("danger"), padding: "5px 6px", minWidth: 0 }} onClick={() => removeItem(it.id)}><Icon d={icons.x} size={12} /></button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, paddingTop: 12, borderTop: "1px solid var(--divider-color,#252830)" }}>
+          <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>Total</span>
+          <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</span>
+        </div>
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={S.btn("ghost")} onClick={onClose}>Cancel</button>
@@ -821,30 +917,18 @@ function ProductionCombobox({ value, onChange, companies }) {
   );
 }
 
-function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees }) {
-  const [modal, setModal] = useState(null);
-  const [editTarget, setEditTarget] = useState(null);
-  const [assignTarget, setAssignTarget] = useState(null);
-  const [selectedJob, setSelectedJob] = useState(null);
-  const [form, setForm] = useState({ name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)" });
-  const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
-  const [assignForm, setAssignForm] = useState({});
+// ─── SHARED JOB FORM MODAL ────────────────────────────────────────────────────
+function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, onClose }) {
+  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "" };
+  const [form, setForm] = useState(editTarget ? { ...editTarget } : EMPTY);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = editTarget?.dates?.[0] ? new Date(editTarget.dates[0] + "T00:00:00") : new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
 
-  const openAdd = () => {
-    setForm({ name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)" });
-    setEditTarget(null);
-    setModal("form");
-  };
-
-  const openEdit = (job) => {
-    setForm({ ...job });
-    setEditTarget(job);
-    setModal("form");
-  };
-
-  const toggleDate = (dateStr) => {
-    setForm(p => ({ ...p, dates: p.dates.includes(dateStr) ? p.dates.filter(d => d !== dateStr) : [...p.dates, dateStr].sort() }));
-  };
+  const toggleDate = (ds) => setForm(p => ({
+    ...p, dates: p.dates.includes(ds) ? p.dates.filter(d => d !== ds) : [...p.dates, ds].sort()
+  }));
 
   const saveJob = () => {
     if (!form.name.trim() || form.dates.length === 0) return;
@@ -855,34 +939,17 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
     } else {
       setJobs(p => [...p, { ...form, id: "job" + Date.now(), assignedEquipment: [] }]);
     }
-    // Line notification on new job or status change
     if (isNew || statusChanged) {
       const emoji = form.status === "Confirmed" ? "✅" : form.status === "Cancelled" ? "❌" : "📋";
       const dateStr = (form.dates || []).slice(0, 3).map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ") + (form.dates.length > 3 ? "…" : "");
-      const msg = `${emoji} [${form.status}] ${form.name}\nProduction: ${form.production || "—"}\nDates: ${dateStr}\nLocation: ${form.location}`;
+      const locationStr = form.location + (form.locationCity ? ` — ${form.locationCity}` : "");
+      const msg = `${emoji} [${form.status}] ${form.name}\nProduction: ${form.production || "—"}\nDates: ${dateStr}\nLocation: ${locationStr}`;
       const lineIds = (employees || []).filter(e => e.lineUserId).map(e => e.lineUserId);
       if (lineIds.length > 0) api.notify({ userIds: lineIds, message: msg });
     }
-    setModal(null);
+    onClose();
   };
 
-  const del = (id) => { if (window.confirm("Delete this job?")) setJobs(p => p.filter(j => j.id !== id)); };
-
-  const openAssign = (job) => {
-    const init = {};
-    (job.assignedEquipment || []).forEach(ae => { init[ae.eqId] = ae.qty; });
-    setAssignForm(init);
-    setAssignTarget(job);
-    setModal("assign");
-  };
-
-  const saveAssign = () => {
-    const assigned = Object.entries(assignForm).filter(([, qty]) => qty > 0).map(([eqId, qty]) => ({ eqId, qty: +qty }));
-    setJobs(p => p.map(j => j.id === assignTarget.id ? { ...j, assignedEquipment: assigned } : j));
-    setModal(null);
-  };
-
-  // Calendar renderer
   const renderCalendar = () => {
     const { year, month } = calendarMonth;
     const firstDay = new Date(year, month, 1).getDay();
@@ -920,6 +987,79 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
     );
   };
 
+  return (
+    <Modal title={editTarget ? "Edit Job" : "New Job"} onClose={onClose} wide>
+      <div style={S.col}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ gridColumn: "1/-1" }}><label style={S.label}>Job Name</label><input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. TVC Toyota — Hero Film" /></div>
+          <div style={{ gridColumn: "1/-1" }}>
+            <label style={S.label}>Production Company</label>
+            <ProductionCombobox value={form.production} onChange={v => setForm(p => ({ ...p, production: v }))} companies={productionCompanies} />
+          </div>
+          <div>
+            <label style={S.label}>Job Status</label>
+            <select style={S.select} value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
+              {JOB_STATUSES.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={S.label}>Shoot Time</label>
+            <select style={S.select} value={form.shootTime} onChange={e => setForm(p => ({ ...p, shootTime: e.target.value }))}>
+              {SHOOT_TIMES.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div style={{ gridColumn: "1/-1" }}>
+            <label style={S.label}>Location Type</label>
+            <select style={S.select} value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value, locationCity: "" }))}>
+              {LOCATIONS.map(l => <option key={l}>{l}</option>)}
+            </select>
+            {form.location !== "Local (Bangkok)" && (
+              <input style={{ ...S.input, marginTop: 8 }} value={form.locationCity || ""} onChange={e => setForm(p => ({ ...p, locationCity: e.target.value }))} placeholder={form.location === "Overseas" ? "Country / City" : "Province / City"} />
+            )}
+          </div>
+        </div>
+        <div>
+          <label style={S.label}>Production Dates (tap to select/deselect)</label>
+          {renderCalendar()}
+          <button style={{ ...S.btn("ghost"), fontSize: 11, marginTop: 8 }} onClick={() => {
+            const next = new Date(calendarMonth.year, calendarMonth.month + 1);
+            setCalendarMonth({ year: next.getFullYear(), month: next.getMonth() });
+          }}>View next month →</button>
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button style={S.btn("ghost")} onClick={onClose}>Cancel</button>
+          <button style={S.btn("primary")} onClick={saveJob}>Save Job</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees }) {
+  const [modal, setModal] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
+  const [assignTarget, setAssignTarget] = useState(null);
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [assignForm, setAssignForm] = useState({});
+
+  const openAdd = () => { setEditTarget(null); setModal("form"); };
+  const openEdit = (job) => { setEditTarget(job); setModal("form"); };
+  const del = (id) => { if (window.confirm("Delete this job?")) setJobs(p => p.filter(j => j.id !== id)); };
+
+  const openAssign = (job) => {
+    const init = {};
+    (job.assignedEquipment || []).forEach(ae => { init[ae.eqId] = ae.qty; });
+    setAssignForm(init);
+    setAssignTarget(job);
+    setModal("assign");
+  };
+
+  const saveAssign = () => {
+    const assigned = Object.entries(assignForm).filter(([, qty]) => qty > 0).map(([eqId, qty]) => ({ eqId, qty: +qty }));
+    setJobs(p => p.map(j => j.id === assignTarget.id ? { ...j, assignedEquipment: assigned } : j));
+    setModal(null);
+  };
+
   const statusColor = { Pencil: "gray", Confirmed: "green", Cancelled: "red" };
   const locationColor = { "Local (Bangkok)": "blue", "Out of Town": "amber", "Overseas": "red" };
 
@@ -953,7 +1093,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
                     <span style={S.badge(statusColor[job.status])}>{job.status}</span>
-                    <span style={S.badge(locationColor[job.location] || "gray")}>{job.location}</span>
+                    <span style={S.badge(locationColor[job.location] || "gray")}>{job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</span>
                     <span style={S.badge("gray")}>{job.shootTime}</span>
                   </div>
                   <h3 style={{ margin: "0 0 2px", fontSize: 16, fontWeight: 700 }}>{job.name}</h3>
@@ -1000,47 +1140,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
       {/* Form Modal */}
       {modal === "form" && (
-        <Modal title={editTarget ? "Edit Job" : "New Job"} onClose={() => setModal(null)} wide>
-          <div style={S.col}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div style={{ gridColumn: "1/-1" }}><label style={S.label}>Job Name</label><input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. TVC Toyota — Hero Film" /></div>
-              <div style={{ gridColumn: "1/-1" }}>
-                <label style={S.label}>Production Company</label>
-                <ProductionCombobox value={form.production} onChange={v => setForm(p => ({ ...p, production: v }))} companies={productionCompanies} />
-              </div>
-              <div>
-                <label style={S.label}>Job Status</label>
-                <select style={S.select} value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
-                  {JOB_STATUSES.map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={S.label}>Shoot Time</label>
-                <select style={S.select} value={form.shootTime} onChange={e => setForm(p => ({ ...p, shootTime: e.target.value }))}>
-                  {SHOOT_TIMES.map(s => <option key={s}>{s}</option>)}
-                </select>
-              </div>
-              <div style={{ gridColumn: "1/-1" }}>
-                <label style={S.label}>Location Type</label>
-                <select style={S.select} value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value }))}>
-                  {LOCATIONS.map(l => <option key={l}>{l}</option>)}
-                </select>
-              </div>
-            </div>
-            <div>
-              <label style={S.label}>Production Dates (tap to select/deselect)</label>
-              {renderCalendar()}
-              <button style={{ ...S.btn("ghost"), fontSize: 11, marginTop: 8 }} onClick={() => {
-                const next = new Date(calendarMonth.year, calendarMonth.month + 1);
-                setCalendarMonth({ year: next.getFullYear(), month: next.getMonth() });
-              }}>View next month →</button>
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button style={S.btn("ghost")} onClick={() => setModal(null)}>Cancel</button>
-              <button style={S.btn("primary")} onClick={saveJob}>Save Job</button>
-            </div>
-          </div>
-        </Modal>
+        <JobFormModal editTarget={editTarget} jobs={jobs} setJobs={setJobs} productionCompanies={productionCompanies} employees={employees} onClose={() => setModal(null)} />
       )}
 
       {/* Assign Equipment Modal — kanban style */}
@@ -1052,7 +1152,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
               const avList = calcAvailable(equipment, jobs.filter(j => j.id !== assignTarget.id), checkouts, assignTarget.dates[0] || today());
               const avForEq = avList.find(a => a.id === eq.id);
               const currentQty = +assignForm[eq.id] || 0;
-              const maxAvail = (avForEq?.available || 0) + currentQty;
+              const maxAvail = avForEq?.available ?? 0;
               const isAssigned = currentQty > 0;
               const isMulti = eq.total > 1;
 
@@ -1145,7 +1245,7 @@ function JobDetailModal({ job, equipment, onClose }) {
       <div style={S.col}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <span style={S.badge(statusColor[job.status] || "gray")}>{job.status}</span>
-          <span style={S.badge("blue")}>{job.location}</span>
+          <span style={S.badge("blue")}>{job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</span>
           <span style={S.badge("gray")}>{job.shootTime}</span>
         </div>
         <div>
@@ -1401,7 +1501,7 @@ function DashboardCalendar({ jobs, equipment }) {
 }
 
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
-function DashboardPage({ jobs, equipment, checkouts }) {
+function DashboardPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees }) {
   const todayStr = today();
   const todayJobs = jobs.filter(j => j.dates.includes(todayStr));
   const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
@@ -1409,6 +1509,7 @@ function DashboardPage({ jobs, equipment, checkouts }) {
   const avList = calcAvailable(equipment, jobs, checkouts, todayStr);
   const recentCheckouts = checkouts.slice(-5).reverse();
   const [expandedStat, setExpandedStat] = useState(null); // null | "today" | "confirmed" | "pencil"
+  const [dashJobModal, setDashJobModal] = useState(null); // null | "new" | jobObject
 
   const statusColor = { Confirmed: "green", Pencil: "gray", Cancelled: "red" };
   const locationColor = { "Local (Bangkok)": "blue", "Out of Town": "amber", "Overseas": "red" };
@@ -1460,7 +1561,7 @@ function DashboardPage({ jobs, equipment, checkouts }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
                     <span style={S.badge(statusColor[j.status] || "gray")}>{j.status}</span>
-                    <span style={S.badge(locationColor[j.location] || "gray")}>{j.location}</span>
+                    <span style={S.badge(locationColor[j.location] || "gray")}>{j.location}{j.locationCity ? ` · ${j.locationCity}` : ""}</span>
                   </div>
                   <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{j.name}</p>
                   <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{j.production} · {j.shootTime}</p>
@@ -1470,9 +1571,14 @@ function DashboardPage({ jobs, equipment, checkouts }) {
                     {j.dates.length > 1 ? ` ${formatDate(j.dates[j.dates.length - 1])}` : ""}
                   </p>
                 </div>
-                {(j.assignedEquipment || []).length > 0 && (
-                  <span style={{ ...S.badge("blue"), flexShrink: 0 }}>{j.assignedEquipment.length} items</span>
-                )}
+                <div style={{ display: "flex", gap: 5, flexShrink: 0, flexDirection: "column", alignItems: "flex-end" }}>
+                  {(j.assignedEquipment || []).length > 0 && (
+                    <span style={{ ...S.badge("blue") }}>{j.assignedEquipment.length} items</span>
+                  )}
+                  <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={e => { e.stopPropagation(); setDashJobModal(j); }}>
+                    <Icon d={icons.edit} size={12} /> Edit
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -1516,6 +1622,30 @@ function DashboardPage({ jobs, equipment, checkouts }) {
             );
           })}
       </div>
+
+      {/* Floating + FAB */}
+      <button
+        onClick={() => setDashJobModal("new")}
+        style={{
+          position: "fixed", bottom: 78, right: 20, width: 52, height: 52,
+          borderRadius: "50%", background: "var(--btn-primary-bg,#e8b84b)", color: "var(--btn-primary-color,#0f1117)",
+          border: "none", fontSize: 28, fontWeight: 300, cursor: "pointer",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 90,
+        }}
+        title="New Job"
+      >+</button>
+
+      {dashJobModal && (
+        <JobFormModal
+          editTarget={dashJobModal === "new" ? null : dashJobModal}
+          jobs={jobs}
+          setJobs={setJobs}
+          productionCompanies={productionCompanies}
+          employees={employees}
+          onClose={() => setDashJobModal(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1547,11 +1677,15 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
   const [showReportModal, setShowReportModal] = useState(false);
+  const [showGearRequest, setShowGearRequest] = useState(false);
+  const [gearReqForm, setGearReqForm] = useState({ eqId: "", qty: 1, purpose: "practice", productionName: "", jobName: "", reason: "" });
+  const [pinChangeForm, setPinChangeForm] = useState({ newPin: "", confirmPin: "" });
+  const [pinChangeMsg, setPinChangeMsg] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   const [checkedItems, setCheckedItems] = useState({});
   const [phase, setPhase] = useState("select");
@@ -1561,12 +1695,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [profileInfo, setProfileInfo] = useState({ phone: "", email: "", lineId: "", legalAddress: "" });
   const [idCard, setIdCard] = useState(null);
   const [promptPayQR, setPromptPayQR] = useState(null);
+  const [signature, setSignature] = useState(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [invoiceModal, setInvoiceModal] = useState(null); // null | { job, existing }
   const [expandedInv, setExpandedInv] = useState(null);
+  const [invFilter, setInvFilter] = useState("all"); // all | Pending | Paid
+  const [invSort, setInvSort] = useState("date"); // date | amount
   const profileFileRef = useRef(null);
   const idCardRef = useRef(null);
   const promptPayRef = useRef(null);
+  const signatureRef = useRef(null);
   const profileSaveTimer = useRef(null);
 
   const todayStr = today();
@@ -1581,6 +1719,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       setProfileInfo({ phone: d.phone || "", email: d.email || "", lineId: d.lineId || "", legalAddress: d.legalAddress || "" });
       if (d.idCard) setIdCard(d.idCard);
       if (d.promptPayQR) setPromptPayQR(d.promptPayQR);
+      if (d.signature) setSignature(d.signature);
     }).catch(() => {}).finally(() => setProfileLoaded(true));
   }, [employee.id]);
 
@@ -1589,9 +1728,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     if (!profileLoaded) return;
     clearTimeout(profileSaveTimer.current);
     profileSaveTimer.current = setTimeout(() => {
-      api.putProfile(employee.id, { photo: profilePhoto, ...profileInfo, idCard, promptPayQR }).catch(() => {});
+      api.putProfile(employee.id, { photo: profilePhoto, ...profileInfo, idCard, promptPayQR, signature }).catch(() => {});
     }, 800);
-  }, [profilePhoto, profileInfo, idCard, promptPayQR, profileLoaded, employee.id]);
+  }, [profilePhoto, profileInfo, idCard, promptPayQR, signature, profileLoaded, employee.id]);
 
   const handleProfileUpload = (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -1699,7 +1838,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         <StepBar currentStep={isReturn ? 2 : 0} />
         <div style={{ ...S.card, marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{selectedJob.name}</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{selectedJob.production} · {selectedJob.location} · {selectedJob.shootTime}</p>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{selectedJob.production} · {selectedJob.location}{selectedJob.locationCity ? ` · ${selectedJob.locationCity}` : ""} · {selectedJob.shootTime}</p>
         </div>
         <p style={S.sectionTitle}>{isReturn ? t("returnPhase") : t("pickPhase")} {t("tickWhenReady")}</p>
         <div style={S.col}>
@@ -1757,38 +1896,38 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         </div>
       </header>
 
-      {/* Tab bar */}
-      <div style={{ display: "flex", borderBottom: "1px solid #252830", background: "#161920" }}>
-        {[
-          { key: "today", label: t("tabToday"), icon: icons.gear },
-          { key: "calendar", label: t("tabSchedule"), icon: icons.calendar },
-          { key: "profile", label: t("tabProfile"), icon: icons.user },
-          { key: "report", label: t("tabReport"), icon: icons.alert },
-          { key: "invoice", label: t("tabInvoice"), icon: icons.invoice },
-        ].map(tItem => (
-          <button key={tItem.key} onClick={() => setTab(tItem.key)} style={{
-            flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "10px 4px 8px",
-            background: "transparent", border: "none", borderBottom: tab === tItem.key ? "2px solid #e8b84b" : "2px solid transparent",
-            color: tab === tItem.key ? "#e8b84b" : "#666", cursor: "pointer", fontSize: 10, fontWeight: 600, letterSpacing: "0.04em",
-          }}>
-            <Icon d={tItem.icon} size={16} color={tab === tItem.key ? "#e8b84b" : "#666"} />
-            {tItem.label}
-          </button>
-        ))}
-      </div>
-
       {showReportModal && (
         <ReportModal employee={employee} equipment={equipment} onSubmit={(report) => { setReports(p => [...p, report]); setShowReportModal(false); }} onClose={() => setShowReportModal(false)} />
       )}
 
-      <div style={S.main}>
+      <div style={{ ...S.main, paddingBottom: 80 }}>
         {/* TODAY TAB */}
-        {tab === "today" && (
+        {tab === "today" && (() => {
+          const confirmedCount = jobs.filter(j => j.status === "Confirmed").length;
+          const pencilCount = jobs.filter(j => j.status === "Pencil").length;
+          const myRequests = (equipmentRequests || []).filter(r => r.employeeId === employee.id);
+          const pendingRequests = myRequests.filter(r => r.status === "pending");
+          return (
           <div style={S.col}>
             <div>
               <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("todaysJobs")}</h1>
               <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{new Date().toLocaleDateString(lang === "th" ? "th-TH" : "en-GB", { weekday: "long", day: "2-digit", month: "long" })}</p>
             </div>
+
+            {/* Stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              {[
+                { label: "Today", value: availableJobs.length, color: "#e8b84b" },
+                { label: "Confirmed", value: confirmedCount, color: "#34d399" },
+                { label: "Pencil", value: pencilCount, color: "#94a3b8" },
+              ].map(stat => (
+                <div key={stat.label} style={{ ...S.card, textAlign: "center", padding: "12px 6px" }}>
+                  <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
+                  <p style={{ margin: "4px 0 0", fontSize: 9, color: "#666", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{stat.label}</p>
+                </div>
+              ))}
+            </div>
+
             {availableJobs.length === 0 ? (
               <div style={{ ...S.card, textAlign: "center", padding: 40 }}>
                 <Icon d={icons.calendar} size={40} color="#2e3340" />
@@ -1805,7 +1944,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         <span style={S.badge("gray")}>{job.shootTime}</span>
                       </div>
                       <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{job.name}</h3>
-                      <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{job.production} · {job.location}</p>
+                      <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{job.production} · {job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</p>
                       <p style={{ margin: "4px 0 0", fontSize: 12, color: "#8a8f9d" }}>{(job.assignedEquipment || []).length} {t("itemsAssigned")}</p>
                     </div>
                     <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
@@ -1813,8 +1952,101 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 </div>
               );
             })}
+
+            {/* Gear Checkout Requests */}
+            <div style={S.card}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <p style={{ ...S.sectionTitle, margin: 0 }}>Gear Requests {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} pending</span>}</p>
+                <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12 }} onClick={() => setShowGearRequest(true)}>
+                  <Icon d={icons.plus} size={13} /> Request
+                </button>
+              </div>
+              {myRequests.length === 0 ? (
+                <p style={{ fontSize: 13, color: "#555" }}>No gear requests yet.</p>
+              ) : myRequests.slice().reverse().map((req, i) => {
+                const eq = equipment.find(e => e.id === req.eqId);
+                return (
+                  <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < myRequests.length - 1 ? 10 : 0, marginBottom: i < myRequests.length - 1 ? 10 : 0, borderBottom: i < myRequests.length - 1 ? "1px solid #252830" : "none" }}>
+                    <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{eq?.name || req.eqName} ×{req.qty}</p>
+                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"} · {new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>
+                      {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{req.reason}</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Gear Request Modal */}
+            {showGearRequest && (
+              <Modal title="Request Gear Checkout" onClose={() => setShowGearRequest(false)}>
+                <div style={S.col}>
+                  <div>
+                    <label style={S.label}>Equipment</label>
+                    <select style={S.select} value={gearReqForm.eqId} onChange={e => setGearReqForm(p => ({ ...p, eqId: e.target.value }))}>
+                      <option value="">— Select equipment —</option>
+                      {equipment.map(eq => <option key={eq.id} value={eq.id}>{eq.name} (×{eq.total})</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={S.label}>Quantity</label>
+                    <input style={S.input} type="number" min={1} max={20} value={gearReqForm.qty} onChange={e => setGearReqForm(p => ({ ...p, qty: Math.max(1, +e.target.value) }))} />
+                  </div>
+                  <div>
+                    <label style={S.label}>Purpose</label>
+                    <select style={S.select} value={gearReqForm.purpose} onChange={e => setGearReqForm(p => ({ ...p, purpose: e.target.value, productionName: "", jobName: "" }))}>
+                      <option value="practice">Practice / Personal Use</option>
+                      <option value="work">Work (Production)</option>
+                    </select>
+                  </div>
+                  {gearReqForm.purpose === "work" && (
+                    <>
+                      <div>
+                        <label style={S.label}>Production House</label>
+                        <input style={S.input} value={gearReqForm.productionName} onChange={e => setGearReqForm(p => ({ ...p, productionName: e.target.value }))} placeholder="e.g. One More Films" />
+                      </div>
+                      <div>
+                        <label style={S.label}>Job Name</label>
+                        <input style={S.input} value={gearReqForm.jobName} onChange={e => setGearReqForm(p => ({ ...p, jobName: e.target.value }))} placeholder="e.g. TVC Brand" />
+                      </div>
+                    </>
+                  )}
+                  <div>
+                    <label style={S.label}>Reason</label>
+                    <textarea style={{ ...S.input, height: 70, resize: "vertical", lineHeight: 1.5 }} value={gearReqForm.reason} onChange={e => setGearReqForm(p => ({ ...p, reason: e.target.value }))} placeholder="Why do you need this gear?" />
+                  </div>
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                    <button style={S.btn("ghost")} onClick={() => setShowGearRequest(false)}>Cancel</button>
+                    <button style={S.btn("primary")} onClick={() => {
+                      if (!gearReqForm.eqId) return;
+                      const eq = equipment.find(e => e.id === gearReqForm.eqId);
+                      const newReq = {
+                        id: "req" + Date.now(),
+                        employeeId: employee.id,
+                        employeeName: employee.name,
+                        eqId: gearReqForm.eqId,
+                        eqName: eq?.name || "",
+                        qty: gearReqForm.qty,
+                        purpose: gearReqForm.purpose,
+                        productionName: gearReqForm.productionName,
+                        jobName: gearReqForm.jobName,
+                        reason: gearReqForm.reason,
+                        status: "pending",
+                        requestedAt: Date.now(),
+                        resolvedAt: null,
+                      };
+                      setEquipmentRequests(p => [...p, newReq]);
+                      setGearReqForm({ eqId: "", qty: 1, purpose: "practice", productionName: "", jobName: "", reason: "" });
+                      setShowGearRequest(false);
+                    }}>Submit Request</button>
+                  </div>
+                </div>
+              </Modal>
+            )}
           </div>
-        )}
+          );
+        })()}
 
         {/* CALENDAR TAB */}
         {tab === "calendar" && (
@@ -1951,6 +2183,49 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     {promptPayQR && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setPromptPayQR(null)}><Icon d={icons.x} size={13} /></button>}
                   </div>
                 </div>
+                {/* Signature */}
+                <div>
+                  <label style={S.label}>Signature (on white background)</label>
+                  <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 8px" }}>Sign on white paper, photograph it. The system will automatically remove the white background.</p>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    {signature && <img src={signature} alt="Signature" style={{ height: 50, maxWidth: 160, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />}
+                    <input ref={signatureRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
+                      const f = e.target.files[0]; if (!f) return;
+                      const r = new FileReader();
+                      r.onload = (ev) => makeSignatureTransparent(ev.target.result).then(setSignature);
+                      r.readAsDataURL(f);
+                    }} />
+                    <button style={S.btn("ghost")} onClick={() => signatureRef.current.click()}>
+                      <Icon d={icons.photo} size={14} /> {signature ? "Replace" : "Upload Signature"}
+                    </button>
+                    {signature && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setSignature(null)}><Icon d={icons.x} size={13} /></button>}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* PIN Change */}
+            <div style={S.card}>
+              <p style={S.sectionTitle}>Change Passcode</p>
+              <div style={S.col}>
+                <div>
+                  <label style={S.label}>New PIN (4–6 digits)</label>
+                  <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={pinChangeForm.newPin} onChange={e => setPinChangeForm(p => ({ ...p, newPin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 5678" />
+                </div>
+                <div>
+                  <label style={S.label}>Confirm PIN</label>
+                  <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={pinChangeForm.confirmPin} onChange={e => setPinChangeForm(p => ({ ...p, confirmPin: e.target.value.replace(/\D/g, "") }))} placeholder="Re-enter PIN" />
+                </div>
+                {pinChangeMsg && <p style={{ fontSize: 12, color: pinChangeMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{pinChangeMsg.text}</p>}
+                <button style={{ ...S.btn("primary"), alignSelf: "flex-end" }} onClick={() => {
+                  const { newPin, confirmPin } = pinChangeForm;
+                  if (!/^\d{4,6}$/.test(newPin)) { setPinChangeMsg({ ok: false, text: "PIN must be 4–6 digits." }); return; }
+                  if (newPin !== confirmPin) { setPinChangeMsg({ ok: false, text: "PINs do not match." }); return; }
+                  setEmployees(p => p.map(e => e.id === employee.id ? { ...e, pin: newPin } : e));
+                  setPinChangeForm({ newPin: "", confirmPin: "" });
+                  setPinChangeMsg({ ok: true, text: "Passcode updated!" });
+                  setTimeout(() => setPinChangeMsg(null), 3000);
+                }}>Update Passcode</button>
               </div>
             </div>
 
@@ -1978,7 +2253,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {/* INVOICE TAB */}
         {tab === "invoice" && (() => {
           const confirmedJobs = jobs.filter(j => j.status === "Confirmed").sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1);
-          const myInvoices = invoices.filter(inv => inv.employeeId === employee.id).sort((a, b) => b.updatedAt - a.updatedAt);
+          const allMyInvoices = invoices.filter(inv => inv.employeeId === employee.id);
+          const filteredInvoices = allMyInvoices
+            .filter(inv => invFilter === "all" ? true : (inv.status || "Pending") === invFilter)
+            .sort((a, b) => invSort === "amount" ? calcTotal(b) - calcTotal(a) : b.updatedAt - a.updatedAt);
+          const myInvoices = filteredInvoices;
 
           const saveInvoice = (inv) => {
             setInvoices(p => {
@@ -1994,11 +2273,21 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
           return (
             <div style={S.col}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div>
-                  <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("myInvoices")}</h1>
-                  <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{t("selectJob")}</p>
-                </div>
+              <div>
+                <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("myInvoices")}</h1>
+                <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{allMyInvoices.length} invoices · ฿{allMyInvoices.reduce((s, inv) => s + calcTotal(inv), 0).toLocaleString()} total</p>
+              </div>
+
+              {/* Filter/Sort row */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                {["all", "Pending", "Paid"].map(f => (
+                  <button key={f} style={{ ...S.btn(invFilter === f ? "primary" : "ghost"), padding: "5px 12px", fontSize: 11 }} onClick={() => setInvFilter(f)}>
+                    {f === "all" ? "All" : f}
+                  </button>
+                ))}
+                <div style={{ flex: 1 }} />
+                <button style={{ ...S.btn(invSort === "date" ? "primary" : "ghost"), padding: "5px 12px", fontSize: 11 }} onClick={() => setInvSort("date")}>Latest</button>
+                <button style={{ ...S.btn(invSort === "amount" ? "primary" : "ghost"), padding: "5px 12px", fontSize: 11 }} onClick={() => setInvSort("amount")}>Amount ↓</button>
               </div>
 
               {/* Confirmed jobs to invoice */}
@@ -2027,38 +2316,70 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </div>
 
               {/* My saved invoices */}
-              {myInvoices.length > 0 && (
+              {myInvoices.length === 0 ? (
+                <div style={{ ...S.card, textAlign: "center", padding: 32 }}>
+                  <p style={{ color: "var(--text-muted,#666)", fontSize: 13 }}>{invFilter === "all" ? "No invoices yet." : `No ${invFilter} invoices.`}</p>
+                </div>
+              ) : (
                 <div style={S.col}>
                   {myInvoices.map(inv => {
                     const total = calcTotal(inv);
+                    const isPaid = (inv.status || "Pending") === "Paid";
                     const isExpanded = expandedInv === inv.id;
+                    const itemList = inv.items?.length ? inv.items : [
+                      { description: "Labor Fee", qty: 1, rate: inv.laborFee },
+                      { description: "Overtime", qty: 1, rate: inv.overtime },
+                      { description: "Travel Fee", qty: 1, rate: inv.travelFee },
+                      { description: "Per Diem", qty: 1, rate: inv.perDiem },
+                    ].filter(it => parseFloat(it.rate) > 0);
                     return (
-                      <div key={inv.id} style={S.card}>
+                      <div key={inv.id} style={{ ...S.card, border: isPaid ? "1px solid rgba(52,211,153,0.25)" : "var(--card-border,1px solid #252830)" }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }} onClick={() => setExpandedInv(isExpanded ? null : inv.id)}>
                           <div style={{ flex: 1 }}>
-                            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{inv.invoiceNo}</p>
-                            <p style={{ margin: "2px 0 0", fontSize: 14, fontWeight: 700 }}>{inv.jobName}</p>
-                            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.position || "—"} · ฿{total.toLocaleString()}</p>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
+                              <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 10 }}>{inv.status || "Pending"}</span>
+                              <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{inv.invoiceNo}</p>
+                            </div>
+                            <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{inv.jobName}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.position || "—"}</p>
                           </div>
-                          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s", opacity: 0.5 }}><path d="M9 18l6-6-6-6" /></svg>
+                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                            <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</p>
+                            <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--text-muted,#666)" }}>{new Date(inv.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                          </div>
+                          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s", opacity: 0.4, marginLeft: 8 }}><path d="M9 18l6-6-6-6" /></svg>
                         </div>
                         {isExpanded && (
                           <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--divider-color,#252830)" }}>
-                            {[["Labor Fee", inv.laborFee], ["Overtime", inv.overtime], ["Travel Fee", inv.travelFee], ["Per Diem", inv.perDiem]].filter(([, v]) => fmtMoney(v)).map(([label, val]) => (
-                              <div key={label} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
-                                <span style={{ color: "var(--text-muted,#888)" }}>{label}</span>
-                                <span>฿{fmtMoney(val)}</span>
-                              </div>
-                            ))}
-                            {total > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--divider-color,#252830)" }}>
-                              <span>Total</span><span style={{ color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</span>
-                            </div>}
-                            <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+                            {/* Line items */}
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 80px 80px", gap: "4px 8px", marginBottom: 10 }}>
+                              {["Description", "Qty", "Rate", "Total"].map((h, i) => (
+                                <div key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#666)", textAlign: i > 0 ? "right" : "left", paddingBottom: 4, borderBottom: "1px solid var(--divider-color,#252830)" }}>{h}</div>
+                              ))}
+                              {itemList.map((it, idx) => {
+                                const qty = parseFloat(it.qty) || 0;
+                                const rate = parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0;
+                                return [
+                                  <div key={idx + "d"} style={{ fontSize: 12 }}>{it.description}</div>,
+                                  <div key={idx + "q"} style={{ fontSize: 12, textAlign: "right" }}>{qty % 1 === 0 ? qty : qty.toFixed(2)}</div>,
+                                  <div key={idx + "r"} style={{ fontSize: 12, textAlign: "right" }}>฿{rate.toLocaleString()}</div>,
+                                  <div key={idx + "t"} style={{ fontSize: 12, fontWeight: 600, textAlign: "right" }}>฿{(qty * rate).toLocaleString()}</div>,
+                                ];
+                              })}
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, paddingTop: 8, borderTop: "1px solid var(--divider-color,#252830)", marginBottom: 14 }}>
+                              <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>Total</span>
+                              <span style={{ fontSize: 18, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</span>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                               <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => setInvoiceModal({ job: null, existing: inv })}>
                                 <Icon d={icons.edit} size={13} /> Edit
                               </button>
-                              <button style={{ ...S.btn("primary"), fontSize: 12, padding: "6px 10px" }} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, productionCompanies, companyName })}>
+                              <button style={{ ...S.btn("primary"), fontSize: 12, padding: "6px 10px" }} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName })}>
                                 🖨 Print
+                              </button>
+                              <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 12, padding: "6px 10px" }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid" } : i))}>
+                                {isPaid ? "Mark Pending" : "Mark Paid"}
                               </button>
                               <button style={{ ...S.btn("danger"), fontSize: 12, padding: "6px 10px" }} onClick={() => delInvoice(inv.id)}>
                                 <Icon d={icons.trash} size={13} />
@@ -2085,6 +2406,35 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           );
         })()}
       </div>
+
+      {/* Employee Bottom Nav */}
+      <nav style={{
+        position: "fixed", bottom: 0, left: 0, right: 0, height: 62,
+        background: "#161920", borderTop: "1px solid #252830",
+        display: "flex", alignItems: "stretch", zIndex: 100,
+        padding: "0 4px", paddingBottom: "env(safe-area-inset-bottom,0px)",
+      }}>
+        {[
+          { key: "today", label: t("tabToday"), icon: icons.gear },
+          { key: "calendar", label: t("tabSchedule"), icon: icons.calendar },
+          { key: "profile", label: t("tabProfile"), icon: icons.user },
+          { key: "report", label: t("tabReport"), icon: icons.alert },
+          { key: "invoice", label: t("tabInvoice"), icon: icons.invoice },
+        ].map(tItem => {
+          const active = tab === tItem.key;
+          return (
+            <button key={tItem.key} onClick={() => setTab(tItem.key)} style={{
+              flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              gap: 3, border: "none", cursor: "pointer", background: "transparent",
+              color: active ? "#e8b84b" : "#666", position: "relative", padding: "8px 2px 6px",
+            }}>
+              {active && <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: "#e8b84b", borderRadius: "0 0 3px 3px" }} />}
+              <Icon d={tItem.icon} size={20} color={active ? "#e8b84b" : "#666"} />
+              <span style={{ fontSize: 9.5, fontWeight: active ? 700 : 500, letterSpacing: "0.02em" }}>{tItem.label}</span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }
@@ -2363,12 +2713,48 @@ function Login({ onLogin, employees, companyName }) {
 }
 
 // ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage({ employees, setEmployees, companyName, setCompanyName }) {
-  const [modal, setModal] = useState(null); // null | "add" | "edit"
+function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment }) {
+  const [modal, setModal] = useState(null); // null | "add" | "edit" | "profile"
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
   const [formErr, setFormErr] = useState("");
   const [showPin, setShowPin] = useState({});
+  const [profileTarget, setProfileTarget] = useState(null);
+  const [profileData, setProfileData] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+
+  const openProfile = (emp) => {
+    setProfileTarget(emp);
+    setProfileData(null);
+    setProfileLoading(true);
+    setModal("profile");
+    api.getProfile(emp.id).then(d => setProfileData(d)).catch(() => {}).finally(() => setProfileLoading(false));
+  };
+
+  const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
+
+  const approveRequest = (req) => {
+    setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: Date.now() } : r));
+    const newCheckout = {
+      id: "co" + Date.now(),
+      jobId: null,
+      jobName: req.purpose === "work" ? (req.jobName || "Work") : "Personal / Practice",
+      eqId: req.eqId,
+      qty: req.qty,
+      employeeId: req.employeeId,
+      employeeName: req.employeeName,
+      type: "pick",
+      ts: Date.now(),
+      photo: null,
+      location: null,
+      requestId: req.id,
+    };
+    setCheckouts(p => [...p, newCheckout]);
+  };
+
+  const denyRequest = (id) => {
+    setEquipmentRequests(p => p.map(r => r.id === id ? { ...r, status: "denied", resolvedAt: Date.now() } : r));
+  };
 
   const openAdd = () => { setForm({ name: "", pin: "" }); setEditTarget(null); setFormErr(""); setModal("add"); };
   const openEdit = (emp) => { setForm({ name: emp.name, pin: emp.pin }); setEditTarget(emp); setFormErr(""); setModal("edit"); };
@@ -2453,12 +2839,42 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName }) 
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openProfile(e)} title="View Profile"><Icon d={icons.user} size={13} /></button>
                 <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openEdit(e)}><Icon d={icons.edit} size={13} /></button>
                 <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => delEmployee(e.id)}><Icon d={icons.trash} size={13} /></button>
               </div>
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Equipment Checkout Requests */}
+      <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>Equipment Requests {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} pending</span>}</p>
+        {(equipmentRequests || []).length === 0 ? (
+          <p style={{ fontSize: 13, color: "#666" }}>No equipment requests yet.</p>
+        ) : [...(equipmentRequests || [])].reverse().map((req, i, arr) => {
+          const eq = (equipment || []).find(e => e.id === req.eqId);
+          return (
+            <div key={req.id} style={{ paddingBottom: i < arr.length - 1 ? 14 : 0, marginBottom: i < arr.length - 1 ? 14 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.employeeName}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d" }}>{eq?.name || req.eqName} ×{req.qty} · {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}</p>
+                  {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.reason}</p>}
+                  <p style={{ margin: "2px 0 0", fontSize: 10, color: "#444" }}>{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                </div>
+                {req.status === "pending" && (
+                  <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                    <button style={{ ...S.btn("success"), padding: "5px 10px", fontSize: 12 }} onClick={() => approveRequest(req)}>Approve</button>
+                    <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 12 }} onClick={() => denyRequest(req.id)}>Deny</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
@@ -2504,12 +2920,58 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName }) 
           </div>
         </Modal>
       )}
+
+      {modal === "profile" && profileTarget && (
+        <Modal title={`${profileTarget.name}'s Profile`} onClose={() => setModal(null)}>
+          {profileLoading ? (
+            <p style={{ color: "#666", textAlign: "center", padding: 24 }}>Loading…</p>
+          ) : !profileData ? (
+            <p style={{ color: "#666", textAlign: "center", padding: 24 }}>No profile data uploaded yet.</p>
+          ) : (
+            <div style={S.col}>
+              {profileData.photo && (
+                <div style={{ display: "flex", justifyContent: "center" }}>
+                  <img src={profileData.photo} alt="profile" style={{ width: 90, height: 90, borderRadius: "50%", objectFit: "cover", border: "3px solid #e8b84b" }} />
+                </div>
+              )}
+              {[
+                ["Phone", profileData.phone],
+                ["Email", profileData.email],
+                ["Line ID", profileData.lineId],
+              ].filter(([, v]) => v).map(([label, val]) => (
+                <div key={label}>
+                  <p style={{ ...S.sectionTitle, marginBottom: 3 }}>{label}</p>
+                  <p style={{ margin: 0, fontSize: 14 }}>{val}</p>
+                </div>
+              ))}
+              {profileData.legalAddress && (
+                <div>
+                  <p style={{ ...S.sectionTitle, marginBottom: 3 }}>Legal Address</p>
+                  <p style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap", color: "#8a8f9d" }}>{profileData.legalAddress}</p>
+                </div>
+              )}
+              {profileData.idCard && (
+                <div>
+                  <p style={{ ...S.sectionTitle, marginBottom: 6 }}>ID Card</p>
+                  <img src={profileData.idCard} alt="ID" style={{ width: "100%", maxWidth: 280, borderRadius: 8, border: "1px solid #2e3340" }} />
+                </div>
+              )}
+              {profileData.promptPayQR && (
+                <div>
+                  <p style={{ ...S.sectionTitle, marginBottom: 6 }}>PromptPay / Bank QR</p>
+                  <img src={profileData.promptPayQR} alt="QR" style={{ width: 120, height: 120, objectFit: "contain", borderRadius: 8, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />
+                </div>
+              )}
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }
 
 // ─── INVOICE PAGE ─────────────────────────────────────────────────────────────
-function InvoicePage({ productionCompanies, setProductionCompanies, invoices, employees }) {
+function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees }) {
   const [activeTab, setActiveTab] = useState("companies");
   const [modal, setModal] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -2596,18 +3058,25 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, em
             <div style={S.col}>
               {[...invoices].sort((a, b) => b.updatedAt - a.updatedAt).map(inv => {
                 const total = calcTotal(inv);
+                const isPaid = (inv.status || "Pending") === "Paid";
                 return (
-                  <div key={inv.id} style={S.card}>
+                  <div key={inv.id} style={{ ...S.card, border: isPaid ? "1px solid rgba(52,211,153,0.25)" : "var(--card-border,1px solid #252830)" }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{inv.invoiceNo}</p>
-                        <p style={{ margin: "2px 0 0", fontWeight: 700, fontSize: 14 }}>{inv.jobName}</p>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
+                          <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 10 }}>{inv.status || "Pending"}</span>
+                          <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{inv.invoiceNo}</p>
+                        </div>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{inv.jobName}</p>
                         <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.employeeName} · {inv.position || "—"}</p>
                         <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.productionCompany}</p>
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</p>
                         <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{new Date(inv.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                        <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px", marginTop: 6 }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid" } : i))}>
+                          {isPaid ? "Mark Pending" : "Mark Paid ✓"}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -2808,6 +3277,7 @@ export default function App() {
   const [productionCompanies, setProductionCompanies] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [companyName, setCompanyName] = useState("GEAR DESK");
+  const [equipmentRequests, setEquipmentRequests] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
@@ -2837,6 +3307,7 @@ export default function App() {
         if (d.productionCompanies) setProductionCompanies(d.productionCompanies);
         if (d.invoices) setInvoices(d.invoices);
         if (d.companyName != null) setCompanyName(d.companyName);
+        if (d.equipmentRequests) setEquipmentRequests(d.equipmentRequests);
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -2847,11 +3318,11 @@ export default function App() {
     if (!loaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api.putData({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName })
+      api.putData({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests })
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, loaded]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, loaded]);
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
 
@@ -2865,7 +3336,7 @@ export default function App() {
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} />
       ) : (
         <div id="admin-layout" style={S.app}>
           <AdminTopBar
@@ -2879,12 +3350,12 @@ export default function App() {
             companyName={companyName}
           />
           <main style={{ ...S.main, paddingBottom: 80 }}>
-            {activePage === "dashboard" && <DashboardPage jobs={jobs} equipment={equipment} checkouts={checkouts} />}
+            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
-            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} employees={employees} />}
-            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} />}
+            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} />}
+            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
         </div>
