@@ -1008,11 +1008,20 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
     } else {
       setJobs(p => [...p, { ...form, id: "job" + Date.now(), assignedEquipment: [] }]);
     }
-    if (isNew || statusChanged) {
-      const emoji = form.status === "Confirmed" ? "✅" : form.status === "Cancelled" ? "❌" : "📋";
-      const dateStr = (form.dates || []).slice(0, 3).map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ") + (form.dates.length > 3 ? "…" : "");
+    {
+      const emoji = form.status === "Confirmed" ? "✅" : form.status === "Cancelled" ? "❌" : "✏️";
+      const action = isNew ? "New Job" : statusChanged ? `Status → ${form.status}` : "Updated";
+      const groups = {};
+      [...(form.dates || [])].sort().forEach(d => {
+        const dt = new Date(d + "T00:00:00");
+        const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
+        const label = dt.toLocaleString("en-GB", { month: "short" });
+        if (!groups[key]) groups[key] = { label, days: [] };
+        groups[key].days.push(dt.getDate());
+      });
+      const dateStr = Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
       const locationStr = form.location + (form.locationCity ? ` — ${form.locationCity}` : "");
-      const msg = `${emoji} [${form.status}] ${form.name}\nProduction: ${form.production || "—"}\nDates: ${dateStr}\nLocation: ${locationStr}`;
+      const msg = `${emoji} [${action}] ${form.name}\nProduction: ${form.production || "—"}\nDates: ${dateStr}\nLocation: ${locationStr}\nwww.pickshootreturn.pages.dev`;
       if (lineGroupId) {
         api.notify({ userIds: [lineGroupId], message: msg });
       } else {
@@ -1869,7 +1878,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, lineGroupId }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
@@ -2782,6 +2791,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                               <button style={{ ...S.btn("primary"), fontSize: 12, padding: "6px 10px" }} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName })}>
                                 🖨 Print
                               </button>
+                              {lineGroupId && (
+                                <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => {
+                                  const name = profileInfo.firstName ? `${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim() : employee.name;
+                                  const total = (() => { const items = inv.items || [{ description: "Labor", qty: 1, rate: (inv.laborFee||0)+(inv.overtime||0)+(inv.travelFee||0)+(inv.perDiem||0) }]; return items.reduce((s, it) => s + (it.qty||1)*(it.rate||0), 0); })();
+                                  const msg = `🧾 Invoice from ${name}\n${fmtInvoiceNo(inv)}\nJob: ${inv.jobName || "—"}\nProduction: ${inv.productionCompany || "—"}\nAmount: ฿${total.toLocaleString()}\nStatus: ${inv.status || "Pending"}\nwww.pickshootreturn.pages.dev`;
+                                  api.notify({ userIds: [lineGroupId], message: msg });
+                                }}>
+                                  💬 Send to Group
+                                </button>
+                              )}
                               <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 12, padding: "6px 10px" }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid" } : i))}>
                                 {isPaid ? "Mark Pending" : "Mark Paid"}
                               </button>
@@ -3840,7 +3859,7 @@ export default function App() {
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} lineGroupId={lineGroupId} />
       ) : (
         <div id="admin-layout" style={S.app}>
           <AdminTopBar
