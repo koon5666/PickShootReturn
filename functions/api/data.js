@@ -48,7 +48,9 @@ export async function onRequestPut({ request, env }) {
     ops.push(env.KV.put("equipmentRequests", JSON.stringify(body.equipmentRequests)));
   if (body.adminPin !== undefined)
     ops.push(env.KV.put("adminPin", JSON.stringify(body.adminPin)));
-  if (body.lineGroupId !== undefined)
+  if (body.lineGroupId === null)
+    ops.push(env.KV.delete("lineGroupId"));
+  else if (body.lineGroupId !== undefined)
     ops.push(env.KV.put("lineGroupId", JSON.stringify(body.lineGroupId)));
   await Promise.all(ops);
   return Response.json({ ok: true }, { headers: CORS });

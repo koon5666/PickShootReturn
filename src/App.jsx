@@ -3322,9 +3322,14 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
             </p>
             {lineGroupId && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lineGroupId}</p>}
           </div>
-          {lineGroupId && (
-            <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11, flexShrink: 0 }} onClick={() => setLineGroupId(null)}>Disconnect</button>
-          )}
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            {!lineGroupId && (
+              <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => api.getData().then(d => { if (d.lineGroupId) setLineGroupId(d.lineGroupId); })}>↻ Refresh</button>
+            )}
+            {lineGroupId && (
+              <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11 }} onClick={() => { api.putData({ lineGroupId: null }); setLineGroupId(null); }}>Disconnect</button>
+            )}
+          </div>
         </div>
 
         <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.8 }}>
@@ -3815,11 +3820,13 @@ export default function App() {
     if (!loaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api.putData({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin, lineGroupId })
+      const savePayload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin };
+      if (lineGroupId !== null) savePayload.lineGroupId = lineGroupId;
+      api.putData(savePayload)
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin, lineGroupId, loaded]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin, loaded]);
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
 
