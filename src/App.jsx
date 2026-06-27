@@ -1021,7 +1021,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
       });
       const dateStr = Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
       const locationStr = form.location + (form.locationCity ? ` — ${form.locationCity}` : "");
-      const msg = `${emoji} [${action}] ${form.name}\nProduction: ${form.production || "—"}\nDates: ${dateStr}\nLocation: ${locationStr}\nwww.pickshootreturn.pages.dev`;
+      const msg = `${emoji} [${action}] ${form.name}\nProduction: ${form.production || "—"}\nDates: ${dateStr}\nLocation: ${locationStr}\npickshootreturn.pages.dev`;
       if (lineGroupId) {
         api.notify({ userIds: [lineGroupId], message: msg });
       } else {
@@ -2795,7 +2795,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                                 <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => {
                                   const name = profileInfo.firstName ? `${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim() : employee.name;
                                   const total = (() => { const items = inv.items || [{ description: "Labor", qty: 1, rate: (inv.laborFee||0)+(inv.overtime||0)+(inv.travelFee||0)+(inv.perDiem||0) }]; return items.reduce((s, it) => s + (it.qty||1)*(it.rate||0), 0); })();
-                                  const msg = `🧾 Invoice from ${name}\n${fmtInvoiceNo(inv)}\nJob: ${inv.jobName || "—"}\nProduction: ${inv.productionCompany || "—"}\nAmount: ฿${total.toLocaleString()}\nStatus: ${inv.status || "Pending"}\nwww.pickshootreturn.pages.dev`;
+                                  const msg = `🧾 Invoice from ${name}\n${fmtInvoiceNo(inv)}\nJob: ${inv.jobName || "—"}\nProduction: ${inv.productionCompany || "—"}\nAmount: ฿${total.toLocaleString()}\nStatus: ${inv.status || "Pending"}\npickshootreturn.pages.dev`;
                                   api.notify({ userIds: [lineGroupId], message: msg });
                                 }}>
                                   💬 Send to Group
