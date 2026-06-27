@@ -678,22 +678,45 @@ function makeSignatureTransparent(base64src) {
   return new Promise(resolve => {
     const img = new Image();
     img.onload = () => {
+      // Scale down so huge phone photos don't bloat KV storage
+      const maxDim = 1400;
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
       const canvas = document.createElement("canvas");
-      canvas.width = img.width; canvas.height = img.height;
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
       const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0);
-      const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      for (let i = 0; i < data.data.length; i += 4) {
-        const r = data.data[i], g = data.data[i+1], b = data.data[i+2];
-        const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
-        if (lum > 0.82) {
-          data.data[i+3] = 0;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = id.data;
+
+      // Collect all pixel luminances to find the actual paper brightness
+      // (accounts for dim lighting, warm/cream paper, shadows)
+      const lums = new Float32Array(d.length / 4);
+      for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+        lums[p] = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
+      }
+      const sorted = Float32Array.from(lums).sort();
+      // 95th-percentile = the brightest area = paper white (not blown-out specular)
+      const paperLum = sorted[Math.floor(sorted.length * 0.95)] || 230;
+      // Ink cutoff: pixels brighter than 78% of paper → background
+      const cutoff = paperLum * 0.78;
+
+      for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+        const l = lums[p];
+        if (l >= cutoff) {
+          // Background → fully transparent
+          d[i+3] = 0;
         } else {
-          data.data[i] = 18; data.data[i+1] = 58; data.data[i+2] = 188;
-          data.data[i+3] = Math.round((1 - lum) * 240);
+          // Ink → smooth alpha + tint to blue (√ curve = softer feathered edge)
+          const t = Math.pow((cutoff - l) / cutoff, 0.45);
+          d[i]   = Math.round(d[i]   * (1 - t) + 14  * t);
+          d[i+1] = Math.round(d[i+1] * (1 - t) + 48  * t);
+          d[i+2] = Math.round(d[i+2] * (1 - t) + 180 * t);
+          d[i+3] = Math.min(255, Math.round(t * 290));
         }
       }
-      ctx.putImageData(data, 0, 0);
+
+      ctx.putImageData(id, 0, 0);
       resolve(canvas.toDataURL("image/png"));
     };
     img.onerror = () => resolve(base64src);
