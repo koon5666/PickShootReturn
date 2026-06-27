@@ -2610,6 +2610,28 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </div>
             </div>
 
+            {/* Calendar Sync */}
+            <div style={S.card}>
+              <p style={S.sectionTitle}>📅 Calendar Sync</p>
+              <div style={S.col}>
+                <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.7 }}>
+                  Subscribe to the production schedule in your iPhone Calendar. Pencil jobs appear <strong style={{ color: "var(--text,#e8e4dc)" }}>tentative (striped)</strong>, Confirmed are <strong style={{ color: "#34d399" }}>solid</strong>. Updates hourly.
+                </p>
+                <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.8 }}>
+                  <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>iPhone setup:</strong>
+                  1. <strong>Settings → Calendar → Accounts → Add Account → Other</strong><br />
+                  2. Tap <strong>Add Subscribed Calendar</strong><br />
+                  3. Paste the URL below → <strong>Next → Save</strong>
+                </div>
+                <code style={{ background: "rgba(232,184,75,0.1)", color: "var(--accent,#e8b84b)", padding: "6px 10px", borderRadius: 6, fontSize: 11, wordBreak: "break-all" }}>
+                  https://pickshootreturn.pages.dev/api/calendar
+                </code>
+                <button style={{ ...S.btn("ghost"), alignSelf: "flex-start", fontSize: 12 }} onClick={() => navigator.clipboard?.writeText("https://pickshootreturn.pages.dev/api/calendar")}>
+                  📋 Copy URL
+                </button>
+              </div>
+            </div>
+
             {/* My recent activity */}
             <div style={S.card}>
               <p style={S.sectionTitle}>{t("recentActivity")}</p>
