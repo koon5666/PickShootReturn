@@ -819,10 +819,11 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose, a
       revisions = (existingInvoice.revisions || 0) + 1;
     } else {
       const yr = new Date().getFullYear().toString().slice(-2);
-      const yearInvs = (allInvoices || []).filter(inv => inv.invoiceNo?.startsWith(`INV-${yr}`));
+      const prefix = `INV-${yr}-`;
+      const yearInvs = (allInvoices || []).filter(inv => inv.invoiceNo?.startsWith(prefix));
       let maxSeq = 0;
-      yearInvs.forEach(inv => { const m = inv.invoiceNo.match(/INV-\d{2}(\d+)/); if (m) maxSeq = Math.max(maxSeq, parseInt(m[1])); });
-      invNo = `INV-${yr}${String(maxSeq + 1).padStart(3, "0")}`;
+      yearInvs.forEach(inv => { const m = inv.invoiceNo.match(/INV-\d{2}-(\d+)/); if (m) maxSeq = Math.max(maxSeq, parseInt(m[1])); });
+      invNo = `${prefix}${String(maxSeq + 1).padStart(4, "0")}`;
       revisions = 0;
     }
     onSave({
@@ -2205,21 +2206,21 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
                     <label style={S.label}>First Name</label>
-                    <input style={S.input} placeholder="Watcharawit" value={profileInfo.firstName} onChange={e => setProfileInfo(p => ({ ...p, firstName: e.target.value }))} />
+                    <input style={S.input} placeholder="First Name" value={profileInfo.firstName} onChange={e => setProfileInfo(p => ({ ...p, firstName: e.target.value }))} />
                   </div>
                   <div>
                     <label style={S.label}>Last Name</label>
-                    <input style={S.input} placeholder="Ya-inta" value={profileInfo.lastName} onChange={e => setProfileInfo(p => ({ ...p, lastName: e.target.value }))} />
+                    <input style={S.input} placeholder="Last Name" value={profileInfo.lastName} onChange={e => setProfileInfo(p => ({ ...p, lastName: e.target.value }))} />
                   </div>
                 </div>
                 <div>
                   <label style={S.label}>Nickname <span style={{ color: "#666", fontWeight: 400 }}>(shown in portal)</span></label>
-                  <input style={S.input} placeholder="Koon" value={profileInfo.nickname} onChange={e => setProfileInfo(p => ({ ...p, nickname: e.target.value }))} />
+                  <input style={S.input} placeholder="Nickname" value={profileInfo.nickname} onChange={e => setProfileInfo(p => ({ ...p, nickname: e.target.value }))} />
                 </div>
                 {[
-                  { key: "phone", label: t("phone"), type: "tel", placeholder: "+66 81 234 5678" },
-                  { key: "email", label: t("email"), type: "email", placeholder: "you@email.com" },
-                  { key: "lineId", label: t("lineId"), type: "text", placeholder: "@yourlineid" },
+                  { key: "phone", label: t("phone"), type: "tel", placeholder: "Phone" },
+                  { key: "email", label: t("email"), type: "email", placeholder: "Email" },
+                  { key: "lineId", label: t("lineId"), type: "text", placeholder: "Line ID" },
                 ].map(f => (
                   <div key={f.key}>
                     <label style={S.label}>{f.label}</label>
@@ -2230,7 +2231,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 <div>
                   <label style={S.label}>{t("legalAddress")}</label>
                   <textarea style={{ ...S.input, height: 80, resize: "vertical", lineHeight: 1.5 }}
-                    placeholder={"123 Moo 4\nBangkok 10400"}
+                    placeholder="Legal Address"
                     value={profileInfo.legalAddress}
                     onChange={e => setProfileInfo(p => ({ ...p, legalAddress: e.target.value }))} />
                 </div>
