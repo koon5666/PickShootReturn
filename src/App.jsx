@@ -286,6 +286,26 @@ const LANG = {
     reportSolve: "Mark Solved", reportDiscard: "Discard", reportUnresolved: "unresolved",
     reportBy: "Reported by", reportAll: "All",
     myReports: "My damage reports",
+    // Gear requests (employee)
+    gearRequests: "Gear Requests", noGearRequests: "No gear requests yet.", requestBtn: "Request",
+    reqWork: "Work: ", reqPractice: "Practice",
+    reqGearModalTitle: "Request Gear Checkout", datesNeeded: "Dates Needed", tapDatesHint: "Tap dates to select — availability updates per date",
+    selectEquipment: "Select Equipment", purposeLabel: "Purpose",
+    purposePractice: "Practice / Personal Use", purposeWork: "Work (Production)",
+    productionHouse: "Production House", reasonLabel: "Reason", reasonPlaceholder: "Why do you need this gear?",
+    submitRequest: "Submit Request",
+    // Profile
+    firstName: "First Name", lastName: "Last Name", nickname: "Nickname", shownInPortal: "(shown in portal)",
+    bankDetails: "Bank Details", bankNameLabel: "Bank Name", accountNameLabel: "Account Name", accountNumberLabel: "Account Number",
+    changePasscode: "Change Passcode", newPinLabel: "New PIN (4–6 digits)", confirmPinLabel: "Confirm PIN", updatePasscode: "Update Passcode",
+    signatureSection: "Signature (on white background)", signatureHint: "Sign on white paper, photograph it. The system will automatically remove the white background.",
+    calendarSync: "Calendar Sync",
+    // Job form (admin)
+    newJob: "New Job", editJob: "Edit Job",
+    jobNameField: "Job Name", productionCoField: "Production Company",
+    jobStatusField: "Job Status", shootTimeField: "Shoot Time", locationField: "Location Type",
+    contactPersonField: "Contact Person", contactPlatformField: "Contact Platform",
+    datesField: "Production Dates (tap to select/deselect)", viewNextMonth: "View next month →", saveJob: "Save Job",
     // Common
     cancel: "Cancel", save: "Save", logout: "Log Out", back: "Back", loading: "Loading…",
     qty: "Qty",
@@ -348,6 +368,26 @@ const LANG = {
     reportSolve: "แก้ไขแล้ว", reportDiscard: "ยกเลิก", reportUnresolved: "รายการรอแก้ไข",
     reportBy: "แจ้งโดย", reportAll: "ทั้งหมด",
     myReports: "รายงานของฉัน",
+    // Gear requests (employee)
+    gearRequests: "คำขอยืมอุปกรณ์", noGearRequests: "ยังไม่มีคำขอ", requestBtn: "ขอยืม",
+    reqWork: "งาน: ", reqPractice: "ฝึกซ้อม",
+    reqGearModalTitle: "ขอยืมอุปกรณ์", datesNeeded: "วันที่ต้องการ", tapDatesHint: "แตะวันที่เพื่อเลือก",
+    selectEquipment: "เลือกอุปกรณ์", purposeLabel: "วัตถุประสงค์",
+    purposePractice: "ฝึกซ้อม / ใช้ส่วนตัว", purposeWork: "งาน (กองถ่าย)",
+    productionHouse: "บริษัทผลิต", reasonLabel: "เหตุผล", reasonPlaceholder: "ทำไมต้องการอุปกรณ์นี้?",
+    submitRequest: "ส่งคำขอ",
+    // Profile
+    firstName: "ชื่อจริง", lastName: "นามสกุล", nickname: "ชื่อเล่น", shownInPortal: "(แสดงในระบบ)",
+    bankDetails: "ข้อมูลธนาคาร", bankNameLabel: "ชื่อธนาคาร", accountNameLabel: "ชื่อบัญชี", accountNumberLabel: "เลขบัญชี",
+    changePasscode: "เปลี่ยนรหัสผ่าน", newPinLabel: "รหัสใหม่ (4–6 หลัก)", confirmPinLabel: "ยืนยันรหัส", updatePasscode: "อัปเดตรหัส",
+    signatureSection: "ลายเซ็น (บนกระดาษขาว)", signatureHint: "เซ็นบนกระดาษขาวแล้วถ่ายรูป ระบบจะลบพื้นหลังขาวอัตโนมัติ",
+    calendarSync: "ซิงก์ปฏิทิน",
+    // Job form (admin)
+    newJob: "งานใหม่", editJob: "แก้ไขงาน",
+    jobNameField: "ชื่องาน", productionCoField: "บริษัทผลิต",
+    jobStatusField: "สถานะ", shootTimeField: "ช่วงเวลาถ่าย", locationField: "ประเภทสถานที่",
+    contactPersonField: "ผู้ติดต่อ", contactPlatformField: "ช่องทางติดต่อ",
+    datesField: "วันถ่าย (แตะเพื่อเลือก)", viewNextMonth: "เดือนถัดไป →", saveJob: "บันทึก",
     // Common
     cancel: "ยกเลิก", save: "บันทึก", logout: "ออกจากระบบ", back: "กลับ", loading: "กำลังโหลด…",
     qty: "จำนวน",
@@ -988,7 +1028,9 @@ function ProductionCombobox({ value, onChange, companies }) {
 
 // ─── SHARED JOB FORM MODAL ────────────────────────────────────────────────────
 function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, lineGroupId, onClose }) {
-  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "" };
+  const t = useT();
+  const CONTACT_PLATFORMS = ["Line", "Facebook", "WhatsApp", "Instagram", "Phone"];
+  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line" };
   const [form, setForm] = useState(editTarget ? { ...editTarget } : EMPTY);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = editTarget?.dates?.[0] ? new Date(editTarget.dates[0] + "T00:00:00") : new Date();
@@ -1070,28 +1112,28 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
   };
 
   return (
-    <Modal title={editTarget ? "Edit Job" : "New Job"} onClose={onClose} wide>
+    <Modal title={editTarget ? t("editJob") : t("newJob")} onClose={onClose} wide>
       <div style={S.col}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div style={{ gridColumn: "1/-1" }}><label style={S.label}>Job Name</label><input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. TVC Toyota — Hero Film" /></div>
+          <div style={{ gridColumn: "1/-1" }}><label style={S.label}>{t("jobNameField")}</label><input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. TVC Toyota — Hero Film" /></div>
           <div style={{ gridColumn: "1/-1" }}>
-            <label style={S.label}>Production Company</label>
+            <label style={S.label}>{t("productionCoField")}</label>
             <ProductionCombobox value={form.production} onChange={v => setForm(p => ({ ...p, production: v }))} companies={productionCompanies} />
           </div>
           <div>
-            <label style={S.label}>Job Status</label>
+            <label style={S.label}>{t("jobStatusField")}</label>
             <select style={S.select} value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
               {JOB_STATUSES.map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
           <div>
-            <label style={S.label}>Shoot Time</label>
+            <label style={S.label}>{t("shootTimeField")}</label>
             <select style={S.select} value={form.shootTime} onChange={e => setForm(p => ({ ...p, shootTime: e.target.value }))}>
               {SHOOT_TIMES.map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
           <div style={{ gridColumn: "1/-1" }}>
-            <label style={S.label}>Location Type</label>
+            <label style={S.label}>{t("locationField")}</label>
             <select style={S.select} value={form.location} onChange={e => setForm(p => ({ ...p, location: e.target.value, locationCity: "" }))}>
               {LOCATIONS.map(l => <option key={l}>{l}</option>)}
             </select>
@@ -1099,18 +1141,28 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
               <input style={{ ...S.input, marginTop: 8 }} value={form.locationCity || ""} onChange={e => setForm(p => ({ ...p, locationCity: e.target.value }))} placeholder={form.location === "Overseas" ? "Country / City" : "Province / City"} />
             )}
           </div>
+          <div>
+            <label style={S.label}>{t("contactPersonField")}</label>
+            <input style={S.input} value={form.contactPerson || ""} onChange={e => setForm(p => ({ ...p, contactPerson: e.target.value }))} placeholder="Name" />
+          </div>
+          <div>
+            <label style={S.label}>{t("contactPlatformField")}</label>
+            <select style={S.select} value={form.contactPlatform || "Line"} onChange={e => setForm(p => ({ ...p, contactPlatform: e.target.value }))}>
+              {CONTACT_PLATFORMS.map(pl => <option key={pl}>{pl}</option>)}
+            </select>
+          </div>
         </div>
         <div>
-          <label style={S.label}>Production Dates (tap to select/deselect)</label>
+          <label style={S.label}>{t("datesField")}</label>
           {renderCalendar()}
           <button style={{ ...S.btn("ghost"), fontSize: 11, marginTop: 8 }} onClick={() => {
             const next = new Date(calendarMonth.year, calendarMonth.month + 1);
             setCalendarMonth({ year: next.getFullYear(), month: next.getMonth() });
-          }}>View next month →</button>
+          }}>{t("viewNextMonth")}</button>
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button style={S.btn("ghost")} onClick={onClose}>Cancel</button>
-          <button style={S.btn("primary")} onClick={saveJob}>Save Job</button>
+          <button style={S.btn("ghost")} onClick={onClose}>{t("cancel")}</button>
+          <button style={S.btn("primary")} onClick={saveJob}>{t("saveJob")}</button>
         </div>
       </div>
     </Modal>
@@ -2239,13 +2291,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Gear Checkout Requests */}
             <div style={S.card}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <p style={{ ...S.sectionTitle, margin: 0 }}>Gear Requests {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} pending</span>}</p>
+                <p style={{ ...S.sectionTitle, margin: 0 }}>{t("gearRequests")} {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} pending</span>}</p>
                 <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12 }} onClick={() => setShowGearRequest(true)}>
-                  <Icon d={icons.plus} size={13} /> Request
+                  <Icon d={icons.plus} size={13} /> {t("requestBtn")}
                 </button>
               </div>
               {myRequests.length === 0 ? (
-                <p style={{ fontSize: 13, color: "#555" }}>No gear requests yet.</p>
+                <p style={{ fontSize: 13, color: "#555" }}>{t("noGearRequests")}</p>
               ) : myRequests.slice().reverse().map((req, i) => {
                 const itemLabel = req.items
                   ? req.items.map(it => { const e = equipment.find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
@@ -2256,7 +2308,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{itemLabel}</p>
                       <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>
-                        {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}
+                        {req.purpose === "work" ? `${t("reqWork")}${req.jobName}` : t("reqPractice")}
                         {(req.useDates?.length > 0) ? ` · ${req.useDates.map(formatDate).join(", ")}` : req.useDate ? ` · For: ${formatDate(req.useDate)}` : ""}
                         {" · "}{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                       </p>
@@ -2269,10 +2321,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
             {/* Gear Request Modal */}
             {showGearRequest && (
-              <Modal title="Request Gear Checkout" onClose={() => { setShowGearRequest(false); setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }} wide>
+              <Modal title={t("reqGearModalTitle")} onClose={() => { setShowGearRequest(false); setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }} wide>
                 <div style={S.col}>
                   <div>
-                    <label style={S.label}>Dates Needed</label>
+                    <label style={S.label}>{t("datesNeeded")}</label>
                     {(() => {
                       const { year, month } = gearReqCalMonth;
                       const firstDay = new Date(year, month, 1).getDay();
@@ -2309,7 +2361,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           </div>
                           {gearReqForm.useDates.length > 0
                             ? <p style={{ fontSize: 11, color: "#e8b84b", marginTop: 8 }}>{gearReqForm.useDates.length} date{gearReqForm.useDates.length > 1 ? "s" : ""} selected: {gearReqForm.useDates.map(formatDate).join(", ")}</p>
-                            : <p style={{ fontSize: 11, color: "#555", marginTop: 8 }}>Tap dates to select — availability updates per date</p>
+                            : <p style={{ fontSize: 11, color: "#555", marginTop: 8 }}>{t("tapDatesHint")}</p>
                           }
                         </div>
                       );
@@ -2317,7 +2369,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   </div>
 
                   <div>
-                    <label style={S.label}>Select Equipment</label>
+                    <label style={S.label}>{t("selectEquipment")}</label>
                     {(() => {
                       const avList = (() => {
                         if (gearReqForm.useDates.length === 0) return equipment.map(eq => ({ ...eq, available: eq.total, taken: 0 }));
@@ -2384,27 +2436,27 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   </div>
 
                   <div>
-                    <label style={S.label}>Purpose</label>
+                    <label style={S.label}>{t("purposeLabel")}</label>
                     <select style={S.select} value={gearReqForm.purpose} onChange={e => setGearReqForm(p => ({ ...p, purpose: e.target.value, productionName: "", jobName: "" }))}>
-                      <option value="practice">Practice / Personal Use</option>
-                      <option value="work">Work (Production)</option>
+                      <option value="practice">{t("purposePractice")}</option>
+                      <option value="work">{t("purposeWork")}</option>
                     </select>
                   </div>
                   {gearReqForm.purpose === "work" && (
                     <>
                       <div>
-                        <label style={S.label}>Production House</label>
+                        <label style={S.label}>{t("productionHouse")}</label>
                         <input style={S.input} value={gearReqForm.productionName} onChange={e => setGearReqForm(p => ({ ...p, productionName: e.target.value }))} placeholder="Production house" />
                       </div>
                       <div>
-                        <label style={S.label}>Job Name</label>
+                        <label style={S.label}>{t("jobNameLabel")}</label>
                         <input style={S.input} value={gearReqForm.jobName} onChange={e => setGearReqForm(p => ({ ...p, jobName: e.target.value }))} placeholder="Job name" />
                       </div>
                     </>
                   )}
                   <div>
-                    <label style={S.label}>Reason</label>
-                    <textarea style={{ ...S.input, height: 70, resize: "vertical", lineHeight: 1.5 }} value={gearReqForm.reason} onChange={e => setGearReqForm(p => ({ ...p, reason: e.target.value }))} placeholder="Why do you need this gear?" />
+                    <label style={S.label}>{t("reasonLabel")}</label>
+                    <textarea style={{ ...S.input, height: 70, resize: "vertical", lineHeight: 1.5 }} value={gearReqForm.reason} onChange={e => setGearReqForm(p => ({ ...p, reason: e.target.value }))} placeholder={t("reasonPlaceholder")} />
                   </div>
 
                   {Object.values(gearReqForm.selectedGear).some(q => q > 0) && (
@@ -2420,7 +2472,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   )}
 
                   <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                    <button style={S.btn("ghost")} onClick={() => { setShowGearRequest(false); setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }}>Cancel</button>
+                    <button style={S.btn("ghost")} onClick={() => { setShowGearRequest(false); setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }}>{t("cancel")}</button>
                     <button style={S.btn("primary")} onClick={() => {
                       const selectedItems = Object.entries(gearReqForm.selectedGear).filter(([, q]) => q > 0);
                       if (selectedItems.length === 0) return;
@@ -2463,7 +2515,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       }
                       setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
                       setShowGearRequest(false);
-                    }}>Submit Request</button>
+                    }}>{t("submitRequest")}</button>
                   </div>
                 </div>
               </Modal>
@@ -2556,17 +2608,17 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <div style={S.col}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
-                    <label style={S.label}>First Name</label>
-                    <input style={S.input} placeholder="First Name" value={profileInfo.firstName} onChange={e => setProfileInfo(p => ({ ...p, firstName: e.target.value }))} />
+                    <label style={S.label}>{t("firstName")}</label>
+                    <input style={S.input} placeholder={t("firstName")} value={profileInfo.firstName} onChange={e => setProfileInfo(p => ({ ...p, firstName: e.target.value }))} />
                   </div>
                   <div>
-                    <label style={S.label}>Last Name</label>
-                    <input style={S.input} placeholder="Last Name" value={profileInfo.lastName} onChange={e => setProfileInfo(p => ({ ...p, lastName: e.target.value }))} />
+                    <label style={S.label}>{t("lastName")}</label>
+                    <input style={S.input} placeholder={t("lastName")} value={profileInfo.lastName} onChange={e => setProfileInfo(p => ({ ...p, lastName: e.target.value }))} />
                   </div>
                 </div>
                 <div>
-                  <label style={S.label}>Nickname <span style={{ color: "#666", fontWeight: 400 }}>(shown in portal)</span></label>
-                  <input style={S.input} placeholder="Nickname" value={profileInfo.nickname} onChange={e => setProfileInfo(p => ({ ...p, nickname: e.target.value }))} />
+                  <label style={S.label}>{t("nickname")} <span style={{ color: "#666", fontWeight: 400 }}>{t("shownInPortal")}</span></label>
+                  <input style={S.input} placeholder={t("nickname")} value={profileInfo.nickname} onChange={e => setProfileInfo(p => ({ ...p, nickname: e.target.value }))} />
                 </div>
                 {[
                   { key: "phone", label: t("phone"), type: "tel", placeholder: "Phone" },
@@ -2619,17 +2671,17 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 </div>
                 {/* Bank Details */}
                 <div>
-                  <label style={S.label}>Bank Details</label>
+                  <label style={S.label}>{t("bankDetails")}</label>
                   <div style={S.col}>
-                    <input style={S.input} placeholder="Bank Name" value={profileInfo.bankName} onChange={e => setProfileInfo(p => ({ ...p, bankName: e.target.value }))} />
-                    <input style={S.input} placeholder="Account Name" value={profileInfo.accountName} onChange={e => setProfileInfo(p => ({ ...p, accountName: e.target.value }))} />
-                    <input style={S.input} placeholder="Account Number" value={profileInfo.bankAccount} onChange={e => setProfileInfo(p => ({ ...p, bankAccount: e.target.value }))} />
+                    <input style={S.input} placeholder={t("bankNameLabel")} value={profileInfo.bankName} onChange={e => setProfileInfo(p => ({ ...p, bankName: e.target.value }))} />
+                    <input style={S.input} placeholder={t("accountNameLabel")} value={profileInfo.accountName} onChange={e => setProfileInfo(p => ({ ...p, accountName: e.target.value }))} />
+                    <input style={S.input} placeholder={t("accountNumberLabel")} value={profileInfo.bankAccount} onChange={e => setProfileInfo(p => ({ ...p, bankAccount: e.target.value }))} />
                   </div>
                 </div>
                 {/* Signature */}
                 <div>
-                  <label style={S.label}>Signature (on white background)</label>
-                  <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 8px" }}>Sign on white paper, photograph it. The system will automatically remove the white background.</p>
+                  <label style={S.label}>{t("signatureSection")}</label>
+                  <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 8px" }}>{t("signatureHint")}</p>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                     {signature && <img src={signature} alt="Signature" style={{ height: 50, maxWidth: 160, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />}
                     <input ref={signatureRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
@@ -2649,14 +2701,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
             {/* PIN Change */}
             <div style={S.card}>
-              <p style={S.sectionTitle}>Change Passcode</p>
+              <p style={S.sectionTitle}>{t("changePasscode")}</p>
               <div style={S.col}>
                 <div>
-                  <label style={S.label}>New PIN (4–6 digits)</label>
+                  <label style={S.label}>{t("newPinLabel")}</label>
                   <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={pinChangeForm.newPin} onChange={e => setPinChangeForm(p => ({ ...p, newPin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 5678" />
                 </div>
                 <div>
-                  <label style={S.label}>Confirm PIN</label>
+                  <label style={S.label}>{t("confirmPinLabel")}</label>
                   <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={pinChangeForm.confirmPin} onChange={e => setPinChangeForm(p => ({ ...p, confirmPin: e.target.value.replace(/\D/g, "") }))} placeholder="Re-enter PIN" />
                 </div>
                 {pinChangeMsg && <p style={{ fontSize: 12, color: pinChangeMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{pinChangeMsg.text}</p>}
@@ -2668,13 +2720,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   setPinChangeForm({ newPin: "", confirmPin: "" });
                   setPinChangeMsg({ ok: true, text: "Passcode updated!" });
                   setTimeout(() => setPinChangeMsg(null), 3000);
-                }}>Update Passcode</button>
+                }}>{t("updatePasscode")}</button>
               </div>
             </div>
 
             {/* Calendar Sync */}
             <div style={S.card}>
-              <p style={S.sectionTitle}>📅 Calendar Sync</p>
+              <p style={S.sectionTitle}>📅 {t("calendarSync")}</p>
               <div style={S.col}>
                 <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.7 }}>
                   Subscribe to the production schedule in your iPhone Calendar. Pencil jobs appear <strong style={{ color: "var(--text,#e8e4dc)" }}>tentative (striped)</strong>, Confirmed are <strong style={{ color: "#34d399" }}>solid</strong>. Updates hourly.
