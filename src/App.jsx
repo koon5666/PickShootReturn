@@ -844,11 +844,13 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
       <img class="sig-img" src="${signature}" />
     </div>` : ""}
   </div>` : ""}
-  ${doPrint ? `<script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();}<\/script>` : ""}
+  ${doPrint ? `<script>window.onload=()=>{setTimeout(()=>{window.print();window.onafterprint=()=>window.close();},600);}<\/script>` : ""}
   </body></html>`;
 
-  const win = window.open("", "_blank", "width=820,height=1180");
-  if (win) { win.document.write(html); win.document.close(); }
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 const DEFAULT_ITEMS = [
