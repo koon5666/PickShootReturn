@@ -29,6 +29,7 @@ const api = {
   getProfile: (empId) => fetch(`/api/profile/${empId}`).then(r => r.ok ? r.json() : null),
   putProfile: (empId, profileObj) => fetch(`/api/profile/${empId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profileObj) }),
   notify: (body) => fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {}),
+  shareInvoice: (html) => fetch("/api/invoice-share", { method: "POST", headers: { "Content-Type": "text/html" }, body: html }).then(r => r.json()),
 };
 
 // ─── ADMIN THEME SYSTEM ───────────────────────────────────────────────────────
@@ -726,7 +727,7 @@ function fmtInvoiceNo(inv) {
   return rev > 0 ? base + "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[rev - 1] : base;
 }
 
-function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName, print: doPrint = true }) {
+function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName, autoPrint = false }) {
   const prodCo = productionCompanies.find(c => c.name === invoice.productionCompany);
   const total = calcTotal(invoice);
 
@@ -844,12 +845,16 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
       <img class="sig-img" src="${signature}" />
     </div>` : ""}
   </div>` : ""}
-  ${doPrint ? `<script>window.onload=()=>{setTimeout(()=>{window.print();window.onafterprint=()=>window.close();},600);}<\/script>` : ""}
+  ${autoPrint ? `<script>window.onload=()=>{setTimeout(()=>{window.print();window.onafterprint=()=>window.close();},600);}<\/script>` : ""}
   </body></html>`;
+  return html;
+}
 
+function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName, print: doPrint = true }) {
+  const html = buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName, autoPrint: doPrint });
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
-  const win = window.open(url, "_blank");
+  window.open(url, "_blank");
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
@@ -2051,6 +2056,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [empDetailJob, setEmpDetailJob] = useState(null);
   const [invFilter, setInvFilter] = useState("all"); // all | Pending | Paid
   const [invSort, setInvSort] = useState("date"); // date | amount
+  const [invSending, setInvSending] = useState(null); // invoice id currently being sent
   const [revPeriod, setRevPeriod] = useState("all"); // all | year | custom
   const [revYear, setRevYear] = useState(new Date().getFullYear().toString());
   const [revFrom, setRevFrom] = useState("");
@@ -2998,13 +3004,23 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                                 🖨 Print
                               </button>
                               {lineGroupId && (
-                                <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => {
-                                  const name = profileInfo.firstName ? `${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim() : employee.name;
-                                  const total = (() => { const items = inv.items || [{ description: "Labor", qty: 1, rate: (inv.laborFee||0)+(inv.overtime||0)+(inv.travelFee||0)+(inv.perDiem||0) }]; return items.reduce((s, it) => s + (it.qty||1)*(it.rate||0), 0); })();
-                                  const msg = `🧾 Invoice — ${name}\n📄 ${fmtInvoiceNo(inv)}\n🎬 ${inv.jobName || "—"}${inv.productionCompany ? ` · ${inv.productionCompany}` : ""}\n💰 ฿${total.toLocaleString()}\n📋 ${inv.status || "Pending"}\n🔗 https://pickshootreturn.pages.dev`;
-                                  api.notify({ userIds: [lineGroupId], message: msg });
-                                }}>
-                                  💬 Send to Group
+                                <button
+                                  disabled={invSending === inv.id}
+                                  style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px", opacity: invSending === inv.id ? 0.6 : 1 }}
+                                  onClick={async () => {
+                                    setInvSending(inv.id);
+                                    try {
+                                      const html = buildInvoiceHTML({ invoice: inv, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName, autoPrint: false });
+                                      const { key } = await api.shareInvoice(html);
+                                      const shareUrl = `https://pickshootreturn.pages.dev/api/invoice-view/${key}`;
+                                      const name = profileInfo.firstName ? `${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim() : employee.name;
+                                      const total = calcTotal(inv);
+                                      const msg = `🧾 Invoice — ${name}\n📄 ${fmtInvoiceNo(inv)}\n🎬 ${inv.jobName || "—"}${inv.productionCompany ? ` · ${inv.productionCompany}` : ""}\n💰 ฿${total.toLocaleString()}\n📋 ${inv.status || "Pending"}\n🔗 ${shareUrl}`;
+                                      await api.notify({ userIds: [lineGroupId], message: msg });
+                                    } catch {}
+                                    setInvSending(null);
+                                  }}>
+                                  {invSending === inv.id ? "Sending…" : "💬 Send to Group"}
                                 </button>
                               )}
                               <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 12, padding: "6px 10px" }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid" } : i))}>
