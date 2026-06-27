@@ -704,15 +704,11 @@ function makeSignatureTransparent(base64src) {
       for (let i = 0, p = 0; i < d.length; i += 4, p++) {
         const l = lums[p];
         if (l >= cutoff) {
-          // Background → fully transparent
           d[i+3] = 0;
         } else {
-          // Ink → smooth alpha + tint to blue (√ curve = softer feathered edge)
-          const t = Math.pow((cutoff - l) / cutoff, 0.45);
-          d[i]   = Math.round(d[i]   * (1 - t) + 14  * t);
-          d[i+1] = Math.round(d[i+1] * (1 - t) + 48  * t);
-          d[i+2] = Math.round(d[i+2] * (1 - t) + 180 * t);
-          d[i+3] = Math.min(255, Math.round(t * 290));
+          // Keep original ink color, just set alpha by darkness
+          const t = Math.pow((cutoff - l) / cutoff, 0.5);
+          d[i+3] = Math.min(255, Math.round(t * 255));
         }
       }
 
@@ -777,7 +773,7 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
     .id-wrap{width:160px;flex-shrink:0}
     .id-img{width:100%;border-radius:5px;display:block;border:1px solid #ddd}
     .sig-col{flex-shrink:0;display:flex;flex-direction:column;align-items:center}
-    .sig-img{width:160px;opacity:.92;filter:invert(22%) sepia(98%) saturate(1200%) hue-rotate(210deg) brightness(88%) contrast(115%)}
+    .sig-img{width:160px;opacity:.95}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>
   <div class="hdr">
