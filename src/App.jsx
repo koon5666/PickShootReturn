@@ -701,10 +701,11 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
     td{padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:11.5px}
     .num{text-align:right;width:80px}
     .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:13px;padding-top:8px}
-    .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:12px 14px;margin-top:12px;display:flex;gap:14px;align-items:center}
-    .sig-wrap{position:relative;width:160px;flex-shrink:0}
+    .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:12px 14px;margin-top:12px;display:flex;gap:16px;align-items:flex-end}
+    .id-wrap{width:160px;flex-shrink:0}
     .id-img{width:100%;border-radius:5px;display:block;border:1px solid #ddd}
-    .sig-img{position:absolute;bottom:0;right:0;width:96px;transform:rotate(-15deg);transform-origin:bottom right;opacity:.92}
+    .sig-col{flex-shrink:0;display:flex;flex-direction:column;align-items:center}
+    .sig-img{width:110px;transform:rotate(-15deg);opacity:.92;filter:invert(22%) sepia(98%) saturate(1200%) hue-rotate(210deg) brightness(88%) contrast(115%)}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>
   <div class="hdr">
@@ -754,20 +755,20 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
     <tbody>${itemRows}</tbody>
     <tfoot><tr class="total-row"><td colspan="3">TOTAL AMOUNT</td><td class="num">฿${total.toLocaleString()}</td></tr></tfoot>
   </table>
-  ${(promptPayQR || idCard) ? `
+  ${(promptPayQR || idCard || signature) ? `
   <div class="bottom-box">
     ${promptPayQR ? `<div style="text-align:center;flex-shrink:0">
       <div class="lbl" style="margin-bottom:6px">PromptPay / QR Payment</div>
       <img src="${promptPayQR}" style="width:208px;height:208px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
     </div>` : ""}
-    ${idCard ? `<div class="sig-wrap">
+    ${idCard ? `<div class="id-wrap">
       <div class="lbl" style="margin-bottom:6px">ID Card</div>
       <img class="id-img" src="${idCard}" />
-      ${signature ? `<img class="sig-img" src="${signature}" />` : ""}
-    </div>` : (signature ? `<div style="flex:1;text-align:right">
-      <div class="lbl" style="margin-bottom:6px">Signature</div>
-      <img src="${signature}" style="width:120px;transform:rotate(-22deg);transform-origin:bottom right;opacity:.9"/>
-    </div>` : "")}
+    </div>` : ""}
+    ${signature ? `<div class="sig-col">
+      <div class="lbl" style="margin-bottom:8px">Signature</div>
+      <img class="sig-img" src="${signature}" />
+    </div>` : ""}
   </div>` : ""}
   ${doPrint ? `<script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();}<\/script>` : ""}
   </body></html>`;
