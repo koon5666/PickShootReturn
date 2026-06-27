@@ -3745,7 +3745,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       const emp = employees.find(e => e.id === inv.employeeId) || { name: inv.employeeName, id: inv.employeeId };
       const profileData = await api.getProfile(inv.employeeId).catch(() => null);
       const profileInfo = profileData ? { phone: profileData.phone, email: profileData.email, lineId: profileData.lineId, legalAddress: profileData.legalAddress, bankName: profileData.bankName, bankAccount: profileData.bankAccount, accountName: profileData.accountName } : {};
-      const html = buildInvoiceHTML({ invoice: inv, employee: emp, profileInfo, promptPayQR: profileData?.promptPayQR || null, idCard: profileData?.idCard || null, signature: profileData?.signature || null, productionCompanies, companyName, autoPrint: false });
+      const html = buildInvoiceHTML({ invoice: inv, employee: emp, profileInfo, promptPayQR: profileData?.promptPayQR || null, idCard: profileData?.idCard || null, signature: profileData?.signature || null, productionCompanies, companyName, autoPrint: true });
       if (win) { win.document.open(); win.document.write(html); win.document.close(); }
     } catch { if (win) win.close(); }
     finally { setPreviewing(null); }
