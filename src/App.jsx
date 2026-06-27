@@ -2057,7 +2057,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const idCardRef = useRef(null);
   const promptPayRef = useRef(null);
   const signatureRef = useRef(null);
-  const profileSaveTimer = useRef(null);
+  const [profileSaveStatus, setProfileSaveStatus] = useState(null); // null | "saving" | "saved" | "error"
 
   const todayStr = today();
   const availableJobs = jobs.filter(j => j.status === "Confirmed" && j.dates.includes(todayStr) && (j.assignedEquipment || []).length > 0);
@@ -2075,14 +2075,18 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     }).catch(() => {}).finally(() => setProfileLoaded(true));
   }, [employee.id]);
 
-  // Save full profile to cloud (debounced, only after initial load)
-  useEffect(() => {
+  const saveProfile = async () => {
     if (!profileLoaded) return;
-    clearTimeout(profileSaveTimer.current);
-    profileSaveTimer.current = setTimeout(() => {
-      api.putProfile(employee.id, { photo: profilePhoto, ...profileInfo, idCard, promptPayQR, signature }).catch(() => {});
-    }, 800);
-  }, [profilePhoto, profileInfo, idCard, promptPayQR, signature, profileLoaded, employee.id]);
+    setProfileSaveStatus("saving");
+    try {
+      await api.putProfile(employee.id, { photo: profilePhoto, ...profileInfo, idCard, promptPayQR, signature });
+      setProfileSaveStatus("saved");
+      setTimeout(() => setProfileSaveStatus(null), 3000);
+    } catch {
+      setProfileSaveStatus("error");
+      setTimeout(() => setProfileSaveStatus(null), 3500);
+    }
+  };
 
   const handleProfileUpload = (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -2774,6 +2778,17 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   📋 Copy URL
                 </button>
               </div>
+            </div>
+
+            {/* Save Profile */}
+            <div style={{ position: "sticky", bottom: 16, zIndex: 10 }}>
+              <button
+                style={{ ...S.btn(profileSaveStatus === "saved" ? "success" : profileSaveStatus === "error" ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, opacity: profileSaveStatus === "saving" ? 0.75 : 1, boxShadow: "0 4px 24px rgba(0,0,0,0.5)" }}
+                disabled={profileSaveStatus === "saving"}
+                onClick={saveProfile}
+              >
+                {profileSaveStatus === "saving" ? "Saving…" : profileSaveStatus === "saved" ? "✓ Profile Saved" : profileSaveStatus === "error" ? "Save Failed — Tap to Retry" : "Save Profile"}
+              </button>
             </div>
 
             {/* My recent activity */}
