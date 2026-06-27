@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
-const ADMIN_PIN = "1234";
 const INITIAL_EMPLOYEES = [
   { id: "e1", name: "Somchai", pin: "1111" },
   { id: "e2", name: "Nong", pin: "2222" },
@@ -2634,7 +2633,7 @@ function AdminReportsPage({ reports, setReports, equipment }) {
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
-function Login({ onLogin, employees, companyName }) {
+function Login({ onLogin, employees, companyName, adminPin }) {
   const [mode, setMode] = useState("choose"); // choose | admin | employee
   const [pin, setPin] = useState("");
   const [selectedEmp, setSelectedEmp] = useState(null);
@@ -2642,7 +2641,7 @@ function Login({ onLogin, employees, companyName }) {
 
   const tryLogin = () => {
     if (mode === "admin") {
-      if (pin === ADMIN_PIN) { onLogin({ role: "admin" }); }
+      if (pin === adminPin) { onLogin({ role: "admin" }); }
       else { setError("Incorrect PIN."); setPin(""); }
     } else if (mode === "employee" && selectedEmp) {
       const emp = employees.find(e => e.id === selectedEmp);
@@ -2706,14 +2705,14 @@ function Login({ onLogin, employees, companyName }) {
         <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", padding: "12px" }} onClick={tryLogin} disabled={mode === "employee" && !selectedEmp}>
           Unlock
         </button>
-        <p style={{ fontSize: 11, color: "#444", textAlign: "center", marginTop: 16 }}>Admin PIN: {ADMIN_PIN}</p>
+        <p style={{ fontSize: 11, color: "#444", textAlign: "center", marginTop: 16 }}>Admin PIN: {adminPin}</p>
       </div>
     </div>
   );
 }
 
 // ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment }) {
+function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin }) {
   const [modal, setModal] = useState(null); // null | "add" | "edit" | "profile"
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
@@ -2722,6 +2721,8 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
   const [profileTarget, setProfileTarget] = useState(null);
   const [profileData, setProfileData] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
+  const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
+  const [apMsg, setApMsg] = useState(null);
 
   const openProfile = (emp) => {
     setProfileTarget(emp);
@@ -2895,10 +2896,38 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
       </div>
 
       <div style={S.card}>
+        <p style={S.sectionTitle}>Admin PIN</p>
+        <div style={S.col}>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0 }}>Current admin PIN: <strong style={{ color: "var(--accent,#e8b84b)", fontFamily: "monospace" }}>{adminPin}</strong></p>
+          <div style={S.row}>
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>New PIN (4–6 digits)</label>
+              <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={apForm.newPin} onChange={e => setApForm(p => ({ ...p, newPin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 9999" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>Confirm PIN</label>
+              <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={apForm.confirmPin} onChange={e => setApForm(p => ({ ...p, confirmPin: e.target.value.replace(/\D/g, "") }))} placeholder="Re-enter PIN" />
+            </div>
+          </div>
+          {apMsg && <p style={{ fontSize: 12, color: apMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{apMsg.text}</p>}
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button style={S.btn("primary")} onClick={() => {
+              const { newPin, confirmPin } = apForm;
+              if (!/^\d{4,6}$/.test(newPin)) { setApMsg({ ok: false, text: "PIN must be 4–6 digits." }); return; }
+              if (newPin !== confirmPin) { setApMsg({ ok: false, text: "PINs do not match." }); return; }
+              setAdminPin(newPin);
+              setApForm({ newPin: "", confirmPin: "" });
+              setApMsg({ ok: true, text: "Admin PIN updated." });
+              setTimeout(() => setApMsg(null), 3000);
+            }}>Change Admin PIN</button>
+          </div>
+        </div>
+      </div>
+
+      <div style={S.card}>
         <p style={S.sectionTitle}>System Info</p>
         <p style={{ fontSize: 13, color: "#666" }}>All data is stored in Cloudflare KV — synced across all devices automatically.</p>
         <p style={{ fontSize: 13, color: "#666", marginTop: 8 }}>Geo-locked photos use the browser's camera API — location metadata is embedded in the image stamp.</p>
-        <p style={{ fontSize: 13, color: "#666", marginTop: 8 }}>Admin PIN: <strong style={{ color: "#e8b84b" }}>{ADMIN_PIN}</strong></p>
       </div>
 
       {(modal === "add" || modal === "edit") && (
@@ -3278,6 +3307,7 @@ export default function App() {
   const [invoices, setInvoices] = useState([]);
   const [companyName, setCompanyName] = useState("GEAR DESK");
   const [equipmentRequests, setEquipmentRequests] = useState([]);
+  const [adminPin, setAdminPin] = useState("1234");
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
@@ -3308,6 +3338,7 @@ export default function App() {
         if (d.invoices) setInvoices(d.invoices);
         if (d.companyName != null) setCompanyName(d.companyName);
         if (d.equipmentRequests) setEquipmentRequests(d.equipmentRequests);
+        if (d.adminPin) setAdminPin(d.adminPin);
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -3318,11 +3349,11 @@ export default function App() {
     if (!loaded) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      api.putData({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests })
+      api.putData({ equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin })
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, loaded]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin, loaded]);
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
 
@@ -3334,7 +3365,7 @@ export default function App() {
           <p style={{ color: "#666", fontSize: 13, letterSpacing: "0.08em" }}>{LANG[lang]?.loading || "LOADING…"}</p>
         </div>
       ) : !user ? (
-        <Login onLogin={setUser} employees={employees} companyName={companyName} />
+        <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} />
       ) : user.role === "employee" ? (
         <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} />
       ) : (
@@ -3355,7 +3386,7 @@ export default function App() {
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} />}
-            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} />}
+            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
         </div>
