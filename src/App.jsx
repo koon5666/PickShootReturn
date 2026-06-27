@@ -209,7 +209,7 @@ function GeoPhoto({ onCapture, label }) {
         </button>
       )}
       {locErr && <p style={{ fontSize: 12, color: "#f87171", marginTop: 8 }}>{locErr}</p>}
-      <video ref={videoRef} style={{ width: "100%", borderRadius: 8, marginTop: streaming ? 12 : 0, display: streaming ? "block" : "none" }} />
+      <video ref={videoRef} playsInline muted style={{ width: "100%", borderRadius: 8, marginTop: streaming ? 12 : 0, display: streaming ? "block" : "none" }} />
       {streaming && (
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
           {location && <span style={S.badge("green")}><Icon d={icons.map} size={12} /> GPS: {location.lat}, {location.lng}</span>}
@@ -1589,11 +1589,23 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
   const pencilJobs = jobs.filter(j => j.status === "Pencil");
   const avList = calcAvailable(equipment, jobs, checkouts, todayStr);
-  const recentCheckouts = checkouts.slice(-5).reverse();
   const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
   const [expandedStat, setExpandedStat] = useState(null);
   const [dashJobModal, setDashJobModal] = useState(null);
   const [dashReqModal, setDashReqModal] = useState(null);
+  const [expandedActivityKeys, setExpandedActivityKeys] = useState(new Set());
+  const activityGroups = (() => {
+    const map = {};
+    checkouts.forEach(c => {
+      const key = c.jobId || (c.requestId ? `req_${c.requestId}` : `emp_${c.employeeId}_${c.jobName}`);
+      if (!map[key]) map[key] = { key, label: c.jobName || "Unknown", items: [], empNames: new Set(), latestTs: 0 };
+      map[key].items.push(c);
+      if (c.employeeName) map[key].empNames.add(c.employeeName);
+      if (c.ts > map[key].latestTs) map[key].latestTs = c.ts;
+    });
+    return Object.values(map).sort((a, b) => b.latestTs - a.latestTs).slice(0, 10);
+  })();
+  const toggleActivity = (key) => setExpandedActivityKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
   const approveRequest = (req) => {
     setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: Date.now() } : r));
@@ -1704,20 +1716,44 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
       {/* Recent activity */}
       <div style={S.card}>
         <p style={S.sectionTitle}>Recent Activity</p>
-        {recentCheckouts.length === 0
-          ? <p style={{ color: "#666", fontSize: 13 }}>No activity recorded yet.</p>
-          : recentCheckouts.map((c, i) => {
-            const eq = equipment.find(e => e.id === c.eqId);
-            return (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 10, borderBottom: i < recentCheckouts.length - 1 ? "1px solid #252830" : "none", marginBottom: 10 }}>
-                <span style={S.badge(c.type === "pick" || c.type === "checkout" ? "amber" : "green")}>{c.type === "pick" || c.type === "checkout" ? "PICK" : "RETURN"}</span>
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: 0, fontSize: 13 }}><strong>{eq?.name || "Unknown"}</strong> ×{c.qty}</p>
-                  <p style={{ margin: 0, fontSize: 11, color: "#666" }}>{c.jobName} · {c.employeeName} · {formatDateTime(c.ts)}</p>
+        {activityGroups.length === 0 ? (
+          <p style={{ color: "#666", fontSize: 13 }}>No activity recorded yet.</p>
+        ) : activityGroups.map((group, i, arr) => {
+          const isExpanded = expandedActivityKeys.has(group.key);
+          const sortedItems = [...group.items].sort((a, b) => b.ts - a.ts);
+          const latestType = sortedItems[0]?.type;
+          const isPick = latestType === "pick" || latestType === "checkout";
+          const empNames = [...group.empNames].join(", ");
+          return (
+            <div key={group.key} style={{ paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
+              <div onClick={() => toggleActivity(group.key)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <span style={S.badge(isPick ? "amber" : "green")}>{isPick ? "PICKED" : "RETURNED"}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{group.label}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{empNames} · {formatDateTime(group.latestTs)}</p>
                 </div>
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}><path d="M9 18l6-6-6-6" /></svg>
               </div>
-            );
-          })}
+              {isExpanded && (
+                <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid #252830" }}>
+                  {sortedItems.map((c, ci) => {
+                    const eq = equipment.find(e => e.id === c.eqId);
+                    const cIsPick = c.type === "pick" || c.type === "checkout";
+                    return (
+                      <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: ci < sortedItems.length - 1 ? "1px solid #1e2230" : "none" }}>
+                        <span style={S.badge(cIsPick ? "amber" : "green")}>{cIsPick ? "PICK" : "RETURN"}</span>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || "Unknown"} ×{c.qty}</p>
+                          <p style={{ margin: 0, fontSize: 10, color: "#666" }}>{c.employeeName} · {formatDateTime(c.ts)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Floating + FAB */}
@@ -1828,6 +1864,32 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                   <button style={{ ...S.btn("success"), flex: 1 }} onClick={() => approveRequest(req)}>Approve</button>
                 </div>
               )}
+              {req.status === "approved" && (() => {
+                const reqCheckouts = checkouts.filter(c => c.requestId === req.id);
+                if (reqCheckouts.length === 0) return null;
+                const pickedIds = new Set(reqCheckouts.filter(c => c.type === "pick" || c.type === "checkout").map(c => c.eqId));
+                const returnedIds = new Set(reqCheckouts.filter(c => c.type === "return").map(c => c.eqId));
+                return (
+                  <div style={{ borderTop: "1px solid #252830", paddingTop: 12 }}>
+                    <p style={{ ...S.label, marginBottom: 8 }}>Checkout Status</p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {items.map((item, i) => {
+                        const eq = equipment.find(e => e.id === item.eqId);
+                        const returned = returnedIds.has(item.eqId);
+                        const picked = pickedIds.has(item.eqId);
+                        return (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: "#0f1117", borderRadius: 8, border: "1px solid #252830" }}>
+                            <div style={{ flex: 1 }}>
+                              <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || item.eqName} ×{item.qty}</p>
+                            </div>
+                            <span style={S.badge(returned ? "green" : picked ? "amber" : "gray")}>{returned ? "RETURNED" : picked ? "OUT" : "NOT YET"}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
               {req.status !== "pending" && (
                 <button style={{ ...S.btn("ghost"), width: "100%" }} onClick={() => setDashReqModal(null)}>Close</button>
               )}
