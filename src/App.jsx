@@ -726,6 +726,17 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
     <div style="font-weight:700;font-size:13px;margin-bottom:3px">${invoice.jobName}</div>
     <div style="font-size:11px;color:#555">Position: <strong>${invoice.position || "—"}</strong>${dateStr ? ` &nbsp;|&nbsp; Dates: ${dateStr}` : ""}</div>
   </div>
+  ${invoice.callWrap && Object.keys(invoice.callWrap).some(d => invoice.callWrap[d]?.call || invoice.callWrap[d]?.wrap) ? `
+  <table style="margin-bottom:10px;width:auto;min-width:260px">
+    <thead><tr><th>Date</th><th>Call Time</th><th>Wrap Time</th></tr></thead>
+    <tbody>${Object.keys(invoice.callWrap).sort().map(d => {
+      const cw = invoice.callWrap[d];
+      if (!cw?.call && !cw?.wrap) return "";
+      const label = new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+      const fmtTime = t => t ? t.slice(0, 5) : "—";
+      return `<tr><td>${label}</td><td>${fmtTime(cw.call)}</td><td>${fmtTime(cw.wrap)}</td></tr>`;
+    }).join("")}</tbody>
+  </table>` : ""}
   <table>
     <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
     <tbody>${itemRows}</tbody>
@@ -775,6 +786,12 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose })
   const [position, setPosition] = useState(existingInvoice?.position || "");
   const [status, setStatus] = useState(existingInvoice?.status || "Pending");
   const [items, setItems] = useState(() => migrateItems(existingInvoice));
+  const [callWrap, setCallWrap] = useState(() => {
+    if (existingInvoice?.callWrap) return existingInvoice.callWrap;
+    const obj = {};
+    (existingInvoice?.shootDates || job?.dates || []).forEach(d => { obj[d] = { call: "", wrap: "" }; });
+    return obj;
+  });
 
   const updateItem = (id, field, val) => setItems(p => p.map(it => it.id === id ? { ...it, [field]: val } : it));
   const addItem = () => setItems(p => [...p, { id: "i" + Date.now(), description: "", qty: 1, rate: "" }]);
@@ -794,7 +811,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose })
       jobId: job?.id || existingInvoice?.jobId || "",
       createdAt: existingInvoice?.createdAt || now,
       updatedAt: now,
-      jobName, productionCompany, shootDates, position, status, items,
+      jobName, productionCompany, shootDates, position, status, items, callWrap,
     });
   };
 
@@ -829,6 +846,27 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose })
           </div>
         </div>
 
+        {/* Call / Wrap times */}
+        {shootDates.length > 0 && (
+          <div>
+            <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Call / Wrap Times</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+              {["Date", "Call", "Wrap"].map(h => (
+                <div key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#666)" }}>{h}</div>
+              ))}
+              {shootDates.map(d => {
+                const cw = callWrap[d] || { call: "", wrap: "" };
+                const label = new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+                return [
+                  <div key={d + "_lbl"} style={{ fontSize: 12, color: "var(--text,#e8e4dc)", display: "flex", alignItems: "center", fontWeight: 600 }}>{label}</div>,
+                  <input key={d + "_call"} style={{ ...S.input, fontSize: 12, padding: "6px 8px" }} type="time" value={cw.call} onChange={e => setCallWrap(p => ({ ...p, [d]: { ...p[d], call: e.target.value } }))} />,
+                  <input key={d + "_wrap"} style={{ ...S.input, fontSize: 12, padding: "6px 8px" }} type="time" value={cw.wrap} onChange={e => setCallWrap(p => ({ ...p, [d]: { ...p[d], wrap: e.target.value } }))} />,
+                ];
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Line items */}
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -837,7 +875,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose })
           </div>
 
           {/* Header */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 80px 32px", gap: 6, marginBottom: 4 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 60px 80px 32px", gap: 6, marginBottom: 4 }}>
             {["Description", "Qty", "Rate (฿)", "Total", ""].map((h, i) => (
               <div key={i} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#666)", textAlign: i >= 2 ? "right" : "left" }}>{h}</div>
             ))}
@@ -847,8 +885,8 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose })
             {items.map(it => {
               const lineTotal = (parseFloat(it.qty) || 0) * (parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0);
               return (
-                <div key={it.id} style={{ display: "grid", gridTemplateColumns: "1fr 60px 90px 80px 32px", gap: 6, alignItems: "center" }}>
-                  <input style={{ ...S.input, fontSize: 12, padding: "7px 10px" }} value={it.description} onChange={e => updateItem(it.id, "description", e.target.value)} placeholder="e.g. Labor (12hr)" />
+                <div key={it.id} style={{ display: "grid", gridTemplateColumns: "90px 1fr 60px 80px 32px", gap: 6, alignItems: "center" }}>
+                  <input style={{ ...S.input, fontSize: 12, padding: "7px 10px" }} value={it.description} onChange={e => updateItem(it.id, "description", e.target.value)} placeholder="Labor…" />
                   <input style={{ ...S.input, fontSize: 12, padding: "7px 6px", textAlign: "right" }} type="number" min="0" step="0.5" value={it.qty} onChange={e => updateItem(it.id, "qty", e.target.value)} />
                   <input style={{ ...S.input, fontSize: 12, padding: "7px 8px", textAlign: "right" }} type="number" min="0" value={it.rate} onChange={e => updateItem(it.id, "rate", e.target.value)} placeholder="0" />
                   <div style={{ fontSize: 13, fontWeight: 700, textAlign: "right", color: lineTotal > 0 ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)" }}>
@@ -1698,6 +1736,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [invoiceModal, setInvoiceModal] = useState(null); // null | { job, existing }
   const [expandedInv, setExpandedInv] = useState(null);
+  const [expandedStat, setExpandedStat] = useState(null); // null | "today" | "confirmed" | "pencil"
+  const [empDetailJob, setEmpDetailJob] = useState(null);
   const [invFilter, setInvFilter] = useState("all"); // all | Pending | Paid
   const [invSort, setInvSort] = useState("date"); // date | amount
   const profileFileRef = useRef(null);
@@ -1902,10 +1942,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       <div style={{ ...S.main, paddingBottom: 80 }}>
         {/* TODAY TAB */}
         {tab === "today" && (() => {
-          const confirmedCount = jobs.filter(j => j.status === "Confirmed").length;
-          const pencilCount = jobs.filter(j => j.status === "Pencil").length;
+          const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
+          const pencilJobs = jobs.filter(j => j.status === "Pencil");
           const myRequests = (equipmentRequests || []).filter(r => r.employeeId === employee.id);
           const pendingRequests = myRequests.filter(r => r.status === "pending");
+          const statJobMap = { today: availableJobs, confirmed: confirmedJobs, pencil: pencilJobs };
           return (
           <div style={S.col}>
             <div>
@@ -1913,44 +1954,49 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{new Date().toLocaleDateString(lang === "th" ? "th-TH" : "en-GB", { weekday: "long", day: "2-digit", month: "long" })}</p>
             </div>
 
-            {/* Stats */}
+            {/* Stats — clickable, expand one at a time */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               {[
-                { label: "Today", value: availableJobs.length, color: "#e8b84b" },
-                { label: "Confirmed", value: confirmedCount, color: "#34d399" },
-                { label: "Pencil", value: pencilCount, color: "#94a3b8" },
+                { key: "today", label: "Today", value: availableJobs.length, color: "#e8b84b" },
+                { key: "confirmed", label: "Confirmed", value: confirmedJobs.length, color: "#34d399" },
+                { key: "pencil", label: "Pencil", value: pencilJobs.length, color: "#94a3b8" },
               ].map(stat => (
-                <div key={stat.label} style={{ ...S.card, textAlign: "center", padding: "12px 6px" }}>
+                <div key={stat.key} onClick={() => setExpandedStat(expandedStat === stat.key ? null : stat.key)} style={{ ...S.card, textAlign: "center", padding: "12px 6px", cursor: "pointer", border: expandedStat === stat.key ? `1px solid ${stat.color}40` : undefined, transition: "border-color .15s" }}>
                   <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
                   <p style={{ margin: "4px 0 0", fontSize: 9, color: "#666", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{stat.label}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 9, color: expandedStat === stat.key ? stat.color : "#444" }}>{expandedStat === stat.key ? "▲" : "▼"}</p>
                 </div>
               ))}
             </div>
 
-            {availableJobs.length === 0 ? (
-              <div style={{ ...S.card, textAlign: "center", padding: 40 }}>
-                <Icon d={icons.calendar} size={40} color="#2e3340" />
-                <p style={{ color: "#666", marginTop: 12 }}>{t("noJobsToday")}</p>
-              </div>
-            ) : availableJobs.map(job => {
-              const { allPicked, allReturned } = getJobCheckoutState(job);
-              return (
-                <div key={job.id} style={{ ...S.card, cursor: "pointer" }} onClick={() => selectJob(job)}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                        {allReturned ? <span style={S.badge("green")}>{t("allReturned")}</span> : allPicked ? <span style={S.badge("amber")}>{t("onShoot")}</span> : <span style={S.badge("blue")}>{t("readyPick")}</span>}
-                        <span style={S.badge("gray")}>{job.shootTime}</span>
+            {/* Expanded stat job list */}
+            {expandedStat && (() => {
+              const statJobs = statJobMap[expandedStat] || [];
+              if (statJobs.length === 0) return <p style={{ fontSize: 13, color: "#555", textAlign: "center" }}>No jobs.</p>;
+              return statJobs.map(job => {
+                const { allPicked, allReturned } = getJobCheckoutState(job);
+                const isToday = expandedStat === "today";
+                return (
+                  <div key={job.id} style={{ ...S.card, cursor: "pointer" }} onClick={() => isToday ? selectJob(job) : setEmpDetailJob(job)}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                          {isToday ? (allReturned ? <span style={S.badge("green")}>{t("allReturned")}</span> : allPicked ? <span style={S.badge("amber")}>{t("onShoot")}</span> : <span style={S.badge("blue")}>{t("readyPick")}</span>) : <span style={S.badge(expandedStat === "confirmed" ? "green" : "gray")}>{job.status}</span>}
+                          <span style={S.badge("gray")}>{job.shootTime}</span>
+                        </div>
+                        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{job.name}</h3>
+                        <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{job.production} · {job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</p>
+                        <p style={{ margin: "4px 0 0", fontSize: 12, color: "#8a8f9d" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
                       </div>
-                      <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{job.name}</h3>
-                      <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{job.production} · {job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</p>
-                      <p style={{ margin: "4px 0 0", fontSize: 12, color: "#8a8f9d" }}>{(job.assignedEquipment || []).length} {t("itemsAssigned")}</p>
+                      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
                     </div>
-                    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
+
+            {/* Job detail modal for Confirmed/Pencil jobs */}
+            {empDetailJob && <JobDetailModal job={empDetailJob} equipment={equipment} onClose={() => setEmpDetailJob(null)} />}
 
             {/* Gear Checkout Requests */}
             <div style={S.card}>
@@ -2043,20 +2089,15 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 </div>
               </Modal>
             )}
+
+            {/* Calendar */}
+            <div>
+              <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("jobSchedule")}</p>
+              <DashboardCalendar jobs={jobs} equipment={equipment} />
+            </div>
           </div>
           );
         })()}
-
-        {/* CALENDAR TAB */}
-        {tab === "calendar" && (
-          <div style={S.col}>
-            <div>
-              <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("jobSchedule")}</h1>
-              <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{t("tapJobBar")}</p>
-            </div>
-            <DashboardCalendar jobs={jobs} equipment={equipment} />
-          </div>
-        )}
 
         {/* REPORT TAB */}
         {tab === "report" && (
@@ -2414,8 +2455,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         padding: "0 4px", paddingBottom: "env(safe-area-inset-bottom,0px)",
       }}>
         {[
-          { key: "today", label: t("tabToday"), icon: icons.gear },
-          { key: "calendar", label: t("tabSchedule"), icon: icons.calendar },
+          { key: "today", label: t("tabToday"), icon: icons.calendar },
           { key: "profile", label: t("tabProfile"), icon: icons.user },
           { key: "report", label: t("tabReport"), icon: icons.alert },
           { key: "invoice", label: t("tabInvoice"), icon: icons.invoice },
@@ -3000,11 +3040,25 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
 }
 
 // ─── INVOICE PAGE ─────────────────────────────────────────────────────────────
-function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees }) {
+function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees, companyName }) {
   const [activeTab, setActiveTab] = useState("companies");
   const [modal, setModal] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", address: "" });
+  const [previewing, setPreviewing] = useState(null);
+
+  const previewInvoice = async (inv) => {
+    if (previewing === inv.id) return;
+    setPreviewing(inv.id);
+    try {
+      const emp = employees.find(e => e.id === inv.employeeId) || { name: inv.employeeName, id: inv.employeeId };
+      const profileData = await api.getProfile(inv.employeeId).catch(() => null);
+      const profileInfo = profileData ? { phone: profileData.phone, email: profileData.email, lineId: profileData.lineId, legalAddress: profileData.legalAddress } : {};
+      printInvoice({ invoice: inv, employee: emp, profileInfo, promptPayQR: profileData?.promptPayQR || null, idCard: profileData?.idCard || null, signature: profileData?.signature || null, productionCompanies, companyName });
+    } finally {
+      setPreviewing(null);
+    }
+  };
 
   const open = (co = null) => {
     setEditTarget(co);
@@ -3103,9 +3157,14 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</p>
                         <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{new Date(inv.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
-                        <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px", marginTop: 6 }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid" } : i))}>
-                          {isPaid ? "Mark Pending" : "Mark Paid ✓"}
-                        </button>
+                        <div style={{ display: "flex", gap: 6, marginTop: 6, justifyContent: "flex-end" }}>
+                          <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>
+                            {previewing === inv.id ? "…" : "Preview"}
+                          </button>
+                          <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px" }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid" } : i))}>
+                            {isPaid ? "Mark Pending" : "Mark Paid ✓"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -3385,7 +3444,7 @@ export default function App() {
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
-            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} />}
+            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} />}
             {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
