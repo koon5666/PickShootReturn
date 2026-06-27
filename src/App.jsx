@@ -209,11 +209,20 @@ function GeoPhoto({ onCapture, label }) {
         </button>
       )}
       {locErr && <p style={{ fontSize: 12, color: "#f87171", marginTop: 8 }}>{locErr}</p>}
-      <video ref={videoRef} playsInline muted style={{ width: "100%", borderRadius: 8, marginTop: streaming ? 12 : 0, display: streaming ? "block" : "none" }} />
+      {/* Wrapper blocks iOS native video tap-to-fullscreen / Live Broadcast overlay */}
+      <div style={{ position: "relative", marginTop: streaming ? 12 : 0, display: streaming ? "block" : "none" }}>
+        <video ref={videoRef} playsInline muted style={{ width: "100%", borderRadius: 8, display: "block" }} />
+        <div style={{ position: "absolute", inset: 0, borderRadius: 8 }} />
+      </div>
       {streaming && (
         <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-          {location && <span style={S.badge("green")}><Icon d={icons.map} size={12} /> GPS: {location.lat}, {location.lng}</span>}
-          <button style={S.btn("primary")} onClick={capture}><Icon d={icons.camera} size={16} /> Capture Photo</button>
+          {location
+            ? <span style={S.badge("green")}><Icon d={icons.map} size={12} /> GPS: {location.lat}, {location.lng}</span>
+            : <span style={{ fontSize: 11, color: "#666" }}>Acquiring GPS…</span>
+          }
+          <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px", fontSize: 16 }} onClick={capture}>
+            📸 Capture Photo
+          </button>
         </div>
       )}
       {photo && (
