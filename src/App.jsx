@@ -1570,15 +1570,30 @@ function DashboardCalendar({ jobs, equipment }) {
 }
 
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
-function DashboardPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees }) {
+function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests }) {
   const todayStr = today();
   const todayJobs = jobs.filter(j => j.dates.includes(todayStr));
   const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
   const pencilJobs = jobs.filter(j => j.status === "Pencil");
   const avList = calcAvailable(equipment, jobs, checkouts, todayStr);
   const recentCheckouts = checkouts.slice(-5).reverse();
-  const [expandedStat, setExpandedStat] = useState(null); // null | "today" | "confirmed" | "pencil"
-  const [dashJobModal, setDashJobModal] = useState(null); // null | "new" | jobObject
+  const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
+  const [expandedStat, setExpandedStat] = useState(null);
+  const [dashJobModal, setDashJobModal] = useState(null);
+  const [dashReqModal, setDashReqModal] = useState(null);
+
+  const approveRequest = (req) => {
+    setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: Date.now() } : r));
+    const jobName = req.purpose === "work" ? (req.jobName || "Work") : "Personal / Practice";
+    const items = req.items || [{ eqId: req.eqId, eqName: req.eqName, qty: req.qty }];
+    const now = Date.now();
+    setCheckouts(p => [...p, ...items.map((item, i) => ({ id: "co" + now + i, jobId: null, jobName, eqId: item.eqId, qty: item.qty, employeeId: req.employeeId, employeeName: req.employeeName, type: "pick", ts: now, photo: null, location: null, requestId: req.id }))]);
+    setDashReqModal(null);
+  };
+  const denyRequest = (req) => {
+    setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "denied", resolvedAt: Date.now() } : r));
+    setDashReqModal(null);
+  };
 
   const statusColor = { Confirmed: "green", Pencil: "gray", Cancelled: "red" };
   const locationColor = { "Local (Bangkok)": "blue", "Out of Town": "amber", "Overseas": "red" };
@@ -1705,6 +1720,109 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, productionCompanie
         title="New Job"
       >+</button>
 
+      {/* Gear Requests */}
+      <div style={S.card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <p style={{ ...S.sectionTitle, margin: 0 }}>
+            Gear Requests
+            {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pendingRequests.length} pending</span>}
+          </p>
+        </div>
+        {(equipmentRequests || []).length === 0 ? (
+          <p style={{ fontSize: 13, color: "#555" }}>No requests yet.</p>
+        ) : [...(equipmentRequests || [])].reverse().slice(0, 10).map((req, i, arr) => {
+          const itemLabel = req.items
+            ? req.items.map(it => { const e = equipment.find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
+            : `${equipment.find(e => e.id === req.eqId)?.name || req.eqName} ×${req.qty}`;
+          const dateLabel = req.useDates?.length > 0 ? req.useDates.map(formatDate).join(", ") : req.useDate ? formatDate(req.useDate) : null;
+          return (
+            <div key={req.id}
+              onClick={() => setDashReqModal(req)}
+              style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none", cursor: "pointer" }}>
+              <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#e8e4dc" }}>{req.employeeName}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{itemLabel}</p>
+                {dateLabel && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{dateLabel}</p>}
+              </div>
+              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M9 18l6-6-6-6" /></svg>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Request Detail Modal */}
+      {dashReqModal && (() => {
+        const req = dashReqModal;
+        const items = req.items || [{ eqId: req.eqId, eqName: req.eqName, qty: req.qty }];
+        const dateLabel = req.useDates?.length > 0 ? req.useDates.map(formatDate).join(", ") : req.useDate ? formatDate(req.useDate) : null;
+        return (
+          <Modal title="Gear Request Detail" onClose={() => setDashReqModal(null)}>
+            <div style={S.col}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
+                <span style={{ fontWeight: 700, fontSize: 15 }}>{req.employeeName}</span>
+              </div>
+
+              <div style={{ borderTop: "1px solid #252830", paddingTop: 12 }}>
+                <p style={{ ...S.label, marginBottom: 8 }}>Requested Items</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {items.map((item, i) => {
+                    const eq = equipment.find(e => e.id === item.eqId);
+                    return (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "#0f1117", borderRadius: 8, border: "1px solid #252830" }}>
+                        {eq?.photo
+                          ? <img src={eq.photo} alt="" style={{ width: 36, height: 32, objectFit: "cover", borderRadius: 5, flexShrink: 0 }} />
+                          : <div style={{ width: 36, height: 32, borderRadius: 5, background: "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon d={icons.camera} size={12} color="#444" /></div>
+                        }
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{eq?.name || item.eqName}</p>
+                          {eq?.category && <p style={{ margin: 0, fontSize: 11, color: "#666" }}>{eq.category}</p>}
+                        </div>
+                        <span style={{ ...S.badge("blue"), flexShrink: 0 }}>×{item.qty}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {dateLabel && (
+                <div>
+                  <p style={S.label}>Date{req.useDates?.length > 1 ? "s" : ""} Needed</p>
+                  <p style={{ fontSize: 13, color: "#e8e4dc", margin: 0 }}>{dateLabel}</p>
+                </div>
+              )}
+
+              <div>
+                <p style={S.label}>Purpose</p>
+                <p style={{ fontSize: 13, color: "#e8e4dc", margin: 0 }}>
+                  {req.purpose === "work" ? `Work — ${req.jobName || ""}${req.productionName ? ` (${req.productionName})` : ""}` : "Practice / Personal Use"}
+                </p>
+              </div>
+
+              {req.reason && (
+                <div>
+                  <p style={S.label}>Reason</p>
+                  <p style={{ fontSize: 13, color: "#8a8f9d", margin: 0 }}>{req.reason}</p>
+                </div>
+              )}
+
+              <p style={{ fontSize: 11, color: "#444", margin: 0 }}>Requested {new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+
+              {req.status === "pending" && (
+                <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
+                  <button style={{ ...S.btn("danger"), flex: 1 }} onClick={() => denyRequest(req)}>Deny</button>
+                  <button style={{ ...S.btn("success"), flex: 1 }} onClick={() => approveRequest(req)}>Approve</button>
+                </div>
+              )}
+              {req.status !== "pending" && (
+                <button style={{ ...S.btn("ghost"), width: "100%" }} onClick={() => setDashReqModal(null)}>Close</button>
+              )}
+            </div>
+          </Modal>
+        );
+      })()}
+
       {dashJobModal && (
         <JobFormModal
           editTarget={dashJobModal === "new" ? null : dashJobModal}
@@ -1752,7 +1870,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
   const [showReportModal, setShowReportModal] = useState(false);
   const [showGearRequest, setShowGearRequest] = useState(false);
-  const [gearReqForm, setGearReqForm] = useState({ useDate: "", purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
+  const [gearReqForm, setGearReqForm] = useState({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
+  const [gearReqCalMonth, setGearReqCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [pinChangeForm, setPinChangeForm] = useState({ newPin: "", confirmPin: "" });
   const [pinChangeMsg, setPinChangeMsg] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
@@ -2055,7 +2174,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{itemLabel}</p>
                       <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>
                         {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}
-                        {req.useDate ? ` · For: ${formatDate(req.useDate)}` : ""}
+                        {(req.useDates?.length > 0) ? ` · ${req.useDates.map(formatDate).join(", ")}` : req.useDate ? ` · For: ${formatDate(req.useDate)}` : ""}
                         {" · "}{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                       </p>
                       {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{req.reason}</p>}
@@ -2067,20 +2186,64 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
             {/* Gear Request Modal */}
             {showGearRequest && (
-              <Modal title="Request Gear Checkout" onClose={() => { setShowGearRequest(false); setGearReqForm({ useDate: "", purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }} wide>
+              <Modal title="Request Gear Checkout" onClose={() => { setShowGearRequest(false); setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }} wide>
                 <div style={S.col}>
                   <div>
-                    <label style={S.label}>Date Needed</label>
-                    <input type="date" style={S.input} value={gearReqForm.useDate} onChange={e => setGearReqForm(p => ({ ...p, useDate: e.target.value }))} />
-                    {!gearReqForm.useDate && <p style={{ fontSize: 11, color: "#555", margin: "4px 0 0" }}>Select a date to check availability</p>}
+                    <label style={S.label}>Dates Needed</label>
+                    {(() => {
+                      const { year, month } = gearReqCalMonth;
+                      const firstDay = new Date(year, month, 1).getDay();
+                      const daysInMonth = new Date(year, month + 1, 0).getDate();
+                      const monthName = new Date(year, month).toLocaleString("en-GB", { month: "long", year: "numeric" });
+                      const todayStr = today();
+                      const cells = [];
+                      for (let i = 0; i < firstDay; i++) cells.push(null);
+                      for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                      return (
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                            <button style={{ ...S.btn("ghost"), padding: "4px 9px" }} onClick={() => setGearReqCalMonth(p => { const d = new Date(p.year, p.month - 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>‹</button>
+                            <span style={{ flex: 1, textAlign: "center", fontWeight: 600, fontSize: 13 }}>{monthName}</span>
+                            <button style={{ ...S.btn("ghost"), padding: "4px 9px" }} onClick={() => setGearReqCalMonth(p => { const d = new Date(p.year, p.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>›</button>
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+                            {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 9, color: "#666", fontWeight: 600, paddingBottom: 3 }}>{d}</div>)}
+                            {cells.map((d, i) => {
+                              if (!d) return <div key={"e"+i} />;
+                              const ds = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+                              const sel = gearReqForm.useDates.includes(ds);
+                              const isToday = ds === todayStr;
+                              return (
+                                <div key={d} onClick={() => setGearReqForm(p => ({ ...p, useDates: p.useDates.includes(ds) ? p.useDates.filter(x => x !== ds) : [...p.useDates, ds].sort() }))}
+                                  style={{ textAlign: "center", padding: "6px 0", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: sel ? 700 : 400,
+                                    background: sel ? "#e8b84b" : isToday ? "rgba(232,184,75,0.1)" : "transparent",
+                                    color: sel ? "#0f1117" : isToday ? "#e8b84b" : "#e8e4dc",
+                                    border: isToday && !sel ? "1px solid rgba(232,184,75,0.3)" : "1px solid transparent" }}>
+                                  {d}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {gearReqForm.useDates.length > 0
+                            ? <p style={{ fontSize: 11, color: "#e8b84b", marginTop: 8 }}>{gearReqForm.useDates.length} date{gearReqForm.useDates.length > 1 ? "s" : ""} selected: {gearReqForm.useDates.map(formatDate).join(", ")}</p>
+                            : <p style={{ fontSize: 11, color: "#555", marginTop: 8 }}>Tap dates to select — availability updates per date</p>
+                          }
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div>
                     <label style={S.label}>Select Equipment</label>
                     {(() => {
-                      const avList = gearReqForm.useDate
-                        ? calcAvailable(equipment, jobs, checkouts, gearReqForm.useDate)
-                        : equipment.map(eq => ({ ...eq, available: eq.total, taken: 0 }));
+                      const avList = (() => {
+                        if (gearReqForm.useDates.length === 0) return equipment.map(eq => ({ ...eq, available: eq.total, taken: 0 }));
+                        const perDate = gearReqForm.useDates.map(d => calcAvailable(equipment, jobs, checkouts, d));
+                        return equipment.map(eq => {
+                          const minAvail = Math.min(...perDate.map(av => av.find(a => a.id === eq.id)?.available ?? eq.total));
+                          return { ...eq, available: minAvail };
+                        });
+                      })();
                       return (
                         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 300, overflowY: "auto", paddingRight: 4 }}>
                           {avList.map(eq => {
@@ -2174,7 +2337,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   )}
 
                   <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                    <button style={S.btn("ghost")} onClick={() => { setShowGearRequest(false); setGearReqForm({ useDate: "", purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }}>Cancel</button>
+                    <button style={S.btn("ghost")} onClick={() => { setShowGearRequest(false); setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }}>Cancel</button>
                     <button style={S.btn("primary")} onClick={() => {
                       const selectedItems = Object.entries(gearReqForm.selectedGear).filter(([, q]) => q > 0);
                       if (selectedItems.length === 0) return;
@@ -2190,7 +2353,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         eqId: items[0].eqId,
                         eqName: items[0].eqName,
                         qty: items[0].qty,
-                        useDate: gearReqForm.useDate,
+                        useDates: gearReqForm.useDates,
                         purpose: gearReqForm.purpose,
                         productionName: gearReqForm.productionName,
                         jobName: gearReqForm.jobName,
@@ -2200,7 +2363,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         resolvedAt: null,
                       };
                       setEquipmentRequests(p => [...p, newReq]);
-                      setGearReqForm({ useDate: "", purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
+                      setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
                       setShowGearRequest(false);
                     }}>Submit Request</button>
                   </div>
@@ -3125,7 +3288,7 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
                   <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.employeeName}</p>
                   <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d" }}>
                     {itemLabel} · {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}
-                    {req.useDate ? ` · ${formatDate(req.useDate)}` : ""}
+                    {req.useDates?.length > 0 ? ` · ${req.useDates.map(formatDate).join(", ")}` : req.useDate ? ` · ${formatDate(req.useDate)}` : ""}
                   </p>
                   {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.reason}</p>}
                   <p style={{ margin: "2px 0 0", fontSize: 10, color: "#444" }}>{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
@@ -3664,7 +3827,7 @@ export default function App() {
             companyName={companyName}
           />
           <main style={{ ...S.main, paddingBottom: 80 }}>
-            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} />}
+            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
