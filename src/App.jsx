@@ -701,11 +701,11 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
     td{padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:11.5px}
     .num{text-align:right;width:80px}
     .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:13px;padding-top:8px}
-    .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:12px 14px;margin-top:12px;display:flex;gap:16px;align-items:flex-end}
+    .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:16px 20px;margin-top:12px;display:flex;gap:28px;align-items:center;justify-content:center}
     .id-wrap{width:160px;flex-shrink:0}
     .id-img{width:100%;border-radius:5px;display:block;border:1px solid #ddd}
     .sig-col{flex-shrink:0;display:flex;flex-direction:column;align-items:center}
-    .sig-img{width:110px;transform:rotate(-15deg);opacity:.92;filter:invert(22%) sepia(98%) saturate(1200%) hue-rotate(210deg) brightness(88%) contrast(115%)}
+    .sig-img{width:160px;opacity:.92;filter:invert(22%) sepia(98%) saturate(1200%) hue-rotate(210deg) brightness(88%) contrast(115%)}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>
   <div class="hdr">
@@ -760,13 +760,20 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
     ${promptPayQR ? `<div style="text-align:center;flex-shrink:0">
       <div class="lbl" style="margin-bottom:6px">PromptPay / QR Payment</div>
       <img src="${promptPayQR}" style="width:208px;height:208px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
+      ${(profileInfo?.bankName || profileInfo?.bankAccount || profileInfo?.accountName) ? `<div style="margin-top:8px;font-size:10px;color:#444;line-height:1.7;text-align:center">
+        ${profileInfo.bankName ? `<div style="font-weight:700">${profileInfo.bankName}</div>` : ""}
+        ${profileInfo.accountName ? `<div>${profileInfo.accountName}</div>` : ""}
+        ${profileInfo.bankAccount ? `<div>${profileInfo.bankAccount}</div>` : ""}
+      </div>` : ""}
     </div>` : ""}
     ${idCard ? `<div class="id-wrap">
       <div class="lbl" style="margin-bottom:6px">ID Card</div>
       <img class="id-img" src="${idCard}" />
     </div>` : ""}
     ${signature ? `<div class="sig-col">
-      <div class="lbl" style="margin-bottom:8px">Signature</div>
+      <div style="font-size:8.5px;color:#888;text-align:center;line-height:1.6;margin-bottom:8px;max-width:180px">
+        ข้อมูลและสำเนาถูกต้อง<br>ใช้สำหรับงาน <strong>${invoice.jobName || "—"}</strong><br>ของ <strong>${invoice.productionCompany || "—"}</strong>
+      </div>
       <img class="sig-img" src="${signature}" />
     </div>` : ""}
   </div>` : ""}
@@ -1754,7 +1761,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [capturePhoto, setCapturePhoto] = useState(null);
   const [captureLocation, setCaptureLocation] = useState(null);
   const [profilePhoto, setProfilePhoto] = useState(null);
-  const [profileInfo, setProfileInfo] = useState({ firstName: "", lastName: "", nickname: "", phone: "", email: "", lineId: "", legalAddress: "" });
+  const [profileInfo, setProfileInfo] = useState({ firstName: "", lastName: "", nickname: "", phone: "", email: "", lineId: "", legalAddress: "", bankName: "", bankAccount: "", accountName: "" });
   const [idCard, setIdCard] = useState(null);
   const [promptPayQR, setPromptPayQR] = useState(null);
   const [signature, setSignature] = useState(null);
@@ -1784,7 +1791,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     api.getProfile(employee.id).then(d => {
       if (!d) return;
       if (d.photo) setProfilePhoto(d.photo);
-      setProfileInfo({ firstName: d.firstName || "", lastName: d.lastName || "", nickname: d.nickname || "", phone: d.phone || "", email: d.email || "", lineId: d.lineId || "", legalAddress: d.legalAddress || "" });
+      setProfileInfo({ firstName: d.firstName || "", lastName: d.lastName || "", nickname: d.nickname || "", phone: d.phone || "", email: d.email || "", lineId: d.lineId || "", legalAddress: d.legalAddress || "", bankName: d.bankName || "", bankAccount: d.bankAccount || "", accountName: d.accountName || "" });
       if (d.idCard) setIdCard(d.idCard);
       if (d.promptPayQR) setPromptPayQR(d.promptPayQR);
       if (d.signature) setSignature(d.signature);
@@ -2347,6 +2354,15 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       <Icon d={icons.photo} size={14} /> {promptPayQR ? "Replace" : "Upload"}
                     </button>
                     {promptPayQR && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setPromptPayQR(null)}><Icon d={icons.x} size={13} /></button>}
+                  </div>
+                </div>
+                {/* Bank Details */}
+                <div>
+                  <label style={S.label}>Bank Details</label>
+                  <div style={S.col}>
+                    <input style={S.input} placeholder="Bank Name" value={profileInfo.bankName} onChange={e => setProfileInfo(p => ({ ...p, bankName: e.target.value }))} />
+                    <input style={S.input} placeholder="Account Name" value={profileInfo.accountName} onChange={e => setProfileInfo(p => ({ ...p, accountName: e.target.value }))} />
+                    <input style={S.input} placeholder="Account Number" value={profileInfo.bankAccount} onChange={e => setProfileInfo(p => ({ ...p, bankAccount: e.target.value }))} />
                   </div>
                 </div>
                 {/* Signature */}
@@ -3261,7 +3277,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
     try {
       const emp = employees.find(e => e.id === inv.employeeId) || { name: inv.employeeName, id: inv.employeeId };
       const profileData = await api.getProfile(inv.employeeId).catch(() => null);
-      const profileInfo = profileData ? { phone: profileData.phone, email: profileData.email, lineId: profileData.lineId, legalAddress: profileData.legalAddress } : {};
+      const profileInfo = profileData ? { phone: profileData.phone, email: profileData.email, lineId: profileData.lineId, legalAddress: profileData.legalAddress, bankName: profileData.bankName, bankAccount: profileData.bankAccount, accountName: profileData.accountName } : {};
       printInvoice({ invoice: inv, employee: emp, profileInfo, promptPayQR: profileData?.promptPayQR || null, idCard: profileData?.idCard || null, signature: profileData?.signature || null, productionCompanies, companyName });
     } finally {
       setPreviewing(null);
