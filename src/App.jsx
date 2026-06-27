@@ -3676,7 +3676,6 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
               {[
                 ["Phone", profileData.phone],
                 ["Email", profileData.email],
-                ["Line ID", profileData.lineId],
               ].filter(([, v]) => v).map(([label, val]) => (
                 <div key={label}>
                   <p style={{ ...S.sectionTitle, marginBottom: 3 }}>{label}</p>
