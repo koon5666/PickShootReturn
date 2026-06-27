@@ -757,24 +757,25 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   }).join("");
 
   const html = `<!DOCTYPE html><html><head><title>${invoice.invoiceNo}</title><meta charset="utf-8"><style>
-    @page{size:A4;margin:0}
+    @page{size:A4 portrait;margin:0}
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;font-size:11.5px;background:#fff;padding:15mm}
-    .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
-    .divider{border-top:2px solid #111;margin-bottom:14px}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:12px}
-    .job-box{background:#f7f7f7;border-radius:5px;padding:10px 14px;margin-bottom:12px;border-left:3px solid #111}
-    .lbl{font-size:8.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:4px}
-    table{width:100%;border-collapse:collapse;margin-bottom:8px}
-    th{text-align:left;font-size:8.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:5px 8px;border-bottom:1.5px solid #ccc;background:#fafafa}
-    td{padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:11.5px}
-    .num{text-align:right;width:80px}
-    .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:13px;padding-top:8px}
-    .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:16px 20px;margin-top:12px;display:flex;gap:28px;align-items:center;justify-content:center}
-    .id-wrap{width:160px;flex-shrink:0}
-    .id-img{width:100%;border-radius:5px;display:block;border:1px solid #ddd}
+    html,body{height:297mm;overflow:hidden}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;font-size:10.5px;background:#fff;padding:10mm;display:flex;flex-direction:column}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+    .divider{border-top:2px solid #111;margin-bottom:10px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:8px}
+    .job-box{background:#f7f7f7;border-radius:5px;padding:7px 12px;margin-bottom:8px;border-left:3px solid #111}
+    .lbl{font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:3px}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px}
+    th{text-align:left;font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;padding:4px 7px;border-bottom:1.5px solid #ccc;background:#fafafa}
+    td{padding:4px 7px;border-bottom:1px solid #f0f0f0;font-size:10.5px}
+    .num{text-align:right;width:76px}
+    .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:12px;padding-top:6px}
+    .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:8px 14px;margin-top:auto;display:flex;gap:16px;align-items:center;justify-content:center;flex-shrink:0}
+    .id-wrap{width:120px;flex-shrink:0}
+    .id-img{width:100%;max-height:80px;object-fit:contain;border-radius:4px;display:block;border:1px solid #ddd}
     .sig-col{flex-shrink:0;display:flex;flex-direction:column;align-items:center}
-    .sig-img{width:160px;opacity:.95}
+    .sig-img{width:130px;opacity:.95}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>
   <div class="hdr">
@@ -827,7 +828,7 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   <div class="bottom-box">
     ${promptPayQR ? `<div style="text-align:center;flex-shrink:0">
       <div class="lbl" style="margin-bottom:6px">PromptPay / QR Payment</div>
-      <img src="${promptPayQR}" style="width:208px;height:208px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
+      <img src="${promptPayQR}" style="width:130px;height:130px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
       ${(profileInfo?.bankName || profileInfo?.bankAccount || profileInfo?.accountName) ? `<div style="margin-top:8px;font-size:10px;color:#444;line-height:1.7;text-align:center">
         ${profileInfo.bankName ? `<div style="font-weight:700">${profileInfo.bankName}</div>` : ""}
         ${profileInfo.accountName ? `<div>${profileInfo.accountName}</div>` : ""}
@@ -845,7 +846,14 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
       <img class="sig-img" src="${signature}" />
     </div>` : ""}
   </div>` : ""}
-  ${autoPrint ? `<script>window.onload=()=>{setTimeout(()=>{window.print();window.onafterprint=()=>window.close();},600);}<\/script>` : ""}
+  <script>
+    window.onload=()=>{
+      const a4h=297*96/25.4;
+      const h=document.body.scrollHeight;
+      if(h>a4h){document.documentElement.style.zoom=(a4h/h).toFixed(4);}
+      ${autoPrint ? "setTimeout(()=>{window.print();window.onafterprint=()=>window.close();},600);" : ""}
+    };
+  <\/script>
   </body></html>`;
   return html;
 }
