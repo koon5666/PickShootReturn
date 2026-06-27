@@ -635,8 +635,14 @@ function makeSignatureTransparent(base64src) {
       ctx.drawImage(img, 0, 0);
       const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
       for (let i = 0; i < data.data.length; i += 4) {
-        if (data.data[i] > 200 && data.data[i+1] > 200 && data.data[i+2] > 200)
+        const r = data.data[i], g = data.data[i+1], b = data.data[i+2];
+        const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+        if (lum > 0.82) {
           data.data[i+3] = 0;
+        } else {
+          data.data[i] = 18; data.data[i+1] = 58; data.data[i+2] = 188;
+          data.data[i+3] = Math.round((1 - lum) * 240);
+        }
       }
       ctx.putImageData(data, 0, 0);
       resolve(canvas.toDataURL("image/png"));
@@ -646,7 +652,13 @@ function makeSignatureTransparent(base64src) {
   });
 }
 
-function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName }) {
+function fmtInvoiceNo(inv) {
+  const base = inv.invoiceNo || "";
+  const rev = inv.revisions || 0;
+  return rev > 0 ? base + "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[rev - 1] : base;
+}
+
+function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName, print: doPrint = true }) {
   const prodCo = productionCompanies.find(c => c.name === invoice.productionCompany);
   const total = calcTotal(invoice);
 
@@ -692,7 +704,7 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
     .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:12px 14px;margin-top:12px;display:flex;gap:14px;align-items:flex-start}
     .sig-wrap{position:relative;flex:1;max-width:220px}
     .id-img{width:100%;border-radius:5px;display:block;border:1px solid #ddd}
-    .sig-img{position:absolute;bottom:8px;right:6px;width:105px;transform:rotate(-22deg);transform-origin:bottom right;opacity:.9}
+    .sig-img{position:absolute;bottom:0;right:0;width:126px;transform:rotate(-15deg);transform-origin:bottom right;opacity:.92}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>
   <div class="hdr">
@@ -702,7 +714,7 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
     </div>
     <div style="text-align:right">
       <div style="font-size:26px;font-weight:900;letter-spacing:.04em">INVOICE</div>
-      <div style="font-size:11px;color:#555;margin-top:3px">#${invoice.invoiceNo}</div>
+      <div style="font-size:11px;color:#555;margin-top:3px">#${fmtInvoiceNo(invoice)}</div>
       <div style="font-size:10px;color:#888;margin-top:2px">${invDate}</div>
       <div style="margin-top:6px;display:inline-block;padding:2px 10px;border-radius:20px;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:${statusBg};color:${statusColor}">${invoice.status || "Pending"}</div>
     </div>
@@ -757,7 +769,7 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
       <img src="${signature}" style="width:120px;transform:rotate(-22deg);transform-origin:bottom right;opacity:.9"/>
     </div>` : "")}
   </div>` : ""}
-  <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();}</script>
+  ${doPrint ? `<script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();}<\/script>` : ""}
   </body></html>`;
 
   const win = window.open("", "_blank", "width=820,height=1180");
@@ -779,7 +791,7 @@ function migrateItems(inv) {
   return items.length ? items : JSON.parse(JSON.stringify(DEFAULT_ITEMS));
 }
 
-function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose }) {
+function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose, allInvoices }) {
   const [jobName, setJobName] = useState(existingInvoice?.jobName || job?.name || "");
   const [productionCompany, setProductionCompany] = useState(existingInvoice?.productionCompany || job?.production || "");
   const [shootDates] = useState(existingInvoice?.shootDates || job?.dates || []);
@@ -801,11 +813,22 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose })
 
   const save = () => {
     const now = Date.now();
-    const tag = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const invNo = existingInvoice?.invoiceNo || `INV-${tag}-${employee.id.slice(-4).toUpperCase()}`;
+    let invNo, revisions;
+    if (existingInvoice) {
+      invNo = existingInvoice.invoiceNo;
+      revisions = (existingInvoice.revisions || 0) + 1;
+    } else {
+      const yr = new Date().getFullYear().toString().slice(-2);
+      const yearInvs = (allInvoices || []).filter(inv => inv.invoiceNo?.startsWith(`INV-${yr}`));
+      let maxSeq = 0;
+      yearInvs.forEach(inv => { const m = inv.invoiceNo.match(/INV-\d{2}(\d+)/); if (m) maxSeq = Math.max(maxSeq, parseInt(m[1])); });
+      invNo = `INV-${yr}${String(maxSeq + 1).padStart(3, "0")}`;
+      revisions = 0;
+    }
     onSave({
       id: existingInvoice?.id || "inv" + now,
       invoiceNo: invNo,
+      revisions,
       employeeId: employee.id,
       employeeName: employee.name,
       jobId: job?.id || existingInvoice?.jobId || "",
@@ -1740,6 +1763,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [empDetailJob, setEmpDetailJob] = useState(null);
   const [invFilter, setInvFilter] = useState("all"); // all | Pending | Paid
   const [invSort, setInvSort] = useState("date"); // date | amount
+  const [revPeriod, setRevPeriod] = useState("all"); // all | year | custom
+  const [revYear, setRevYear] = useState(new Date().getFullYear().toString());
+  const [revFrom, setRevFrom] = useState("");
+  const [revTo, setRevTo] = useState("");
   const profileFileRef = useRef(null);
   const idCardRef = useRef(null);
   const promptPayRef = useRef(null);
@@ -2318,6 +2345,57 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{allMyInvoices.length} invoices · ฿{allMyInvoices.reduce((s, inv) => s + calcTotal(inv), 0).toLocaleString()} total</p>
               </div>
 
+              {/* Revenue Summary */}
+              {(() => {
+                const allYears = [...new Set(allMyInvoices.map(inv => new Date(inv.createdAt || inv.updatedAt).getFullYear().toString()))].sort((a,b)=>b-a);
+                const revInvs = allMyInvoices.filter(inv => {
+                  const d = new Date(inv.createdAt || inv.updatedAt);
+                  if (revPeriod === "year") return d.getFullYear().toString() === revYear;
+                  if (revPeriod === "custom") {
+                    const ds = d.toISOString().slice(0,10);
+                    return (!revFrom || ds >= revFrom) && (!revTo || ds <= revTo);
+                  }
+                  return true;
+                });
+                const revTotal = revInvs.reduce((s, inv) => s + calcTotal(inv), 0);
+                const revPaid = revInvs.filter(i => (i.status || "Pending") === "Paid").reduce((s, inv) => s + calcTotal(inv), 0);
+                return (
+                  <div style={S.card}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                      <p style={{ ...S.sectionTitle, margin: 0 }}>Revenue</p>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {[["all","All"],["year","By Year"],["custom","Custom"]].map(([k,lbl]) => (
+                          <button key={k} style={{ ...S.btn(revPeriod===k?"primary":"ghost"), padding:"4px 9px", fontSize:10 }} onClick={() => setRevPeriod(k)}>{lbl}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {revPeriod === "year" && (
+                      <select style={{ ...S.select, marginBottom: 10 }} value={revYear} onChange={e => setRevYear(e.target.value)}>
+                        {allYears.map(y => <option key={y} value={y}>{y}</option>)}
+                      </select>
+                    )}
+                    {revPeriod === "custom" && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                        <div><label style={S.label}>From</label><input style={S.input} type="date" value={revFrom} onChange={e => setRevFrom(e.target.value)} /></div>
+                        <div><label style={S.label}>To</label><input style={S.input} type="date" value={revTo} onChange={e => setRevTo(e.target.value)} /></div>
+                      </div>
+                    )}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div style={{ background: "rgba(232,184,75,0.06)", borderRadius: 8, padding: "10px 14px" }}>
+                        <p style={{ margin: 0, fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#666" }}>Total Invoiced</p>
+                        <p style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{revTotal.toLocaleString()}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 10, color: "#666" }}>{revInvs.length} invoice{revInvs.length !== 1 ? "s" : ""}</p>
+                      </div>
+                      <div style={{ background: "rgba(52,211,153,0.06)", borderRadius: 8, padding: "10px 14px" }}>
+                        <p style={{ margin: 0, fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#666" }}>Paid</p>
+                        <p style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 800, color: "#34d399" }}>฿{revPaid.toLocaleString()}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 10, color: "#666" }}>฿{(revTotal - revPaid).toLocaleString()} pending</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Filter/Sort row */}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 {["all", "Pending", "Paid"].map(f => (
@@ -2378,7 +2456,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
                               <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 10 }}>{inv.status || "Pending"}</span>
-                              <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{inv.invoiceNo}</p>
+                              <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</p>
                             </div>
                             <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{inv.jobName}</p>
                             <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.position || "—"}</p>
@@ -2415,6 +2493,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                               <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => setInvoiceModal({ job: null, existing: inv })}>
                                 <Icon d={icons.edit} size={13} /> Edit
                               </button>
+                              <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName, print: false })}>
+                                👁 View
+                              </button>
                               <button style={{ ...S.btn("primary"), fontSize: 12, padding: "6px 10px" }} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName })}>
                                 🖨 Print
                               </button>
@@ -2440,6 +2521,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   employee={employee}
                   onSave={saveInvoice}
                   onClose={() => setInvoiceModal(null)}
+                  allInvoices={invoices}
                 />
               )}
             </div>
@@ -3148,7 +3230,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
                           <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 10 }}>{inv.status || "Pending"}</span>
-                          <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{inv.invoiceNo}</p>
+                          <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</p>
                         </div>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{inv.jobName}</p>
                         <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.employeeName} · {inv.position || "—"}</p>
