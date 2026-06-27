@@ -21,7 +21,11 @@ export async function onRequestGet({ env, params }) {
 }
 
 export async function onRequestPut({ request, env, params }) {
-  const body = await request.json();
-  await env.KV.put(`profile_${params.empId}`, JSON.stringify(body));
-  return Response.json({ ok: true }, { headers: CORS });
+  try {
+    const text = await request.text();
+    await env.KV.put(`profile_${params.empId}`, text);
+    return Response.json({ ok: true }, { headers: CORS });
+  } catch (err) {
+    return Response.json({ ok: false, error: String(err) }, { status: 500, headers: CORS });
+  }
 }
