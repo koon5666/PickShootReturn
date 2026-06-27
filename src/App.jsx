@@ -2079,7 +2079,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     if (!profileLoaded) return;
     setProfileSaveStatus("saving");
     try {
-      await api.putProfile(employee.id, { photo: profilePhoto, ...profileInfo, idCard, promptPayQR, signature });
+      const res = await api.putProfile(employee.id, { photo: profilePhoto, ...profileInfo, idCard, promptPayQR, signature });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
       setProfileSaveStatus("saved");
       setTimeout(() => setProfileSaveStatus(null), 3000);
     } catch {
