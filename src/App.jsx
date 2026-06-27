@@ -2777,6 +2777,7 @@ function Login({ onLogin, employees, companyName, adminPin }) {
   const [pin, setPin] = useState("");
   const [selectedEmp, setSelectedEmp] = useState(null);
   const [error, setError] = useState("");
+  const [ddOpen, setDdOpen] = useState(false);
 
   const tryLogin = () => {
     if (mode === "admin") {
@@ -2811,25 +2812,43 @@ function Login({ onLogin, employees, companyName, adminPin }) {
       <div style={{ width: 300 }}>
         <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => { setMode("choose"); setPin(""); setError(""); setSelectedEmp(null); }}><Icon d={icons.arrow_left} size={14} /> Back</button>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{mode === "admin" ? "Admin PIN" : "Employee Login"}</h2>
-        {mode === "employee" && (
-          <div style={{ marginBottom: 20 }}>
-            <label style={S.label}>Select Employee</label>
-            <div style={S.col}>
-              {employees.map(e => (
-                <div key={e.id} onClick={() => setSelectedEmp(e.id)} style={{ ...S.card, background: selectedEmp === e.id ? "rgba(232,184,75,0.1)" : "#1a1e27", borderColor: selectedEmp === e.id ? "#e8b84b" : "#252830", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, padding: 12 }}>
-                  <Icon d={icons.user} size={16} color={selectedEmp === e.id ? "#e8b84b" : "#666"} />
-                  <span style={{ fontWeight: 600, color: selectedEmp === e.id ? "#e8b84b" : "#e8e4dc" }}>{e.name}</span>
+        {mode === "employee" && (() => {
+          const selEmp = employees.find(e => e.id === selectedEmp);
+          return (
+            <div style={{ marginBottom: 20, position: "relative" }}>
+              <label style={S.label}>Account</label>
+              <button
+                onClick={() => setDdOpen(o => !o)}
+                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 14px", background: "#1a1e27", border: `1px solid ${ddOpen ? "#e8b84b" : "#2e3340"}`, borderRadius: 10, color: selEmp ? "#e8e4dc" : "#555", fontSize: 14, fontWeight: selEmp ? 600 : 400, cursor: "pointer", transition: "border-color .15s" }}>
+                <span>{selEmp ? selEmp.name : "Select account…"}</span>
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ opacity: 0.5, transform: ddOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }}><path d="M6 9l6 6 6-6" /></svg>
+              </button>
+              {ddOpen && (
+                <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "#1a1e27", border: "1px solid #2e3340", borderRadius: 10, overflow: "hidden", zIndex: 50, boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
+                  {employees.map((e, i) => (
+                    <div key={e.id} onClick={() => { setSelectedEmp(e.id); setDdOpen(false); }}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", background: selectedEmp === e.id ? "rgba(232,184,75,0.1)" : "transparent", borderTop: i > 0 ? "1px solid #252830" : "none" }}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: selectedEmp === e.id ? "rgba(232,184,75,0.15)" : "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: selectedEmp === e.id ? "#e8b84b" : "#666" }}>{e.name[0].toUpperCase()}</span>
+                      </div>
+                      <span style={{ fontWeight: 600, color: selectedEmp === e.id ? "#e8b84b" : "#e8e4dc", fontSize: 14 }}>{e.name}</span>
+                      {selectedEmp === e.id && <svg style={{ marginLeft: "auto" }} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#e8b84b" strokeWidth={3} strokeLinecap="round"><path d="M20 6L9 17l-5-5" /></svg>}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
         <div style={{ marginBottom: 16 }}>
           <label style={S.label}>PIN</label>
-          <div style={{ display: "flex", gap: 8, justifyContent: "center", marginBottom: 16 }}>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} style={{ width: 18, height: 18, borderRadius: "50%", background: pin[i] ? "#e8b84b" : "#2e3340" }} />
-            ))}
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", height: 32, marginBottom: 16 }}>
+            {pin.length === 0
+              ? <span style={{ fontSize: 12, color: "#444", letterSpacing: "0.08em", textTransform: "uppercase" }}>Enter PIN</span>
+              : Array.from({ length: pin.length }).map((_, i) => (
+                  <div key={i} style={{ width: 11, height: 11, borderRadius: "50%", background: "#e8b84b" }} />
+                ))
+            }
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
             {[1,2,3,4,5,6,7,8,9,"","0","⌫"].map((d, i) => (
