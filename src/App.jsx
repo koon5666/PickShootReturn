@@ -760,9 +760,9 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
   }).join("");
 
   const html = `<!DOCTYPE html><html><head><title>${invoice.invoiceNo}</title><meta charset="utf-8"><style>
-    @page{size:A4;margin:15mm}
+    @page{size:A4;margin:0}
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;font-size:11.5px;background:#fff}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;font-size:11.5px;background:#fff;padding:15mm}
     .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
     .divider{border-top:2px solid #111;margin-bottom:14px}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:12px}
@@ -783,7 +783,6 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
   <div class="hdr">
     <div>
       <div style="font-size:20px;font-weight:800;letter-spacing:.01em">${companyName || "GEAR DESK"}</div>
-      <div style="font-size:9.5px;color:#888;letter-spacing:.08em;text-transform:uppercase;margin-top:3px">STEADIKOON's Assistant</div>
     </div>
     <div style="text-align:right">
       <div style="font-size:26px;font-weight:900;letter-spacing:.04em">INVOICE</div>
@@ -1059,7 +1058,7 @@ function ProductionCombobox({ value, onChange, companies }) {
 }
 
 // ─── SHARED JOB FORM MODAL ────────────────────────────────────────────────────
-function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, lineGroupId, onClose }) {
+function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, lineGroupId, lineNotifyMuted, onClose }) {
   const t = useT();
   const CONTACT_PLATFORMS = ["Line", "Facebook", "WhatsApp", "Instagram", "Phone"];
   const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line" };
@@ -1096,11 +1095,13 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
       const dateStr = Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
       const locationStr = form.location + (form.locationCity ? ` — ${form.locationCity}` : "");
       const msg = `${emoji} [${action}] ${form.name}\n🎬 ${form.production || "—"}\n📅 ${dateStr}\n📍 ${locationStr}\n🔗 https://pickshootreturn.pages.dev`;
-      if (lineGroupId) {
-        api.notify({ userIds: [lineGroupId], message: msg });
-      } else {
-        const lineIds = (employees || []).filter(e => e.lineUserId).map(e => e.lineUserId);
-        if (lineIds.length > 0) api.notify({ userIds: lineIds, message: msg });
+      if (!lineNotifyMuted) {
+        if (lineGroupId) {
+          api.notify({ userIds: [lineGroupId], message: msg });
+        } else {
+          const lineIds = (employees || []).filter(e => e.lineUserId).map(e => e.lineUserId);
+          if (lineIds.length > 0) api.notify({ userIds: lineIds, message: msg });
+        }
       }
     }
     onClose();
@@ -1306,7 +1307,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
       {/* Form Modal */}
       {modal === "form" && (
-        <JobFormModal editTarget={editTarget} jobs={jobs} setJobs={setJobs} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} onClose={() => setModal(null)} />
+        <JobFormModal editTarget={editTarget} jobs={jobs} setJobs={setJobs} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} onClose={() => setModal(null)} />
       )}
 
       {/* Assign Equipment Modal — kanban style */}
@@ -1990,6 +1991,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           productionCompanies={productionCompanies}
           employees={employees}
           lineGroupId={lineGroupId}
+          lineNotifyMuted={lineNotifyMuted}
           onClose={() => setDashJobModal(null)}
         />
       )}
@@ -2024,7 +2026,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, lineGroupId }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, lineGroupId, lineNotifyMuted }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
@@ -2253,7 +2255,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       {showReportModal && (
         <ReportModal employee={employee} equipment={equipment} onSubmit={(report) => {
           setReports(p => [...p, report]);
-          if (lineGroupId) {
+          if (lineGroupId && !lineNotifyMuted) {
             const msg = `🚨 [Damage Report] ${employee.name}\n📷 ${report.eqName || "—"}\n📝 ${report.description}\n🔗 https://pickshootreturn.pages.dev`;
             api.notify({ userIds: [lineGroupId], message: msg });
           }
@@ -2530,7 +2532,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         resolvedAt: null,
                       };
                       setEquipmentRequests(p => [...p, newReq]);
-                      if (lineGroupId) {
+                      if (lineGroupId && !lineNotifyMuted) {
                         const itemLabel = items.map(it => `${it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`).join(", ");
                         const groups = {};
                         [...(gearReqForm.useDates || [])].sort().forEach(d => {
@@ -3345,7 +3347,7 @@ function Login({ onLogin, employees, companyName, adminPin }) {
 }
 
 // ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId }) {
+function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted }) {
   const [modal, setModal] = useState(null); // null | "add" | "edit" | "profile"
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
@@ -3538,6 +3540,23 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
             {lineGroupId && (
               <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11 }} onClick={() => { api.putData({ lineGroupId: null }); setLineGroupId(null); }}>Disconnect</button>
             )}
+          </div>
+        </div>
+
+        {/* Notify bypass */}
+        <div
+          onClick={() => { const next = !lineNotifyMuted; setLineNotifyMuted(next); try { localStorage.setItem("psr_notify_muted", next ? "1" : "0"); } catch {} }}
+          style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: lineNotifyMuted ? "rgba(239,68,68,0.07)" : "rgba(52,211,153,0.05)", border: `1px solid ${lineNotifyMuted ? "rgba(239,68,68,0.25)" : "rgba(52,211,153,0.15)"}`, cursor: "pointer", userSelect: "none" }}>
+          <div style={{ width: 36, height: 20, borderRadius: 10, background: lineNotifyMuted ? "#ef4444" : "#34d399", position: "relative", flexShrink: 0, transition: "background .2s" }}>
+            <div style={{ position: "absolute", top: 2, left: lineNotifyMuted ? 2 : 18, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: lineNotifyMuted ? "#f87171" : "#34d399" }}>
+              {lineNotifyMuted ? "🔕 Notifications muted" : "🔔 Notifications active"}
+            </p>
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#555)" }}>
+              {lineNotifyMuted ? "No messages sent to LINE — testing mode" : "All job/report/request events notify the group"}
+            </p>
           </div>
         </div>
 
@@ -4007,6 +4026,7 @@ export default function App() {
   const [equipmentRequests, setEquipmentRequests] = useState([]);
   const [adminPin, setAdminPin] = useState("1234");
   const [lineGroupId, setLineGroupId] = useState(null);
+  const [lineNotifyMuted, setLineNotifyMuted] = useState(() => { try { return localStorage.getItem("psr_notify_muted") === "1"; } catch { return false; } });
   const [loaded, setLoaded] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
@@ -4069,7 +4089,7 @@ export default function App() {
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} lineGroupId={lineGroupId} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />
       ) : (
         <div id="admin-layout" style={S.app}>
           <AdminTopBar
@@ -4088,7 +4108,7 @@ export default function App() {
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} />}
-            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} />}
+            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
         </div>
