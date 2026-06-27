@@ -2705,7 +2705,7 @@ function Login({ onLogin, employees, companyName, adminPin }) {
         <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", padding: "12px" }} onClick={tryLogin} disabled={mode === "employee" && !selectedEmp}>
           Unlock
         </button>
-        <p style={{ fontSize: 11, color: "#444", textAlign: "center", marginTop: 16 }}>Admin PIN: {adminPin}</p>
+
       </div>
     </div>
   );
