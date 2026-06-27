@@ -3387,6 +3387,26 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
       </div>
 
       <div style={S.card}>
+        <p style={S.sectionTitle}>📅 Calendar Sync</p>
+        <div style={S.col}>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.7 }}>
+            Subscribe to the job schedule in your iPhone Calendar. Pencil jobs appear as <strong style={{ color: "var(--text,#e8e4dc)" }}>tentative (striped)</strong>, Confirmed as <strong style={{ color: "#34d399" }}>solid</strong>. Auto-refreshes hourly.
+          </p>
+          <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.8 }}>
+            <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>Subscribe on iPhone:</strong>
+            1. Open <strong>Settings → Calendar → Accounts → Add Account → Other</strong><br />
+            2. Tap <strong>Add Subscribed Calendar</strong><br />
+            3. Paste this URL:<br />
+            <code style={{ background: "rgba(232,184,75,0.1)", color: "var(--accent,#e8b84b)", padding: "2px 8px", borderRadius: 4, display: "inline-block", margin: "4px 0", fontSize: 11 }}>https://pickshootreturn.pages.dev/api/calendar</code><br />
+            4. Tap <strong>Next</strong> → <strong>Save</strong>
+          </div>
+          <button style={{ ...S.btn("ghost"), alignSelf: "flex-start", fontSize: 12 }} onClick={() => { navigator.clipboard?.writeText("https://pickshootreturn.pages.dev/api/calendar"); }}>
+            📋 Copy Calendar URL
+          </button>
+        </div>
+      </div>
+
+      <div style={S.card}>
         <p style={S.sectionTitle}>Admin PIN</p>
         <div style={S.col}>
           <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0 }}>Current admin PIN: <strong style={{ color: "var(--accent,#e8b84b)", fontFamily: "monospace" }}>{adminPin}</strong></p>
