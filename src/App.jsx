@@ -1904,7 +1904,9 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   const [dashReqModal, setDashReqModal] = useState(null);
   const [expandedActivityKeys, setExpandedActivityKeys] = useState(new Set());
   const [expandedApproval, setExpandedApproval] = useState(new Set());
+  const [approvalFilter, setApprovalFilter] = useState("pending"); // pending | resolved | all
   const toggleApproval = (key) => setExpandedApproval(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const fmtReqTime = (x) => x ? new Date(x).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
   const activityGroups = (() => {
     const map = {};
     checkouts.forEach(c => {
@@ -2209,14 +2211,16 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         );
       })()}
 
-      {/* Pending Admin Approvals */}
-      {(adminRequests || []).length > 0 && (() => {
-        const pending = (adminRequests || []).filter(r => r.status === "pending");
-        const all = [...(adminRequests || [])];
+      {/* Admin Approvals — dedicated, filterable history */}
+      {(() => {
+        const allReqs = adminRequests || [];
+        const pendingCount = allReqs.filter(r => r.status === "pending").length;
+        const isResolved = (r) => r.status === "approved" || r.status === "rejected";
+        const filtered = allReqs.filter(r => approvalFilter === "all" ? true : approvalFilter === "pending" ? r.status === "pending" : isResolved(r));
         const typeLabel = { "production-house": "Production House", "equipment": "Equipment", "member-register": "New Member" };
         // Geo-return requests consolidate into one collapsible row per job; others stay individual.
-        const geo = all.filter(r => r.type === "geo-return");
-        const others = all.filter(r => r.type !== "geo-return");
+        const geo = filtered.filter(r => r.type === "geo-return");
+        const others = filtered.filter(r => r.type !== "geo-return");
         const geoGroups = {};
         geo.forEach(r => {
           const key = "geo_" + (r.jobId || r.jobName || r.id);
@@ -2228,13 +2232,27 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         const rows = [
           ...Object.values(geoGroups).map(g => ({ ...g, kind: "geo-group", sortTs: g.latest })),
           ...others.map(r => ({ kind: "single", req: r, sortTs: new Date(r.submittedAt || 0).getTime() })),
-        ].sort((a, b) => b.sortTs - a.sortTs).slice(0, 20);
+        ].sort((a, b) => b.sortTs - a.sortTs).slice(0, 50);
+        const tabs = [{ k: "pending", l: "Pending" }, { k: "resolved", l: "Resolved" }, { k: "all", l: "All" }];
         return (
           <div style={S.card}>
-            <p style={{ ...S.sectionTitle, margin: "0 0 12px 0" }}>
-              Approvals
-              {pending.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pending.length} pending</span>}
-            </p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <p style={{ ...S.sectionTitle, margin: 0 }}>
+                Approvals
+                {pendingCount > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pendingCount} pending</span>}
+              </p>
+              <div style={{ display: "flex", gap: 4, background: "#0f1117", padding: 3, borderRadius: 8, border: "1px solid #252830" }}>
+                {tabs.map(tb => (
+                  <button key={tb.k} onClick={() => setApprovalFilter(tb.k)} style={{ padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, background: approvalFilter === tb.k ? "#e8b84b" : "transparent", color: approvalFilter === tb.k ? "#0f1117" : "#8a8f9d" }}>{tb.l}</button>
+                ))}
+              </div>
+            </div>
+            {rows.length === 0 && (
+              <p style={{ fontSize: 13, color: "#666", margin: 0 }}>
+                {approvalFilter === "pending" ? "No pending approvals — you're all caught up." : approvalFilter === "resolved" ? "No resolved requests yet." : "No approval requests yet."}
+              </p>
+            )}
+            <div style={{ maxHeight: 520, overflowY: rows.length > 6 ? "auto" : "visible", margin: "0 -4px", padding: "0 4px" }}>
             {rows.map((row, i, arr) => {
               const divider = { paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" };
               if (row.kind === "geo-group") {
@@ -2264,6 +2282,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                               <p style={{ margin: "2px 0 0", fontSize: 11, color: req.distance !== null ? (req.distance > 50 ? "#f87171" : "#34d399") : "#888" }}>
                                 {req.distance !== null ? `📍 ${req.distance}m from pickup` : "📍 GPS unavailable at return"}
                               </p>
+                              <p style={{ margin: "3px 0 0", fontSize: 10, color: "#555" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
                               {req.photo && <img src={req.photo} alt="preview" style={{ width: "100%", maxWidth: 260, height: "auto", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />}
                               {req.status === "pending" && (
                                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -2293,6 +2312,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                       {req.total && req.type === "equipment" ? ` · ×${req.total}` : ""}
                       {req.requestedPin && req.type === "member-register" ? ` · PIN: ${req.requestedPin}` : ""}
                     </p>
+                    <p style={{ margin: "3px 0 0", fontSize: 10, color: "#555" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
                     {req.photo && <img src={req.photo} alt="preview" style={{ width: 60, maxWidth: 60, height: 60, objectFit: "cover", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />}
                     {req.status === "pending" && (
                       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -2304,6 +2324,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 </div>
               );
             })}
+            </div>
           </div>
         );
       })()}
@@ -3950,7 +3971,8 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
   const del = () => { if (!isLocked) setPin(p => p.slice(0, -1)); };
 
   if (mode === "choose") return (
-    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/logo.png)", backgroundRepeat: "no-repeat", backgroundPosition: "center", backgroundSize: "min(92vw, 620px)", opacity: 0.06, pointerEvents: "none" }} />
       <div style={{ textAlign: "center", maxWidth: 340 }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}><Icon d={icons.film} size={48} color="#e8b84b" /></div>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: "#e8e4dc", marginBottom: 4 }}>{companyName || "GEAR DESK"}</h1>
@@ -3965,7 +3987,8 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
   );
 
   if (mode === "register") return (
-    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/logo.png)", backgroundRepeat: "no-repeat", backgroundPosition: "center", backgroundSize: "min(92vw, 620px)", opacity: 0.06, pointerEvents: "none" }} />
       <div style={{ width: 300 }}>
         <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => setMode("choose")}><Icon d={icons.arrow_left} size={14} /> Back</button>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Request to Join</h2>
@@ -4000,7 +4023,8 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/logo.png)", backgroundRepeat: "no-repeat", backgroundPosition: "center", backgroundSize: "min(92vw, 620px)", opacity: 0.06, pointerEvents: "none" }} />
       <div style={{ width: 300 }}>
         <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => { setMode("choose"); setPin(""); setError(""); setSelectedEmp(null); }}><Icon d={icons.arrow_left} size={14} /> Back</button>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{mode === "admin" ? "Admin PIN" : "Employee Login"}</h2>
@@ -5174,9 +5198,10 @@ export default function App() {
   return (
     <LangCtx.Provider value={lang}>
       {!loaded ? (
-        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16 }}>
-          <Icon d={icons.film} size={40} color="#e8b84b" />
-          <p style={{ color: "#666", fontSize: 13, letterSpacing: "0.08em" }}>{LANG[lang]?.loading || "LOADING…"}</p>
+        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 22 }}>
+          <img src="/logo.png" alt="Pick Shoot Return" style={{ width: "min(72vw, 340px)", height: "auto", animation: "psrPulse 1.6s ease-in-out infinite" }} />
+          <p style={{ color: "#666", fontSize: 13, letterSpacing: "0.12em" }}>{LANG[lang]?.loading || "LOADING…"}</p>
+          <style>{"@keyframes psrPulse{0%,100%{opacity:.55}50%{opacity:1}}"}</style>
         </div>
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
