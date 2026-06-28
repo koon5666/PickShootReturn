@@ -1432,6 +1432,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
   const [assignTarget, setAssignTarget] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   const [assignForm, setAssignForm] = useState({});
+  const [assignCheckoutMode, setAssignCheckoutMode] = useState("span");
 
   const openAdd = () => { setEditTarget(null); setModal("form"); };
   const openEdit = (job) => { setEditTarget(job); setModal("form"); };
@@ -1442,12 +1443,13 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
     (job.assignedEquipment || []).forEach(ae => { init[ae.eqId] = ae.qty; });
     setAssignForm(init);
     setAssignTarget(job);
+    setAssignCheckoutMode(job.checkoutMode || "span");
     setModal("assign");
   };
 
   const saveAssign = () => {
     const assigned = Object.entries(assignForm).filter(([, qty]) => qty > 0).map(([eqId, qty]) => ({ eqId, qty: +qty }));
-    setJobs(p => p.map(j => j.id === assignTarget.id ? { ...j, assignedEquipment: assigned } : j));
+    setJobs(p => p.map(j => j.id === assignTarget.id ? { ...j, assignedEquipment: assigned, checkoutMode: assignCheckoutMode } : j));
     setModal(null);
   };
 
@@ -1486,6 +1488,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                     <span style={S.badge(statusColor[job.status])}>{job.status}</span>
                     <span style={S.badge(locationColor[job.location] || "gray")}>{job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</span>
                     <span style={S.badge("gray")}>{job.shootTime}</span>
+                    {job.checkoutMode === "daily" && <span style={S.badge("blue")}>Daily return</span>}
                   </div>
                   <h3 style={{ margin: "0 0 2px", fontSize: 16, fontWeight: 700 }}>{job.name}</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "#666" }}>{job.production}</p>
@@ -1537,6 +1540,26 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
       {/* Assign Equipment Modal — kanban style */}
       {modal === "assign" && assignTarget && (
         <Modal title={`Assign Gear — ${assignTarget.name}`} onClose={() => setModal(null)} wide>
+          {/* Return mode selector */}
+          <div style={{ marginBottom: 18 }}>
+            <p style={{ ...S.label, marginBottom: 8 }}>Return Mode</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[
+                { id: "span", label: "Pick first · Return last day", desc: "Gear stays out for the whole shoot" },
+                { id: "daily", label: "Pick & Return every day", desc: "Crew returns gear at the end of each shoot day" },
+              ].map(({ id, label, desc }) => (
+                <div key={id}
+                  onClick={() => setAssignCheckoutMode(id)}
+                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, cursor: "pointer",
+                    border: assignCheckoutMode === id ? "1.5px solid #e8b84b" : "1.5px solid #2e3340",
+                    background: assignCheckoutMode === id ? "rgba(232,184,75,0.07)" : "#0f1117",
+                    transition: "all 0.12s" }}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 12, color: assignCheckoutMode === id ? "#e8b84b" : "#e8e4dc" }}>{label}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 10, color: "#666", lineHeight: 1.4 }}>{desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
           <p style={{ fontSize: 12, color: "#8a8f9d", marginBottom: 16 }}>Tap a card to assign or unassign. Use +/− for multi-unit items.</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {equipment.map(eq => {
@@ -2482,10 +2505,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   };
 
   const getJobCheckoutState = (job) => {
+    const mode = job.checkoutMode || "span";
     const jobCheckouts = checkouts.filter(c => c.jobId === job.id);
+    const relevant = mode === "daily"
+      ? jobCheckouts.filter(c => new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(c.ts)) === todayStr)
+      : jobCheckouts;
     const assignedIds = (job.assignedEquipment || []).map(ae => ae.eqId);
-    const pickedIds = new Set(jobCheckouts.filter(c => c.type === "pick" || c.type === "checkout").map(c => c.eqId));
-    const returnedIds = new Set(jobCheckouts.filter(c => c.type === "return").map(c => c.eqId));
+    const pickedIds = new Set(relevant.filter(c => c.type === "pick" || c.type === "checkout").map(c => c.eqId));
+    const returnedIds = new Set(relevant.filter(c => c.type === "return").map(c => c.eqId));
     const allPicked = assignedIds.every(id => pickedIds.has(id));
     const allReturned = assignedIds.every(id => returnedIds.has(id));
     return { allPicked, allReturned, pickedIds, returnedIds };
@@ -2510,7 +2537,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       return;
     }
     // return — geo-validate against the pickup location (only when photos/GPS are on)
-    const pickupCo = [...checkouts].reverse().find(c => c.jobId === selectedJob.id && c.eqId === ae.eqId && (c.type === "pick" || c.type === "checkout"));
+    const isDailyMode = (selectedJob.checkoutMode || "span") === "daily";
+    const pickupCo = [...checkouts].reverse().find(c => {
+      if (c.jobId !== selectedJob.id || c.eqId !== ae.eqId) return false;
+      if (c.type !== "pick" && c.type !== "checkout") return false;
+      if (isDailyMode && new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(c.ts)) !== todayStr) return false;
+      return true;
+    });
     let distance = null;
     if (loc && pickupCo?.location) distance = haversineMeters(+pickupCo.location.lat, +pickupCo.location.lng, +loc.lat, +loc.lng);
     const geoOk = pickupCo?.location && loc && distance !== null && distance <= 50;
@@ -2587,11 +2620,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     {multi ? `${dates.length}-day shoot: ` : "Shoot date: "}{dates.map(d => formatDate(d)).join(" · ")}
                   </span>
                 )}
+                <span style={{ display: "inline-flex", alignItems: "center", fontSize: 10, fontWeight: 700, color: (selectedJob.checkoutMode || "span") === "daily" ? "#60a5fa" : "#8a8f9d", background: (selectedJob.checkoutMode || "span") === "daily" ? "rgba(96,165,250,0.1)" : "rgba(255,255,255,0.04)", border: `1px solid ${(selectedJob.checkoutMode || "span") === "daily" ? "rgba(96,165,250,0.3)" : "#2e3340"}`, borderRadius: 6, padding: "3px 8px", letterSpacing: "0.04em" }}>
+                  {(selectedJob.checkoutMode || "span") === "daily" ? "Daily return" : "Return last day"}
+                </span>
               </div>
             );
           })()}
         </div>
-        {(isReturn && (selectedJob.dates || []).length > 1) && (
+        {(isReturn && (selectedJob.dates || []).length > 1 && (selectedJob.checkoutMode || "span") === "span") && (
           <div style={{ ...S.card, background: "rgba(232,184,75,0.05)", border: "1px solid rgba(232,184,75,0.18)", marginBottom: 16 }}>
             <p style={{ margin: 0, fontSize: 12, color: "#e8b84b", display: "flex", gap: 8, alignItems: "center" }}>
               <Icon d={icons.calendar} size={14} /> Multi-day shoot — gear stays checked out across all days. Only return it when you're done with the whole job.
