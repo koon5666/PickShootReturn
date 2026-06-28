@@ -2573,7 +2573,31 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         <div style={{ ...S.card, marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{selectedJob.name}</h2>
           <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{selectedJob.production} · {selectedJob.location}{selectedJob.locationCity ? ` · ${selectedJob.locationCity}` : ""} · {selectedJob.shootTime}</p>
+          {(() => {
+            const dates = selectedJob.dates || [];
+            const td = today();
+            const multi = dates.length > 1;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#e8b84b", background: "rgba(232,184,75,0.1)", border: "1px solid rgba(232,184,75,0.25)", borderRadius: 8, padding: "4px 10px" }}>
+                  <Icon d={icons.calendar} size={13} /> Today · {formatDate(td)}
+                </span>
+                {dates.length > 0 && (
+                  <span style={{ fontSize: 11, color: "#8a8f9d" }}>
+                    {multi ? `${dates.length}-day shoot: ` : "Shoot date: "}{dates.map(d => formatDate(d)).join(" · ")}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
         </div>
+        {(isReturn && (selectedJob.dates || []).length > 1) && (
+          <div style={{ ...S.card, background: "rgba(232,184,75,0.05)", border: "1px solid rgba(232,184,75,0.18)", marginBottom: 16 }}>
+            <p style={{ margin: 0, fontSize: 12, color: "#e8b84b", display: "flex", gap: 8, alignItems: "center" }}>
+              <Icon d={icons.calendar} size={14} /> Multi-day shoot — gear stays checked out across all days. Only return it when you're done with the whole job.
+            </p>
+          </div>
+        )}
         <p style={S.sectionTitle}>{isReturn ? "Tap each item to return" : "Tap each item to check out"}{photoVerification ? " · photo required" : ""}</p>
         {items.length === 0 ? (
           <p style={{ fontSize: 13, color: "#666" }}>{isReturn ? "No gear out to return for this job." : "Nothing to check out."}</p>
