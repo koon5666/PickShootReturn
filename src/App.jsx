@@ -278,95 +278,85 @@ function AvailBar({ available, total }) {
 }
 
 // ─── PHOTO CAPTURE (geo-locked) ──────────────────────────────────────────────
+// Uses the phone's NATIVE camera via a file input (capture="environment").
+// This works in every mobile browser INCLUDING in-app webviews (LINE, Instagram,
+// Facebook) where the live getUserMedia() preview is blocked — that was the cause
+// of the "Open Camera does nothing" reports. Geo-lock is preserved by stamping the
+// timestamp + GPS onto the captured still; onCapture(dataUrl, location) is unchanged.
 function GeoPhoto({ onCapture, label }) {
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const [streaming, setStreaming] = useState(false);
+  const fileRef = useRef(null);
   const [location, setLocation] = useState(null);
   const [locErr, setLocErr] = useState(null);
   const [photo, setPhoto] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  // Attach stream and call play() AFTER streaming=true has made the video element visible.
-  // Calling play() on a display:none element on iOS Safari prevents frame decoding (blank video).
-  useEffect(() => {
-    if (streaming && streamRef.current && videoRef.current) {
-      videoRef.current.srcObject = streamRef.current;
-      videoRef.current.play().catch(() => {});
-    }
-  }, [streaming]);
+  // Best-effort GPS. Resolves with the location object or null.
+  const getGPS = () => new Promise(resolve => {
+    if (!navigator.geolocation) { setLocErr("Location unavailable — photo still saved with timestamp."); return resolve(null); }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { const l = { lat: pos.coords.latitude.toFixed(5), lng: pos.coords.longitude.toFixed(5), acc: Math.round(pos.coords.accuracy) }; setLocation(l); resolve(l); },
+      () => { setLocErr("Location unavailable — photo still saved with timestamp."); resolve(null); },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
+  });
 
-  // Release camera on unmount (e.g. user switches items via tab nav before capturing)
-  useEffect(() => {
-    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };
-  }, []);
-
-  const startCamera = async () => {
-    setLoading(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-      streamRef.current = stream;
-      setStreaming(true);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setLocation({ lat: pos.coords.latitude.toFixed(5), lng: pos.coords.longitude.toFixed(5), acc: Math.round(pos.coords.accuracy) }),
-        () => setLocErr("Location unavailable — photo still captured with timestamp.")
-      );
-    } catch { setLocErr("Camera access denied. Please allow camera permissions."); }
-    setLoading(false);
-  };
-
-  const capture = () => {
+  // Scale down and burn timestamp + GPS into the image.
+  const stamp = (img, loc) => {
+    const sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height;
+    const scale = Math.min(1, 1600 / Math.max(sw, sh));
+    const w = Math.round(sw * scale), h = Math.round(sh * scale);
     const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
+    canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext("2d");
-    ctx.drawImage(videoRef.current, 0, 0);
-    // Stamp overlay
+    ctx.drawImage(img, 0, 0, w, h);
     ctx.fillStyle = "rgba(0,0,0,0.55)";
-    ctx.fillRect(0, canvas.height - 60, canvas.width, 60);
+    ctx.fillRect(0, h - 60, w, 60);
     ctx.fillStyle = "#e8b84b";
     ctx.font = "bold 14px Inter, sans-serif";
-    ctx.fillText(new Date().toLocaleString(), 10, canvas.height - 38);
-    if (location) ctx.fillText(`GPS: ${location.lat}, ${location.lng} (±${location.acc}m)`, 10, canvas.height - 16);
-    else ctx.fillText(locErr || "No GPS", 10, canvas.height - 16);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-    setPhoto(dataUrl);
-    // stop stream
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    streamRef.current = null;
-    setStreaming(false);
-    onCapture(dataUrl, location);
+    ctx.fillText(new Date().toLocaleString(), 10, h - 38);
+    ctx.fillText(loc ? `GPS: ${loc.lat}, ${loc.lng} (±${loc.acc}m)` : "No GPS", 10, h - 16);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  };
+
+  const onFilePicked = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!f) return;
+    setBusy(true);
+    setLocErr(null);
+    const gpsP = getGPS(); // request GPS while the image decodes
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = async () => {
+        const loc = await gpsP.catch(() => null);
+        const dataUrl = stamp(img, loc);
+        setPhoto(dataUrl);
+        setBusy(false);
+        onCapture(dataUrl, loc);
+      };
+      img.onerror = () => { setLocErr("Could not read that photo. Please try again."); setBusy(false); };
+      img.src = ev.target.result;
+    };
+    reader.onerror = () => { setLocErr("Could not read that photo. Please try again."); setBusy(false); };
+    reader.readAsDataURL(f);
   };
 
   return (
     <div style={{ ...S.card, background: "#0f1117" }}>
       <p style={S.label}>{label || "Capture Verification Photo"}</p>
-      {!streaming && !photo && (
-        <button style={S.btn("primary")} onClick={startCamera} disabled={loading}>
-          <Icon d={icons.camera} size={16} />{loading ? "Starting…" : "Open Camera"}
+      <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={onFilePicked} />
+      {!photo && (
+        <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px", fontSize: 16, width: "100%" }} onClick={() => fileRef.current && fileRef.current.click()} disabled={busy}>
+          <Icon d={icons.camera} size={18} /> {busy ? "Processing…" : "Open Camera"}
         </button>
       )}
-      {locErr && <p style={{ fontSize: 12, color: "#f87171", marginTop: 8 }}>{locErr}</p>}
-      {/* Wrapper blocks iOS native video tap-to-fullscreen / Live Broadcast overlay */}
-      <div style={{ position: "relative", marginTop: streaming ? 12 : 0, display: streaming ? "block" : "none" }}>
-        <video ref={videoRef} playsInline muted style={{ width: "100%", borderRadius: 8, display: "block" }} />
-        <div style={{ position: "absolute", inset: 0, borderRadius: 8 }} />
-      </div>
-      {streaming && (
-        <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-          {location
-            ? <span style={S.badge("green")}><Icon d={icons.map} size={12} /> GPS: {location.lat}, {location.lng}</span>
-            : <span style={{ fontSize: 11, color: "#666" }}>Acquiring GPS…</span>
-          }
-          <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px", fontSize: 16 }} onClick={capture}>
-            📸 Capture Photo
-          </button>
-        </div>
-      )}
+      {locErr && <p style={{ fontSize: 12, color: "#f59e0b", marginTop: 8 }}>{locErr}</p>}
       {photo && (
         <div style={{ marginTop: 12 }}>
           <img src={photo} alt="captured" style={{ width: "100%", borderRadius: 8 }} />
-          <p style={{ fontSize: 11, color: "#34d399", marginTop: 8 }}>✓ Photo captured with timestamp{location ? " & GPS" : ""}</p>
+          <p style={{ fontSize: 11, color: "#34d399", margin: "8px 0 0" }}>✓ Photo captured with timestamp{location ? " & GPS" : ""}</p>
+          <button style={{ ...S.btn("ghost"), marginTop: 8, justifyContent: "center", width: "100%" }} onClick={() => { setPhoto(null); setLocation(null); setLocErr(null); fileRef.current && fileRef.current.click(); }}>↻ Retake Photo</button>
         </div>
       )}
     </div>
