@@ -184,6 +184,43 @@ const haversineMeters = (lat1, lon1, lat2, lon2) => { const R=6371000,φ1=lat1*M
 const formatDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 const formatDateTime = (ts) => new Date(ts).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
+// ─── KPI scoring ─────────────────────────────────────────────────────────────
+const KPI_MAX_DEFAULT = 100; // 100 pts == 5 stars
+const kpiAddMonths = (d, m) => { const x = new Date(d); x.setMonth(x.getMonth() + m); return x; };
+const kpiMax = (config) => parseFloat(config && config.maxPoints) || KPI_MAX_DEFAULT;
+// Current scoring window [start, end) from config.startDate (default Jan 1) + resetMonths.
+function kpiPeriod(config) {
+  const startStr = (config && config.startDate) || `${new Date().getFullYear()}-01-01`;
+  const start = new Date(startStr + "T00:00:00");
+  const months = Math.max(1, parseInt(config && config.resetMonths) || 12);
+  const now = new Date(today() + "T00:00:00");
+  if (now < start) return { start, end: kpiAddMonths(start, months) };
+  let s = new Date(start), guard = 0;
+  while (guard++ < 4000) { const e = kpiAddMonths(s, months); if (now < e) return { start: s, end: e }; s = e; }
+  return { start, end: kpiAddMonths(start, months) };
+}
+// Points remaining this period for an employee (max minus deductions).
+function kpiScore(employeeId, kpiEvents, config) {
+  const max = kpiMax(config);
+  const { start, end } = kpiPeriod(config);
+  const used = (kpiEvents || [])
+    .filter(ev => ev.employeeId === employeeId && ev.ts >= start.getTime() && ev.ts < end.getTime())
+    .reduce((s, ev) => s + (parseFloat(ev.points) || 0), 0);
+  return Math.max(0, Math.min(max, max - used));
+}
+const kpiStars = (score, config) => { const max = kpiMax(config); return max > 0 ? (score / max) * 5 : 0; };
+
+// 5-star rating with fractional fill (0.1 resolution).
+function StarRating({ value, size = 18 }) {
+  const pct = Math.max(0, Math.min(100, (value / 5) * 100));
+  return (
+    <div style={{ position: "relative", display: "inline-block", fontSize: size, lineHeight: 1, letterSpacing: 2, fontFamily: "Arial, sans-serif" }}>
+      <div style={{ color: "#3a3f4a" }}>★★★★★</div>
+      <div style={{ position: "absolute", top: 0, left: 0, width: pct + "%", overflow: "hidden", whiteSpace: "nowrap", color: "#e8b84b" }}>★★★★★</div>
+    </div>
+  );
+}
+
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 // CSS variables with fallbacks — admin layout overrides via #admin-layout selector.
 // Employee view never has #admin-layout so always uses the fallback (dark cinema).
@@ -2242,7 +2279,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
@@ -3096,6 +3133,44 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 <button style={{ ...S.btn("danger"), fontSize: 12 }} onClick={() => setProfilePhoto(null)}>{t("removePhoto")}</button>
               )}
             </div>
+
+            {/* My KPI Score */}
+            {(() => {
+              const max = kpiMax(kpiConfig);
+              const score = kpiScore(employee.id, kpiEvents, kpiConfig);
+              const stars = kpiStars(score, kpiConfig);
+              const { start, end } = kpiPeriod(kpiConfig);
+              const myEvents = (kpiEvents || []).filter(ev => ev.employeeId === employee.id && ev.ts >= start.getTime() && ev.ts < end.getTime()).sort((a, b) => b.ts - a.ts);
+              return (
+                <div style={S.card}>
+                  <p style={S.sectionTitle}>⭐ My KPI Score</p>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+                    <StarRating value={stars} size={26} />
+                    <span style={{ fontSize: 24, fontWeight: 800, color: "#e8b84b" }}>{stars.toFixed(1)}</span>
+                    <span style={{ fontSize: 13, color: "#8a8f9d" }}>{score}/{max} pts</span>
+                  </div>
+                  <p style={{ fontSize: 11, color: "#666", margin: "0 0 4px" }}>
+                    Period: {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  </p>
+                  {myEvents.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "#34d399", margin: "8px 0 0" }}>✓ Full score — no deductions this period. Keep it up!</p>
+                  ) : (
+                    <div style={{ marginTop: 12, borderTop: "1px solid #252830", paddingTop: 10 }}>
+                      <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Deductions</p>
+                      {myEvents.map(ev => (
+                        <div key={ev.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                          <span style={{ ...S.badge("red"), flexShrink: 0 }}>−{ev.points}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ margin: 0, fontSize: 13, color: "#e8e4dc" }}>{ev.reason}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>{new Date(ev.ts).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Personal Information */}
             <div style={S.card}>
@@ -3983,7 +4058,7 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
 }
 
 // ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat }) {
+function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents }) {
   const [modal, setModal] = useState(null); // null | "add" | "edit" | "profile"
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
@@ -3996,14 +4071,22 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
   const [apMsg, setApMsg] = useState(null);
   const [backupStatus, setBackupStatus] = useState(null); // null | "saving" | "saved" | "error" | "restoring" | "restored" | "confirm-restore" | "no-backup"
   const [lastBackupAt, setLastBackupAt] = useState(() => { try { return localStorage.getItem("psr_last_backup"); } catch { return null; } });
+  const [kpiForm, setKpiForm] = useState({ punishmentId: "", points: "", reason: "" });
+  const [kpiMsg, setKpiMsg] = useState(null);
 
   const openProfile = (emp) => {
     setProfileTarget(emp);
     setProfileData(null);
     setProfileLoading(true);
+    setKpiForm({ punishmentId: "", points: "", reason: "" });
+    setKpiMsg(null);
     setModal("profile");
     api.getProfile(emp.id).then(d => setProfileData(d)).catch(() => {}).finally(() => setProfileLoading(false));
   };
+
+  const addPunishment = () => setPunishments(p => [...(p || []), { id: "pun" + Date.now(), label: "", points: "", description: "" }]);
+  const updatePunishment = (id, patch) => setPunishments(p => p.map(x => x.id === id ? { ...x, ...patch } : x));
+  const removePunishment = (id) => setPunishments(p => p.filter(x => x.id !== id));
 
   const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
 
@@ -4109,6 +4192,51 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>⭐ KPI Scoring</p>
+        <div style={S.col}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={S.label}>Period Start</label>
+              <input style={S.input} type="date" value={kpiConfig.startDate || ""} onChange={e => setKpiConfig(c => ({ ...c, startDate: e.target.value }))} />
+            </div>
+            <div>
+              <label style={S.label}>Reset (months)</label>
+              <input style={S.input} type="number" min="1" value={kpiConfig.resetMonths} onChange={e => setKpiConfig(c => ({ ...c, resetMonths: e.target.value }))} placeholder="12" />
+            </div>
+            <div>
+              <label style={S.label}>Starting Points</label>
+              <input style={S.input} type="number" min="1" value={kpiConfig.maxPoints} onChange={e => setKpiConfig(c => ({ ...c, maxPoints: e.target.value }))} placeholder="100" />
+            </div>
+          </div>
+          {(() => { const p = kpiPeriod(kpiConfig); const endLabel = new Date(p.end.getTime() - 86400000); return (
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>
+              Everyone starts each period at <strong style={{ color: "var(--accent,#e8b84b)" }}>{kpiMax(kpiConfig)} pts (★★★★★)</strong>. Current period:{" "}
+              <strong style={{ color: "var(--text,#e8e4dc)" }}>{p.start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {endLabel.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>. Default start is Jan 1.
+            </p>
+          ); })()}
+
+          {/* Punishment presets */}
+          <div style={{ borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <p style={{ ...S.sectionTitle, margin: 0 }}>Punishments</p>
+              <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={addPunishment}><Icon d={icons.plus} size={12} /> Add</button>
+            </div>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 10px" }}>Preset deductions you can pick when scoring a teammate. Label is shown to the employee as the reason.</p>
+            {(punishments || []).length === 0 && <p style={{ fontSize: 12, color: "#666", margin: 0 }}>No punishments yet.</p>}
+            <div style={S.col}>
+              {(punishments || []).map(pun => (
+                <div key={pun.id} style={{ display: "grid", gridTemplateColumns: "1fr 72px 32px", gap: 6, alignItems: "center" }}>
+                  <input style={{ ...S.input, padding: "7px 10px" }} value={pun.label} placeholder="e.g. Late arrival" onChange={e => updatePunishment(pun.id, { label: e.target.value })} />
+                  <input style={{ ...S.input, padding: "7px 8px", textAlign: "right" }} type="number" min="0" step="0.1" value={pun.points} placeholder="pts" onChange={e => updatePunishment(pun.id, { points: e.target.value })} />
+                  <button style={{ ...S.btn("danger"), padding: "5px 6px", minWidth: 0 }} onClick={() => removePunishment(pun.id)}><Icon d={icons.x} size={12} /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>Team Members ({employees.length})</p>
         <div style={S.col}>
           {employees.length === 0 && <p style={{ fontSize: 13, color: "#666" }}>No team members yet.</p>}
@@ -4119,6 +4247,12 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
               </div>
               <div style={{ flex: 1 }}>
                 <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{e.name}</p>
+                {(() => { const st = kpiStars(kpiScore(e.id, kpiEvents, kpiConfig), kpiConfig); return (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "3px 0 0" }}>
+                    <StarRating value={st} size={12} />
+                    <span style={{ fontSize: 11, color: "#8a8f9d" }}>{st.toFixed(1)}</span>
+                  </div>
+                ); })()}
                 <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666", display: "flex", alignItems: "center", gap: 6 }}>
                   PIN:&nbsp;
                   <span style={{ fontFamily: "monospace", letterSpacing: 2 }}>
@@ -4384,10 +4518,68 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
 
       {modal === "profile" && profileTarget && (
         <Modal title={`${profileTarget.name}'s Profile`} onClose={() => setModal(null)}>
+          <div style={S.col}>
+          {/* KPI score & deduction */}
+          {(() => {
+            const max = kpiMax(kpiConfig);
+            const score = kpiScore(profileTarget.id, kpiEvents, kpiConfig);
+            const stars = kpiStars(score, kpiConfig);
+            const { start, end } = kpiPeriod(kpiConfig);
+            const myEvents = (kpiEvents || []).filter(ev => ev.employeeId === profileTarget.id && ev.ts >= start.getTime() && ev.ts < end.getTime()).sort((a, b) => b.ts - a.ts);
+            const submit = () => {
+              const pts = parseFloat(kpiForm.points) || 0;
+              if (pts <= 0) { setKpiMsg({ ok: false, text: "Enter points to deduct." }); return; }
+              if (!kpiForm.reason.trim()) { setKpiMsg({ ok: false, text: "Reason is required." }); return; }
+              setKpiEvents(p => [...(p || []), { id: "kpi" + Date.now(), employeeId: profileTarget.id, points: pts, reason: kpiForm.reason.trim(), punishmentId: kpiForm.punishmentId || null, ts: Date.now(), by: "admin" }]);
+              setKpiForm({ punishmentId: "", points: "", reason: "" });
+              setKpiMsg({ ok: true, text: `Deducted ${pts} pts.` });
+              setTimeout(() => setKpiMsg(null), 3000);
+            };
+            return (
+              <div style={{ ...S.card, background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)" }}>
+                <p style={S.sectionTitle}>⭐ KPI Score</p>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+                  <StarRating value={stars} size={22} />
+                  <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>{stars.toFixed(1)}</span>
+                  <span style={{ fontSize: 13, color: "#8a8f9d" }}>{score}/{max} pts</span>
+                </div>
+                <p style={{ fontSize: 11, color: "#666", margin: "0 0 12px" }}>Period: {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {(punishments || []).length > 0 && (
+                    <select style={S.select} value={kpiForm.punishmentId} onChange={e => { const pun = (punishments || []).find(x => x.id === e.target.value); setKpiForm(f => ({ punishmentId: e.target.value, points: pun ? String(pun.points) : f.points, reason: pun ? (pun.label + (pun.description ? ` — ${pun.description}` : "")) : f.reason })); }}>
+                      <option value="">Custom deduction…</option>
+                      {(punishments || []).map(pun => <option key={pun.id} value={pun.id}>{pun.label} (−{pun.points})</option>)}
+                    </select>
+                  )}
+                  <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: 8 }}>
+                    <input style={S.input} type="number" min="0" step="0.1" value={kpiForm.points} placeholder="Points" onChange={e => setKpiForm(f => ({ ...f, points: e.target.value }))} />
+                    <input style={S.input} value={kpiForm.reason} placeholder="Reason (shown to employee)" onChange={e => setKpiForm(f => ({ ...f, reason: e.target.value }))} />
+                  </div>
+                  {kpiMsg && <p style={{ fontSize: 12, color: kpiMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{kpiMsg.text}</p>}
+                  <button style={{ ...S.btn("danger"), justifyContent: "center" }} onClick={submit}>Deduct Points</button>
+                </div>
+                {myEvents.length > 0 && (
+                  <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 10 }}>
+                    <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Deductions this period</p>
+                    {myEvents.map(ev => (
+                      <div key={ev.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                        <span style={{ ...S.badge("red"), flexShrink: 0 }}>−{ev.points}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 13 }}>{ev.reason}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>{new Date(ev.ts).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                        </div>
+                        <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => setKpiEvents(p => p.filter(x => x.id !== ev.id))}>Undo</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {profileLoading ? (
             <p style={{ color: "#666", textAlign: "center", padding: 24 }}>Loading…</p>
           ) : !profileData ? (
-            <p style={{ color: "#666", textAlign: "center", padding: 24 }}>No profile data uploaded yet.</p>
+            <p style={{ color: "#666", textAlign: "center", padding: 12 }}>No profile documents uploaded yet.</p>
           ) : (
             <div style={S.col}>
               {profileData.photo && (
@@ -4424,6 +4616,7 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
               )}
             </div>
           )}
+          </div>
         </Modal>
       )}
     </div>
@@ -4766,6 +4959,9 @@ export default function App() {
   const [lineGroupId, setLineGroupId] = useState(null);
   const [timezone, setTimezone] = useState("Asia/Bangkok");
   const [timeFormat, setTimeFormat] = useState("24"); // "12" | "24"
+  const [kpiConfig, setKpiConfig] = useState({ startDate: "", resetMonths: 12, maxPoints: 100 });
+  const [punishments, setPunishments] = useState([]); // [{ id, label, points, description }]
+  const [kpiEvents, setKpiEvents] = useState([]); // [{ id, employeeId, points, reason, punishmentId, ts, by }]
   const [lineNotifyMuted, setLineNotifyMuted] = useState(() => { try { return localStorage.getItem("psr_notify_muted") === "1"; } catch { return false; } });
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState(false);
@@ -4806,6 +5002,9 @@ export default function App() {
         if (d.lineGroupId) setLineGroupId(d.lineGroupId);
         if (d.timezone) setTimezone(d.timezone);
         if (d.timeFormat) setTimeFormat(d.timeFormat);
+        if (d.kpiConfig) setKpiConfig(d.kpiConfig);
+        if (d.punishments) setPunishments(d.punishments);
+        if (d.kpiEvents) setKpiEvents(d.kpiEvents);
         setCloudSynced(true);
       })
       .catch(() => {})
@@ -4818,13 +5017,13 @@ export default function App() {
     if (!loaded || !cloudSynced) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const savePayload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat };
+      const savePayload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents };
       if (lineGroupId !== null) savePayload.lineGroupId = lineGroupId;
       api.putData(savePayload)
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, loaded, cloudSynced]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, loaded, cloudSynced]);
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
   const pendingAdminRequests = (adminRequests || []).filter(r => r.status === "pending");
@@ -4847,7 +5046,7 @@ export default function App() {
   };
 
   const createBackup = async () => {
-    const payload = { savedAt: new Date().toISOString(), equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, lineGroupId, timezone, timeFormat };
+    const payload = { savedAt: new Date().toISOString(), equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, lineGroupId, timezone, timeFormat, kpiConfig, punishments, kpiEvents };
     const res = await api.putBackup(payload);
     if (res?.ok) { try { localStorage.setItem("psr_last_backup", payload.savedAt); } catch {} }
     return res;
@@ -4870,6 +5069,9 @@ export default function App() {
     if (d.lineGroupId !== undefined) setLineGroupId(d.lineGroupId);
     if (d.timezone) setTimezone(d.timezone);
     if (d.timeFormat) setTimeFormat(d.timeFormat);
+    if (d.kpiConfig) setKpiConfig(d.kpiConfig);
+    if (d.punishments) setPunishments(d.punishments);
+    if (d.kpiEvents) setKpiEvents(d.kpiEvents);
     return d.savedAt;
   };
 
@@ -4883,7 +5085,7 @@ export default function App() {
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} />
       ) : (
         <div id="admin-layout" style={S.app}>
           <AdminTopBar
@@ -4902,7 +5104,7 @@ export default function App() {
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} />}
-            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} />}
+            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
         </div>
