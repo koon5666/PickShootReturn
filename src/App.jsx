@@ -4184,9 +4184,9 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
   );
 }
 
-// ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents, saveSettingsNow, photoVerification, setPhotoVerification }) {
-  const [modal, setModal] = useState(null); // null | "add" | "edit" | "profile"
+// ─── TEAM PAGE ────────────────────────────────────────────────────────────────
+function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, kpiConfig, kpiEvents, setKpiEvents, punishments }) {
+  const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
   const [formErr, setFormErr] = useState("");
@@ -4194,13 +4194,8 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
   const [profileTarget, setProfileTarget] = useState(null);
   const [profileData, setProfileData] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
-  const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
-  const [apMsg, setApMsg] = useState(null);
-  const [backupStatus, setBackupStatus] = useState(null); // null | "saving" | "saved" | "error" | "restoring" | "restored" | "confirm-restore" | "no-backup"
-  const [lastBackupAt, setLastBackupAt] = useState(() => { try { return localStorage.getItem("psr_last_backup"); } catch { return null; } });
   const [kpiForm, setKpiForm] = useState({ punishmentId: "", points: "", reason: "" });
   const [kpiMsg, setKpiMsg] = useState(null);
-  const [saveState, setSaveState] = useState(null); // null | "saving" | "saved" | { error }
 
   const openProfile = (emp) => {
     setProfileTarget(emp);
@@ -4212,10 +4207,6 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
     api.getProfile(emp.id).then(d => setProfileData(d)).catch(() => {}).finally(() => setProfileLoading(false));
   };
 
-  const addPunishment = () => setPunishments(p => [...(p || []), { id: "pun" + Date.now(), label: "", points: "", description: "" }]);
-  const updatePunishment = (id, patch) => setPunishments(p => p.map(x => x.id === id ? { ...x, ...patch } : x));
-  const removePunishment = (id) => setPunishments(p => p.filter(x => x.id !== id));
-
   const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
 
   const approveRequest = (req) => {
@@ -4224,26 +4215,14 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
     const items = req.items || [{ eqId: req.eqId, eqName: req.eqName, qty: req.qty }];
     const now = Date.now();
     const newCheckouts = items.map((item, i) => ({
-      id: "co" + now + i,
-      jobId: null,
-      jobName,
-      eqId: item.eqId,
-      qty: item.qty,
-      employeeId: req.employeeId,
-      employeeName: req.employeeName,
-      type: "pick",
-      ts: now,
-      photo: null,
-      location: null,
-      requestId: req.id,
+      id: "co" + now + i, jobId: null, jobName, eqId: item.eqId, qty: item.qty,
+      employeeId: req.employeeId, employeeName: req.employeeName, type: "pick",
+      ts: now, photo: null, location: null, requestId: req.id,
     }));
     setCheckouts(p => [...p, ...newCheckouts]);
   };
 
-  const denyRequest = (id) => {
-    setEquipmentRequests(p => p.map(r => r.id === id ? { ...r, status: "denied", resolvedAt: Date.now() } : r));
-  };
-
+  const denyRequest = (id) => setEquipmentRequests(p => p.map(r => r.id === id ? { ...r, status: "denied", resolvedAt: Date.now() } : r));
   const openAdd = () => { setForm({ name: "", pin: "" }); setEditTarget(null); setFormErr(""); setModal("add"); };
   const openEdit = (emp) => { setForm({ name: emp.name, pin: emp.pin }); setEditTarget(emp); setFormErr(""); setModal("edit"); };
 
@@ -4273,11 +4252,226 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
         <div>
-          <h1 style={S.pageTitle}>Team & Settings</h1>
+          <h1 style={S.pageTitle}>Team</h1>
           <p style={S.pageSubtitle}>Manage crew access</p>
         </div>
         <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> Add Member</button>
       </div>
+
+      <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>Team Members ({employees.length})</p>
+        <div style={S.col}>
+          {employees.length === 0 && <p style={{ fontSize: 13, color: "#666" }}>No team members yet.</p>}
+          {employees.map((e, i) => (
+            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: i < employees.length - 1 ? 14 : 0, marginBottom: i < employees.length - 1 ? 14 : 0, borderBottom: i < employees.length - 1 ? "1px solid #252830" : "none" }}>
+              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Icon d={icons.user} size={17} color="#e8b84b" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{e.name}</p>
+                {(() => { const st = kpiStars(kpiScore(e.id, kpiEvents, kpiConfig), kpiConfig); return (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "3px 0 0" }}>
+                    <StarRating value={st} size={12} />
+                    <span style={{ fontSize: 11, color: "#8a8f9d" }}>{st.toFixed(1)}</span>
+                  </div>
+                ); })()}
+                <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666", display: "flex", alignItems: "center", gap: 6 }}>
+                  PIN:&nbsp;
+                  <span style={{ fontFamily: "monospace", letterSpacing: 2 }}>{showPin[e.id] ? e.pin : "•".repeat(e.pin.length)}</span>
+                  <button onClick={() => setShowPin(p => ({ ...p, [e.id]: !p[e.id] }))} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 11, padding: 0 }}>
+                    {showPin[e.id] ? "hide" : "show"}
+                  </button>
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openProfile(e)} title="View Profile"><Icon d={icons.user} size={13} /></button>
+                <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openEdit(e)}><Icon d={icons.edit} size={13} /></button>
+                <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => delEmployee(e.id)}><Icon d={icons.trash} size={13} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>Equipment Requests {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} pending</span>}</p>
+        {(equipmentRequests || []).length === 0 ? (
+          <p style={{ fontSize: 13, color: "#666" }}>No equipment requests yet.</p>
+        ) : [...(equipmentRequests || [])].reverse().map((req, i, arr) => {
+          const itemLabel = req.items
+            ? req.items.map(it => { const e = (equipment || []).find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
+            : `${(equipment || []).find(e => e.id === req.eqId)?.name || req.eqName} ×${req.qty}`;
+          return (
+            <div key={req.id} style={{ paddingBottom: i < arr.length - 1 ? 14 : 0, marginBottom: i < arr.length - 1 ? 14 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.employeeName}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d" }}>
+                    {itemLabel} · {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}
+                    {req.useDates?.length > 0 ? ` · ${req.useDates.map(formatDate).join(", ")}` : req.useDate ? ` · ${formatDate(req.useDate)}` : ""}
+                  </p>
+                  {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.reason}</p>}
+                  <p style={{ margin: "2px 0 0", fontSize: 10, color: "#444" }}>{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                </div>
+                {req.status === "pending" && (
+                  <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                    <button style={{ ...S.btn("success"), padding: "5px 10px", fontSize: 12 }} onClick={() => approveRequest(req)}>Approve</button>
+                    <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 12 }} onClick={() => denyRequest(req.id)}>Deny</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {(modal === "add" || modal === "edit") && (
+        <Modal title={modal === "add" ? "Add Team Member" : "Edit Team Member"} onClose={() => setModal(null)}>
+          <div style={S.col}>
+            <div>
+              <label style={S.label}>Name</label>
+              <input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Somchai" autoFocus />
+            </div>
+            <div>
+              <label style={S.label}>PIN (4–6 digits)</label>
+              <input style={S.input} type="text" inputMode="numeric" maxLength={6} value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 1234" />
+            </div>
+            {formErr && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>{formErr}</p>}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button style={S.btn("ghost")} onClick={() => setModal(null)}>Cancel</button>
+              <button style={S.btn("primary")} onClick={saveEmployee}>{modal === "add" ? "Add Member" : "Save Changes"}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {modal === "profile" && profileTarget && (
+        <Modal title={`${profileTarget.name}'s Profile`} onClose={() => setModal(null)}>
+          <div style={S.col}>
+          {(() => {
+            const max = kpiMax(kpiConfig);
+            const score = kpiScore(profileTarget.id, kpiEvents, kpiConfig);
+            const stars = kpiStars(score, kpiConfig);
+            const { start, end } = kpiPeriod(kpiConfig);
+            const myEvents = (kpiEvents || []).filter(ev => ev.employeeId === profileTarget.id && ev.ts >= start.getTime() && ev.ts < end.getTime()).sort((a, b) => b.ts - a.ts);
+            const submit = () => {
+              const pts = parseFloat(kpiForm.points) || 0;
+              if (pts <= 0) { setKpiMsg({ ok: false, text: "Enter points to deduct." }); return; }
+              if (!kpiForm.reason.trim()) { setKpiMsg({ ok: false, text: "Reason is required." }); return; }
+              setKpiEvents(p => [...(p || []), { id: "kpi" + Date.now(), employeeId: profileTarget.id, points: pts, reason: kpiForm.reason.trim(), punishmentId: kpiForm.punishmentId || null, ts: Date.now(), by: "admin" }]);
+              setKpiForm({ punishmentId: "", points: "", reason: "" });
+              setKpiMsg({ ok: true, text: `Deducted ${pts} pts.` });
+              setTimeout(() => setKpiMsg(null), 3000);
+            };
+            return (
+              <div style={{ ...S.card, background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)" }}>
+                <p style={S.sectionTitle}>⭐ KPI Score</p>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+                  <StarRating value={stars} size={22} />
+                  <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>{stars.toFixed(1)}</span>
+                  <span style={{ fontSize: 13, color: "#8a8f9d" }}>{score}/{max} pts</span>
+                </div>
+                <p style={{ fontSize: 11, color: "#666", margin: "0 0 12px" }}>Period: {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {(punishments || []).length > 0 && (
+                    <select style={S.select} value={kpiForm.punishmentId} onChange={e => { const pun = (punishments || []).find(x => x.id === e.target.value); setKpiForm(f => ({ punishmentId: e.target.value, points: pun ? String(pun.points) : f.points, reason: pun ? (pun.label + (pun.description ? ` — ${pun.description}` : "")) : f.reason })); }}>
+                      <option value="">Custom deduction…</option>
+                      {(punishments || []).map(pun => <option key={pun.id} value={pun.id}>{pun.label} (−{pun.points})</option>)}
+                    </select>
+                  )}
+                  <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: 8 }}>
+                    <input style={S.input} type="number" min="0" step="0.1" value={kpiForm.points} placeholder="Points" onChange={e => setKpiForm(f => ({ ...f, points: e.target.value }))} />
+                    <input style={S.input} value={kpiForm.reason} placeholder="Reason (shown to employee)" onChange={e => setKpiForm(f => ({ ...f, reason: e.target.value }))} />
+                  </div>
+                  {kpiMsg && <p style={{ fontSize: 12, color: kpiMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{kpiMsg.text}</p>}
+                  <button style={{ ...S.btn("danger"), justifyContent: "center" }} onClick={submit}>Deduct Points</button>
+                </div>
+                {myEvents.length > 0 && (
+                  <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 10 }}>
+                    <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Deductions this period</p>
+                    {myEvents.map(ev => (
+                      <div key={ev.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                        <span style={{ ...S.badge("red"), flexShrink: 0 }}>−{ev.points}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 13 }}>{ev.reason}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>{new Date(ev.ts).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                        </div>
+                        <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => setKpiEvents(p => p.filter(x => x.id !== ev.id))}>Undo</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          {profileLoading ? (
+            <p style={{ color: "#666", textAlign: "center", padding: 24 }}>Loading…</p>
+          ) : !profileData ? (
+            <p style={{ color: "#666", textAlign: "center", padding: 12 }}>No profile documents uploaded yet.</p>
+          ) : (
+            <div style={S.col}>
+              {profileData.photo && (
+                <div style={{ display: "flex", justifyContent: "center" }}>
+                  <img src={profileData.photo} alt="profile" style={{ width: 90, height: 90, borderRadius: "50%", objectFit: "cover", border: "3px solid #e8b84b" }} />
+                </div>
+              )}
+              {[["Phone", profileData.phone], ["Email", profileData.email]].filter(([, v]) => v).map(([label, val]) => (
+                <div key={label}>
+                  <p style={{ ...S.sectionTitle, marginBottom: 3 }}>{label}</p>
+                  <p style={{ margin: 0, fontSize: 14 }}>{val}</p>
+                </div>
+              ))}
+              {profileData.legalAddress && (
+                <div>
+                  <p style={{ ...S.sectionTitle, marginBottom: 3 }}>Legal Address</p>
+                  <p style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap", color: "#8a8f9d" }}>{profileData.legalAddress}</p>
+                </div>
+              )}
+              {profileData.idCard && (
+                <div>
+                  <p style={{ ...S.sectionTitle, marginBottom: 6 }}>ID Card</p>
+                  <img src={profileData.idCard} alt="ID" style={{ width: "100%", maxWidth: 280, borderRadius: 8, border: "1px solid #2e3340" }} />
+                </div>
+              )}
+              {profileData.promptPayQR && (
+                <div>
+                  <p style={{ ...S.sectionTitle, marginBottom: 6 }}>PromptPay / Bank QR</p>
+                  <img src={profileData.promptPayQR} alt="QR" style={{ width: 120, height: 120, objectFit: "contain", borderRadius: 8, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />
+                </div>
+              )}
+            </div>
+          )}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── SETTINGS PANEL ───────────────────────────────────────────────────────────
+function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents, saveSettingsNow, photoVerification, setPhotoVerification, onClose }) {
+  const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
+  const [apMsg, setApMsg] = useState(null);
+  const [backupStatus, setBackupStatus] = useState(null);
+  const [lastBackupAt, setLastBackupAt] = useState(() => { try { return localStorage.getItem("psr_last_backup"); } catch { return null; } });
+  const [saveState, setSaveState] = useState(null);
+
+  const addPunishment = () => setPunishments(p => [...(p || []), { id: "pun" + Date.now(), label: "", points: "", description: "" }]);
+  const updatePunishment = (id, patch) => setPunishments(p => p.map(x => x.id === id ? { ...x, ...patch } : x));
+  const removePunishment = (id) => setPunishments(p => p.filter(x => x.id !== id));
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "var(--bg,#0f1117)", display: "flex", flexDirection: "column", overflowY: "hidden" }}>
+      {/* Panel header */}
+      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", background: "var(--bg,#0f1117)", borderBottom: "1px solid var(--divider-color,#252830)" }}>
+        <button onClick={onClose} style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: 6, borderRadius: 6 }}>
+          <Icon d={icons.x} size={20} color="var(--text-muted,#8a8f9d)" />
+        </button>
+        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text,#e8e4dc)" }}>Settings</h1>
+      </div>
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 120px", maxWidth: 600, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>Company</p>
@@ -4363,8 +4557,6 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
               <strong style={{ color: "var(--text,#e8e4dc)" }}>{p.start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {endLabel.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>. Default start is Jan 1.
             </p>
           ); })()}
-
-          {/* Punishment presets */}
           <div style={{ borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 12 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <p style={{ ...S.sectionTitle, margin: 0 }}>Punishments</p>
@@ -4386,80 +4578,7 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>Team Members ({employees.length})</p>
-        <div style={S.col}>
-          {employees.length === 0 && <p style={{ fontSize: 13, color: "#666" }}>No team members yet.</p>}
-          {employees.map((e, i) => (
-            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: i < employees.length - 1 ? 14 : 0, marginBottom: i < employees.length - 1 ? 14 : 0, borderBottom: i < employees.length - 1 ? "1px solid #252830" : "none" }}>
-              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Icon d={icons.user} size={17} color="#e8b84b" />
-              </div>
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{e.name}</p>
-                {(() => { const st = kpiStars(kpiScore(e.id, kpiEvents, kpiConfig), kpiConfig); return (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "3px 0 0" }}>
-                    <StarRating value={st} size={12} />
-                    <span style={{ fontSize: 11, color: "#8a8f9d" }}>{st.toFixed(1)}</span>
-                  </div>
-                ); })()}
-                <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666", display: "flex", alignItems: "center", gap: 6 }}>
-                  PIN:&nbsp;
-                  <span style={{ fontFamily: "monospace", letterSpacing: 2 }}>
-                    {showPin[e.id] ? e.pin : "•".repeat(e.pin.length)}
-                  </span>
-                  <button onClick={() => setShowPin(p => ({ ...p, [e.id]: !p[e.id] }))} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 11, padding: 0 }}>
-                    {showPin[e.id] ? "hide" : "show"}
-                  </button>
-                </p>
-              </div>
-              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openProfile(e)} title="View Profile"><Icon d={icons.user} size={13} /></button>
-                <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openEdit(e)}><Icon d={icons.edit} size={13} /></button>
-                <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => delEmployee(e.id)}><Icon d={icons.trash} size={13} /></button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Equipment Checkout Requests */}
-      <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>Equipment Requests {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} pending</span>}</p>
-        {(equipmentRequests || []).length === 0 ? (
-          <p style={{ fontSize: 13, color: "#666" }}>No equipment requests yet.</p>
-        ) : [...(equipmentRequests || [])].reverse().map((req, i, arr) => {
-          const itemLabel = req.items
-            ? req.items.map(it => { const e = (equipment || []).find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
-            : `${(equipment || []).find(e => e.id === req.eqId)?.name || req.eqName} ×${req.qty}`;
-          return (
-            <div key={req.id} style={{ paddingBottom: i < arr.length - 1 ? 14 : 0, marginBottom: i < arr.length - 1 ? 14 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.employeeName}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d" }}>
-                    {itemLabel} · {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}
-                    {req.useDates?.length > 0 ? ` · ${req.useDates.map(formatDate).join(", ")}` : req.useDate ? ` · ${formatDate(req.useDate)}` : ""}
-                  </p>
-                  {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.reason}</p>}
-                  <p style={{ margin: "2px 0 0", fontSize: 10, color: "#444" }}>{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
-                </div>
-                {req.status === "pending" && (
-                  <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
-                    <button style={{ ...S.btn("success"), padding: "5px 10px", fontSize: 12 }} onClick={() => approveRequest(req)}>Approve</button>
-                    <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 12 }} onClick={() => denyRequest(req.id)}>Deny</button>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>Line OA Notifications</p>
-
-        {/* Group chat status */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "10px 14px", borderRadius: 8, background: lineGroupId ? "rgba(52,211,153,0.07)" : "rgba(255,255,255,0.03)", border: `1px solid ${lineGroupId ? "rgba(52,211,153,0.25)" : "#252830"}` }}>
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: lineGroupId ? "#34d399" : "#444", flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -4477,8 +4596,6 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
             )}
           </div>
         </div>
-
-        {/* Notify bypass */}
         <div
           onClick={() => { const next = !lineNotifyMuted; setLineNotifyMuted(next); try { localStorage.setItem("psr_notify_muted", next ? "1" : "0"); } catch {} }}
           style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: lineNotifyMuted ? "rgba(239,68,68,0.07)" : "rgba(52,211,153,0.05)", border: `1px solid ${lineNotifyMuted ? "rgba(239,68,68,0.25)" : "rgba(52,211,153,0.15)"}`, cursor: "pointer", userSelect: "none" }}>
@@ -4494,8 +4611,7 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
             </p>
           </div>
         </div>
-
-        <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.8 }}>
+        <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.8, marginTop: 14 }}>
           <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>Connect a Group Chat (one-time):</strong>
           1. Add your LINE OA to the group chat<br />
           2. In <strong>LINE Developers Console</strong> → Messaging API → Webhook URL, set:<br />
@@ -4508,7 +4624,7 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
         </p>
       </div>
 
-      <div style={S.card}>
+      <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>📅 Calendar Sync</p>
         <div style={S.col}>
           <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.7 }}>
@@ -4528,7 +4644,7 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
         </div>
       </div>
 
-      <div style={S.card}>
+      <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>Admin PIN</p>
         <div style={S.col}>
           <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0 }}>Current admin PIN: <strong style={{ color: "var(--accent,#e8b84b)", fontFamily: "monospace" }}>{adminPin}</strong></p>
@@ -4671,129 +4787,7 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
         <p style={{ fontSize: 11, color: "var(--text-muted,#666)", textAlign: "center", margin: "8px 0 0" }}>Changes also auto-save in the background — this button forces an immediate save and confirms it went through.</p>
       </div>
 
-      {(modal === "add" || modal === "edit") && (
-        <Modal title={modal === "add" ? "Add Team Member" : "Edit Team Member"} onClose={() => setModal(null)}>
-          <div style={S.col}>
-            <div>
-              <label style={S.label}>Name</label>
-              <input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Somchai" autoFocus />
-            </div>
-            <div>
-              <label style={S.label}>PIN (4–6 digits)</label>
-              <input style={S.input} type="text" inputMode="numeric" maxLength={6} value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 1234" />
-            </div>
-            {formErr && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>{formErr}</p>}
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button style={S.btn("ghost")} onClick={() => setModal(null)}>Cancel</button>
-              <button style={S.btn("primary")} onClick={saveEmployee}>{modal === "add" ? "Add Member" : "Save Changes"}</button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {modal === "profile" && profileTarget && (
-        <Modal title={`${profileTarget.name}'s Profile`} onClose={() => setModal(null)}>
-          <div style={S.col}>
-          {/* KPI score & deduction */}
-          {(() => {
-            const max = kpiMax(kpiConfig);
-            const score = kpiScore(profileTarget.id, kpiEvents, kpiConfig);
-            const stars = kpiStars(score, kpiConfig);
-            const { start, end } = kpiPeriod(kpiConfig);
-            const myEvents = (kpiEvents || []).filter(ev => ev.employeeId === profileTarget.id && ev.ts >= start.getTime() && ev.ts < end.getTime()).sort((a, b) => b.ts - a.ts);
-            const submit = () => {
-              const pts = parseFloat(kpiForm.points) || 0;
-              if (pts <= 0) { setKpiMsg({ ok: false, text: "Enter points to deduct." }); return; }
-              if (!kpiForm.reason.trim()) { setKpiMsg({ ok: false, text: "Reason is required." }); return; }
-              setKpiEvents(p => [...(p || []), { id: "kpi" + Date.now(), employeeId: profileTarget.id, points: pts, reason: kpiForm.reason.trim(), punishmentId: kpiForm.punishmentId || null, ts: Date.now(), by: "admin" }]);
-              setKpiForm({ punishmentId: "", points: "", reason: "" });
-              setKpiMsg({ ok: true, text: `Deducted ${pts} pts.` });
-              setTimeout(() => setKpiMsg(null), 3000);
-            };
-            return (
-              <div style={{ ...S.card, background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)" }}>
-                <p style={S.sectionTitle}>⭐ KPI Score</p>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
-                  <StarRating value={stars} size={22} />
-                  <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>{stars.toFixed(1)}</span>
-                  <span style={{ fontSize: 13, color: "#8a8f9d" }}>{score}/{max} pts</span>
-                </div>
-                <p style={{ fontSize: 11, color: "#666", margin: "0 0 12px" }}>Period: {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {(punishments || []).length > 0 && (
-                    <select style={S.select} value={kpiForm.punishmentId} onChange={e => { const pun = (punishments || []).find(x => x.id === e.target.value); setKpiForm(f => ({ punishmentId: e.target.value, points: pun ? String(pun.points) : f.points, reason: pun ? (pun.label + (pun.description ? ` — ${pun.description}` : "")) : f.reason })); }}>
-                      <option value="">Custom deduction…</option>
-                      {(punishments || []).map(pun => <option key={pun.id} value={pun.id}>{pun.label} (−{pun.points})</option>)}
-                    </select>
-                  )}
-                  <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: 8 }}>
-                    <input style={S.input} type="number" min="0" step="0.1" value={kpiForm.points} placeholder="Points" onChange={e => setKpiForm(f => ({ ...f, points: e.target.value }))} />
-                    <input style={S.input} value={kpiForm.reason} placeholder="Reason (shown to employee)" onChange={e => setKpiForm(f => ({ ...f, reason: e.target.value }))} />
-                  </div>
-                  {kpiMsg && <p style={{ fontSize: 12, color: kpiMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{kpiMsg.text}</p>}
-                  <button style={{ ...S.btn("danger"), justifyContent: "center" }} onClick={submit}>Deduct Points</button>
-                </div>
-                {myEvents.length > 0 && (
-                  <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 10 }}>
-                    <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Deductions this period</p>
-                    {myEvents.map(ev => (
-                      <div key={ev.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
-                        <span style={{ ...S.badge("red"), flexShrink: 0 }}>−{ev.points}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ margin: 0, fontSize: 13 }}>{ev.reason}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>{new Date(ev.ts).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
-                        </div>
-                        <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => setKpiEvents(p => p.filter(x => x.id !== ev.id))}>Undo</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-          {profileLoading ? (
-            <p style={{ color: "#666", textAlign: "center", padding: 24 }}>Loading…</p>
-          ) : !profileData ? (
-            <p style={{ color: "#666", textAlign: "center", padding: 12 }}>No profile documents uploaded yet.</p>
-          ) : (
-            <div style={S.col}>
-              {profileData.photo && (
-                <div style={{ display: "flex", justifyContent: "center" }}>
-                  <img src={profileData.photo} alt="profile" style={{ width: 90, height: 90, borderRadius: "50%", objectFit: "cover", border: "3px solid #e8b84b" }} />
-                </div>
-              )}
-              {[
-                ["Phone", profileData.phone],
-                ["Email", profileData.email],
-              ].filter(([, v]) => v).map(([label, val]) => (
-                <div key={label}>
-                  <p style={{ ...S.sectionTitle, marginBottom: 3 }}>{label}</p>
-                  <p style={{ margin: 0, fontSize: 14 }}>{val}</p>
-                </div>
-              ))}
-              {profileData.legalAddress && (
-                <div>
-                  <p style={{ ...S.sectionTitle, marginBottom: 3 }}>Legal Address</p>
-                  <p style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap", color: "#8a8f9d" }}>{profileData.legalAddress}</p>
-                </div>
-              )}
-              {profileData.idCard && (
-                <div>
-                  <p style={{ ...S.sectionTitle, marginBottom: 6 }}>ID Card</p>
-                  <img src={profileData.idCard} alt="ID" style={{ width: "100%", maxWidth: 280, borderRadius: 8, border: "1px solid #2e3340" }} />
-                </div>
-              )}
-              {profileData.promptPayQR && (
-                <div>
-                  <p style={{ ...S.sectionTitle, marginBottom: 6 }}>PromptPay / Bank QR</p>
-                  <img src={profileData.promptPayQR} alt="QR" style={{ width: 120, height: 120, objectFit: "contain", borderRadius: 8, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />
-                </div>
-              )}
-            </div>
-          )}
-          </div>
-        </Modal>
-      )}
+      </div>
     </div>
   );
 }
@@ -5035,7 +5029,7 @@ function ThemeSelector({ themeStyle, setThemeStyle, themePalette, setThemePalett
 }
 
 // ─── ADMIN TOP BAR ────────────────────────────────────────────────────────────
-function AdminTopBar({ onLogout, saveErr, setLang, themeStyle, setThemeStyle, themePalette, setThemePalette, companyName }) {
+function AdminTopBar({ onLogout, saveErr, setLang, themeStyle, setThemeStyle, themePalette, setThemePalette, companyName, onOpenSettings }) {
   return (
     <header style={S.topbar}>
       <div style={S.logo}>
@@ -5050,8 +5044,15 @@ function AdminTopBar({ onLogout, saveErr, setLang, themeStyle, setThemeStyle, th
         <LangPill setLang={setLang} />
         {saveErr && <span title="Sync error" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
         <button
+          onClick={onOpenSettings}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
+          title="Settings"
+        >
+          <Icon d={icons.gear} size={18} color="var(--text-muted,#8a8f9d)" />
+        </button>
+        <button
           onClick={onLogout}
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6, color: "var(--text-muted,#8a8f9d)" }}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
           title="Log out"
         >
           <Icon d={icons.logout} size={18} color="var(--text-muted,#8a8f9d)" />
@@ -5070,7 +5071,7 @@ function AdminBottomNav({ activePage, setActivePage, unresolvedCount }) {
     { key: "jobs", label: t("navJobs"), icon: icons.calendar },
     { key: "reports", label: t("navReports"), icon: icons.alert },
     { key: "invoice", label: t("navInvoice"), icon: icons.invoice },
-    { key: "settings", label: t("navTeam"), icon: icons.user },
+    { key: "team", label: t("navTeam"), icon: icons.user },
   ];
 
   return (
@@ -5122,6 +5123,7 @@ export default function App() {
   const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem("psr_user") || "null"); } catch { return null; } });
   useEffect(() => { try { user ? localStorage.setItem("psr_user", JSON.stringify(user)) : localStorage.removeItem("psr_user"); } catch {} }, [user]);
   const [activePage, setActivePage] = useState("dashboard");
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [equipment, setEquipment] = useState(SAMPLE_EQUIPMENT);
   const [jobs, setJobs] = useState([]);
   const [checkouts, setCheckouts] = useState([]);
@@ -5316,6 +5318,7 @@ export default function App() {
             themePalette={themePalette}
             setThemePalette={setThemePalette}
             companyName={companyName}
+            onOpenSettings={() => setSettingsPanelOpen(true)}
           />
           <main style={{ ...S.main, paddingBottom: 80 }}>
             {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
@@ -5323,9 +5326,10 @@ export default function App() {
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} />}
-            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} saveSettingsNow={saveSettingsNow} photoVerification={photoVerification} setPhotoVerification={setPhotoVerification} />}
+            {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
+          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} saveSettingsNow={saveSettingsNow} photoVerification={photoVerification} setPhotoVerification={setPhotoVerification} onClose={() => setSettingsPanelOpen(false)} />}
         </div>
       )}
     </LangCtx.Provider>
