@@ -884,6 +884,8 @@ function fmtInvoiceNo(inv) {
   return rev > 0 ? base + "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[rev - 1] : base;
 }
 
+const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
 function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName, autoPrint = false }) {
   const prodCo = productionCompanies.find(c => c.name === invoice.productionCompany);
   const total = calcTotal(invoice);
@@ -936,7 +938,7 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   </style></head><body>
   <div class="hdr">
     <div>
-      <div style="font-size:20px;font-weight:800;letter-spacing:.01em">${companyName || "GEAR DESK"}</div>
+      <div style="font-size:20px;font-weight:800;letter-spacing:.01em">${esc(companyName || "GEAR DESK")}</div>
     </div>
     <div style="text-align:right">
       <div style="font-size:26px;font-weight:900;letter-spacing:.04em">INVOICE</div>
@@ -949,20 +951,20 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   <div class="grid2">
     <div>
       <div class="lbl">Bill To</div>
-      <div style="font-weight:700;font-size:13px">${invoice.productionCompany || "—"}</div>
-      ${prodCo?.address ? `<div style="font-size:10.5px;color:#555;white-space:pre-wrap;margin-top:3px;line-height:1.5">${prodCo.address}</div>` : ""}
+      <div style="font-weight:700;font-size:13px">${esc(invoice.productionCompany || "—")}</div>
+      ${prodCo?.address ? `<div style="font-size:10.5px;color:#555;white-space:pre-wrap;margin-top:3px;line-height:1.5">${esc(prodCo.address)}</div>` : ""}
     </div>
     <div>
       <div class="lbl">From</div>
-      <div style="font-weight:700;font-size:13px">${profileInfo?.firstName ? `${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim() : employee.name}</div>
-      ${profileInfo?.legalAddress ? `<div style="font-size:10.5px;color:#555;white-space:pre-wrap;margin-top:3px;line-height:1.5">${profileInfo.legalAddress}</div>` : ""}
-      ${profileInfo?.phone ? `<div style="font-size:10.5px;color:#555;margin-top:3px">Phone No.: ${profileInfo.phone}</div>` : ""}
-      ${profileInfo?.email ? `<div style="font-size:10.5px;color:#555;margin-top:2px">Email: ${profileInfo.email}</div>` : ""}
+      <div style="font-weight:700;font-size:13px">${profileInfo?.firstName ? esc(`${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim()) : esc(employee.name)}</div>
+      ${profileInfo?.legalAddress ? `<div style="font-size:10.5px;color:#555;white-space:pre-wrap;margin-top:3px;line-height:1.5">${esc(profileInfo.legalAddress)}</div>` : ""}
+      ${profileInfo?.phone ? `<div style="font-size:10.5px;color:#555;margin-top:3px">Phone No.: ${esc(profileInfo.phone)}</div>` : ""}
+      ${profileInfo?.email ? `<div style="font-size:10.5px;color:#555;margin-top:2px">Email: ${esc(profileInfo.email)}</div>` : ""}
     </div>
   </div>
   <div class="job-box">
-    <div style="font-weight:700;font-size:13px;margin-bottom:3px">${invoice.jobName}</div>
-    <div style="font-size:11px;color:#555">Position: <strong>${invoice.position || "—"}</strong>${dateStr ? ` &nbsp;|&nbsp; Dates: ${dateStr}` : ""}</div>
+    <div style="font-weight:700;font-size:13px;margin-bottom:3px">${esc(invoice.jobName)}</div>
+    <div style="font-size:11px;color:#555">Position: <strong>${esc(invoice.position || "—")}</strong>${dateStr ? ` &nbsp;|&nbsp; Dates: ${dateStr}` : ""}</div>
   </div>
   ${invoice.callWrap && Object.keys(invoice.callWrap).some(d => invoice.callWrap[d]?.call || invoice.callWrap[d]?.wrap) ? `
   <table style="margin-bottom:8px;width:auto;min-width:260px">
@@ -985,9 +987,9 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
       <div class="lbl" style="margin-bottom:6px">PromptPay / QR Payment</div>
       <img src="${promptPayQR}" style="width:208px;height:208px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
       ${(profileInfo?.bankName || profileInfo?.bankAccount || profileInfo?.accountName) ? `<div style="margin-top:6px;font-size:10px;color:#444;line-height:1.7;text-align:center;pointer-events:none">
-        ${profileInfo.bankName ? `<div style="font-weight:700">${profileInfo.bankName}</div>` : ""}
-        ${profileInfo.accountName ? `<div>${profileInfo.accountName}</div>` : ""}
-        ${profileInfo.bankAccount ? `<div>${profileInfo.bankAccount}</div>` : ""}
+        ${profileInfo.bankName ? `<div style="font-weight:700">${esc(profileInfo.bankName)}</div>` : ""}
+        ${profileInfo.accountName ? `<div>${esc(profileInfo.accountName)}</div>` : ""}
+        ${profileInfo.bankAccount ? `<div>${esc(profileInfo.bankAccount)}</div>` : ""}
       </div>` : ""}
     </div>` : ""}
     ${idCard ? `<div class="id-wrap">
@@ -996,7 +998,7 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
     </div>` : ""}
     ${signature ? `<div class="sig-col">
       <div style="font-size:8.5px;color:#888;text-align:center;line-height:1.6;margin-bottom:8px;max-width:180px">
-        ข้อมูลและสำเนาถูกต้อง<br>ใช้สำหรับงาน <strong>${invoice.jobName || "—"}</strong><br>ของ <strong>${invoice.productionCompany || "—"}</strong>
+        ข้อมูลและสำเนาถูกต้อง<br>ใช้สำหรับงาน <strong>${esc(invoice.jobName || "—")}</strong><br>ของ <strong>${esc(invoice.productionCompany || "—")}</strong>
       </div>
       <img class="sig-img" src="${signature}" />
     </div>` : ""}
@@ -4452,6 +4454,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
 
 // ─── SETTINGS PANEL ───────────────────────────────────────────────────────────
 function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents, saveSettingsNow, photoVerification, setPhotoVerification, themeStyle, setThemeStyle, themePalette, setThemePalette, onClose }) {
+  useEffect(() => { document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, []);
   const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
   const [apMsg, setApMsg] = useState(null);
   const [backupStatus, setBackupStatus] = useState(null);
@@ -4616,7 +4619,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
               <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => api.getData().then(d => { if (d.lineGroupId) setLineGroupId(d.lineGroupId); })}>↻ Refresh</button>
             )}
             {lineGroupId && (
-              <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11 }} onClick={() => { api.putData({ lineGroupId: null }); setLineGroupId(null); }}>Disconnect</button>
+              <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11 }} onClick={async () => { const r = await api.putData({ lineGroupId: null }); if (r?.ok) setLineGroupId(null); }}>Disconnect</button>
             )}
           </div>
         </div>
@@ -5287,10 +5290,10 @@ export default function App() {
       const savePayload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification };
       if (lineGroupId !== null) savePayload.lineGroupId = lineGroupId;
       api.putData(savePayload)
-        .then(() => setSaveErr(false))
+        .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); setSaveErr(false); })
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, loaded, cloudSynced]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, lineGroupId, loaded, cloudSynced]);
 
   // Immediate, awaitable save for the admin "Save" button — returns {ok} or {ok:false,error}.
   const saveSettingsNow = async () => {
