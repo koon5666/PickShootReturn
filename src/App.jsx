@@ -2389,10 +2389,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   };
 
   const toggleItem = (eqId) => setCheckedItems(p => ({ ...p, [eqId]: !p[eqId] }));
-  // Done items (already picked/returned) count as satisfied so they don't block the proceed button
+  // Only items whose equipment still exists are shown/tickable — ignore "ghost" assignments
+  // (equipment deleted after assignment) so they can't silently block the proceed gate.
+  // Done items (already picked/returned) count as satisfied too.
   const allSelected = selectedJob && (() => {
     const { pickedIds, returnedIds } = getJobCheckoutState(selectedJob);
-    return (selectedJob.assignedEquipment || []).every(ae => {
+    const items = (selectedJob.assignedEquipment || []).filter(ae => equipment.some(e => e.id === ae.eqId));
+    if (items.length === 0) return false;
+    return items.every(ae => {
       const done = phase === "return" ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId);
       return done || !!checkedItems[ae.eqId];
     });
@@ -2403,7 +2407,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     const isRet = phase === "return";
     const { pickedIds, returnedIds } = getJobCheckoutState(selectedJob);
     const items = (selectedJob.assignedEquipment || []).filter(ae =>
-      checkedItems[ae.eqId] && !(isRet ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId))
+      equipment.some(e => e.id === ae.eqId) && checkedItems[ae.eqId] && !(isRet ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId))
     );
     if (items.length === 0) return;
     setPhotoMode(isRet ? "return" : "pick");
