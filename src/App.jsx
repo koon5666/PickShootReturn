@@ -1903,6 +1903,8 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   const [dashJobModal, setDashJobModal] = useState(null);
   const [dashReqModal, setDashReqModal] = useState(null);
   const [expandedActivityKeys, setExpandedActivityKeys] = useState(new Set());
+  const [expandedApproval, setExpandedApproval] = useState(new Set());
+  const toggleApproval = (key) => setExpandedApproval(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   const activityGroups = (() => {
     const map = {};
     checkouts.forEach(c => {
@@ -2210,47 +2212,98 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
       {/* Pending Admin Approvals */}
       {(adminRequests || []).length > 0 && (() => {
         const pending = (adminRequests || []).filter(r => r.status === "pending");
-        const recent = [...(adminRequests || [])].reverse().slice(0, 15);
-        const typeLabel = { "production-house": "Production House", "equipment": "Equipment", "member-register": "New Member", "geo-return": "Return (Location Mismatch)" };
+        const all = [...(adminRequests || [])];
+        const typeLabel = { "production-house": "Production House", "equipment": "Equipment", "member-register": "New Member" };
+        // Geo-return requests consolidate into one collapsible row per job; others stay individual.
+        const geo = all.filter(r => r.type === "geo-return");
+        const others = all.filter(r => r.type !== "geo-return");
+        const geoGroups = {};
+        geo.forEach(r => {
+          const key = "geo_" + (r.jobId || r.jobName || r.id);
+          if (!geoGroups[key]) geoGroups[key] = { key, jobName: r.jobName || "—", employeeName: r.employeeName, items: [], latest: 0 };
+          geoGroups[key].items.push(r);
+          const ts = new Date(r.submittedAt || 0).getTime();
+          if (ts > geoGroups[key].latest) geoGroups[key].latest = ts;
+        });
+        const rows = [
+          ...Object.values(geoGroups).map(g => ({ ...g, kind: "geo-group", sortTs: g.latest })),
+          ...others.map(r => ({ kind: "single", req: r, sortTs: new Date(r.submittedAt || 0).getTime() })),
+        ].sort((a, b) => b.sortTs - a.sortTs).slice(0, 20);
         return (
           <div style={S.card}>
             <p style={{ ...S.sectionTitle, margin: "0 0 12px 0" }}>
               Approvals
               {pending.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pending.length} pending</span>}
             </p>
-            {recent.map((req, i, arr) => (
-              <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
-                <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.name}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>
-                    {typeLabel[req.type] || req.type}
-                    {req.employeeName ? ` · by ${req.employeeName}` : " · Guest"}
-                    {req.address ? ` · ${req.address}` : ""}
-                    {req.category ? ` · ${req.category}` : ""}
-                    {req.total && req.type === "equipment" ? ` · ×${req.total}` : ""}
-                    {req.requestedPin && req.type === "member-register" ? ` · PIN: ${req.requestedPin}` : ""}
-                    {req.type === "geo-return" && req.jobName ? ` · ${req.jobName}` : ""}
-                  </p>
-                  {req.type === "geo-return" && (
-                    <div style={{ marginTop: 6 }}>
-                      <p style={{ margin: 0, fontSize: 11, color: req.distance !== null ? (req.distance > 50 ? "#f87171" : "#34d399") : "#888" }}>
-                        {req.distance !== null ? `📍 ${req.distance}m from pickup location` : "📍 GPS unavailable at return"}
-                      </p>
-                      {req.pickupLocation && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>Pickup: {req.pickupLocation.lat}, {req.pickupLocation.lng}</p>}
-                      {req.returnLocation && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>Return: {req.returnLocation.lat}, {req.returnLocation.lng}</p>}
+            {rows.map((row, i, arr) => {
+              const divider = { paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" };
+              if (row.kind === "geo-group") {
+                const g = row;
+                const open = expandedApproval.has(g.key);
+                const pend = g.items.filter(r => r.status === "pending");
+                return (
+                  <div key={g.key} style={divider}>
+                    <div onClick={() => toggleApproval(g.key)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                      <span style={S.badge(pend.length ? "amber" : "green")}>{pend.length ? `${pend.length} pending` : "resolved"}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{g.jobName} <span style={{ color: "#8a8f9d", fontWeight: 500 }}>· Return</span></p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{g.items.length} {g.items.length === 1 ? "item" : "items"}{g.employeeName ? ` · by ${g.employeeName}` : ""}</p>
+                      </div>
+                      {pend.length > 0 && (
+                        <button style={{ ...S.btn("success"), padding: "4px 10px", fontSize: 11, flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); pend.forEach(r => approveAdminRequest(r)); }}>Approve all</button>
+                      )}
+                      <span style={{ color: "#666", fontSize: 14, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</span>
                     </div>
-                  )}
-                  {req.photo && <img src={req.photo} alt="preview" style={{ width: req.type === "geo-return" ? "100%" : 60, maxWidth: req.type === "geo-return" ? 260 : 60, height: req.type === "geo-return" ? "auto" : 60, objectFit: "cover", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />}
-                  {req.status === "pending" && (
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>Reject</button>
-                      <button style={{ ...S.btn("success"), padding: "5px 12px", fontSize: 12 }} onClick={() => approveAdminRequest(req)}>Approve</button>
-                    </div>
-                  )}
+                    {open && (
+                      <div style={{ marginTop: 10, paddingLeft: 10, borderLeft: "2px solid #252830", display: "flex", flexDirection: "column", gap: 12 }}>
+                        {g.items.map(req => (
+                          <div key={req.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.eqName || req.eqId}</p>
+                              <p style={{ margin: "2px 0 0", fontSize: 11, color: req.distance !== null ? (req.distance > 50 ? "#f87171" : "#34d399") : "#888" }}>
+                                {req.distance !== null ? `📍 ${req.distance}m from pickup` : "📍 GPS unavailable at return"}
+                              </p>
+                              {req.photo && <img src={req.photo} alt="preview" style={{ width: "100%", maxWidth: 260, height: "auto", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />}
+                              {req.status === "pending" && (
+                                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                  <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>Reject</button>
+                                  <button style={{ ...S.btn("success"), padding: "5px 12px", fontSize: 12 }} onClick={() => approveAdminRequest(req)}>Approve</button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              const req = row.req;
+              return (
+                <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, ...divider }}>
+                  <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.name}</p>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>
+                      {typeLabel[req.type] || req.type}
+                      {req.employeeName ? ` · by ${req.employeeName}` : " · Guest"}
+                      {req.address ? ` · ${req.address}` : ""}
+                      {req.category ? ` · ${req.category}` : ""}
+                      {req.total && req.type === "equipment" ? ` · ×${req.total}` : ""}
+                      {req.requestedPin && req.type === "member-register" ? ` · PIN: ${req.requestedPin}` : ""}
+                    </p>
+                    {req.photo && <img src={req.photo} alt="preview" style={{ width: 60, maxWidth: 60, height: 60, objectFit: "cover", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />}
+                    {req.status === "pending" && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>Reject</button>
+                        <button style={{ ...S.btn("success"), padding: "5px 12px", fontSize: 12 }} onClick={() => approveAdminRequest(req)}>Approve</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         );
       })()}
@@ -2318,6 +2371,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [geoFailItems, setGeoFailItems] = useState([]); // items sent to admin for geo mismatch
   const [captureAe, setCaptureAe] = useState(null); // item currently being photographed (per-item flow)
   const [itemResults, setItemResults] = useState({}); // { [eqId]: "ok" | "pending" } this session
+  const [expandedActivity, setExpandedActivity] = useState({}); // recent-activity group expand state
   const [profilePhoto, setProfilePhoto] = useState(null);
   const [profileInfo, setProfileInfo] = useState({ firstName: "", lastName: "", nickname: "", phone: "", email: "", lineId: "", legalAddress: "", bankName: "", bankAccount: "", accountName: "" });
   const [idCard, setIdCard] = useState(null);
@@ -3337,23 +3391,53 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </button>
             </div>
 
-            {/* My recent activity */}
+            {/* My recent activity — consolidated per job + pick/return */}
             <div style={S.card}>
               <p style={S.sectionTitle}>{t("recentActivity")}</p>
-              {checkouts.filter(c => c.employeeId === employee.id).length === 0
-                ? <p style={{ fontSize: 13, color: "#666" }}>{t("noActivity")}</p>
-                : checkouts.filter(c => c.employeeId === employee.id).slice(-8).reverse().map((c, i, arr) => {
-                    const eq = equipment.find(e => e.id === c.eqId);
-                    return (
-                      <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", paddingBottom: 10, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none", marginBottom: 10 }}>
-                        <span style={{ ...S.badge(c.type === "pick" || c.type === "checkout" ? "amber" : "green"), flexShrink: 0 }}>{c.type === "pick" || c.type === "checkout" ? t("pickEvt") : t("returnEvt")}</span>
-                        <div>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{eq?.name || "Unknown"}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{c.jobName} · {formatDateTime(c.ts)}</p>
+              {(() => {
+                const mine = checkouts.filter(c => c.employeeId === employee.id);
+                if (mine.length === 0) return <p style={{ fontSize: 13, color: "#666" }}>{t("noActivity")}</p>;
+                const groups = {};
+                mine.forEach(c => {
+                  const kind = (c.type === "pick" || c.type === "checkout") ? "pick" : "return";
+                  const key = `${c.jobId || c.jobName || "x"}|${kind}`;
+                  if (!groups[key]) groups[key] = { key, jobName: c.jobName || "—", kind, items: [], latest: 0 };
+                  groups[key].items.push(c);
+                  if ((c.ts || 0) > groups[key].latest) groups[key].latest = c.ts || 0;
+                });
+                const list = Object.values(groups).sort((a, b) => b.latest - a.latest).slice(0, 10);
+                return list.map((g, i, arr) => {
+                  const open = !!expandedActivity[g.key];
+                  return (
+                    <div key={g.key} style={{ paddingBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none", marginBottom: i < arr.length - 1 ? 10 : 0 }}>
+                      <div onClick={() => setExpandedActivity(p => ({ ...p, [g.key]: !p[g.key] }))} style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer" }}>
+                        <span style={{ ...S.badge(g.kind === "pick" ? "amber" : "green"), flexShrink: 0 }}>{g.kind === "pick" ? t("pickEvt") : t("returnEvt")}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{g.jobName}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{g.items.length} {g.items.length === 1 ? "item" : "items"} · {formatDateTime(g.latest)}</p>
                         </div>
+                        <span style={{ color: "#666", fontSize: 14, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</span>
                       </div>
-                    );
-                  })}
+                      {open && (
+                        <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid #252830", display: "flex", flexDirection: "column", gap: 6 }}>
+                          {g.items.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).map((c, j) => {
+                            const eq = equipment.find(e => e.id === c.eqId);
+                            return (
+                              <div key={j} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                {eq?.photo && <img src={eq.photo} alt="" style={{ width: 28, height: 24, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} />}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || c.eqName || "Unknown"}</p>
+                                  <p style={{ margin: 0, fontSize: 10, color: "#555" }}>{formatDateTime(c.ts)}</p>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         )}
