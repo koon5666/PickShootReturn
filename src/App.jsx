@@ -2372,7 +2372,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, photoVerification = true }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, photoVerification = true, saveNow }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
@@ -2393,6 +2393,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [captureAe, setCaptureAe] = useState(null); // item currently being photographed (per-item flow)
   const [itemResults, setItemResults] = useState({}); // { [eqId]: "ok" | "pending" } this session
   const [expandedActivity, setExpandedActivity] = useState({}); // recent-activity group expand state
+  const [coSaveState, setCoSaveState] = useState(null); // checkout/return save: null | "saving" | "saved" | { error }
   const [profilePhoto, setProfilePhoto] = useState(null);
   const [profileInfo, setProfileInfo] = useState({ firstName: "", lastName: "", nickname: "", phone: "", email: "", lineId: "", legalAddress: "", bankName: "", bankAccount: "", accountName: "" });
   const [idCard, setIdCard] = useState(null);
@@ -2518,6 +2519,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
   const onTapItem = (ae) => { if (photoVerification) setCaptureAe(ae); else commitItem(ae, null, null); };
 
+  // Force an immediate save of everything and report success/failure. Returns true on success.
+  const doSaveCheckout = async () => {
+    if (!saveNow) { setCoSaveState({ error: "Save is unavailable on this screen." }); return false; }
+    setCoSaveState("saving");
+    const res = await saveNow();
+    if (res && res.ok) { setCoSaveState("saved"); setTimeout(() => setCoSaveState(s => s === "saved" ? null : s), 3000); return true; }
+    setCoSaveState({ error: (res && res.error) || "Save failed — check your connection and tap Save again." });
+    return false;
+  };
+
   // ── Checkout / return flow (per-item, barcode-style) ───────────────────────
   if (phase !== "select" && selectedJob) {
     const isReturn = phase === "return";
@@ -2589,7 +2600,25 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           <div style={{ ...S.card, background: "rgba(52,211,153,0.07)", border: "1px solid rgba(52,211,153,0.25)", marginTop: 16, textAlign: "center" }}>
             <div style={{ fontSize: 38, marginBottom: 6 }}>{isReturn ? "🏁" : "✅"}</div>
             <p style={{ margin: "0 0 12px", fontWeight: 700, color: "#34d399" }}>{isReturn ? "All gear returned!" : "All gear checked out!"}</p>
-            <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center" }} onClick={() => { setSelectedJob(null); setPhase("select"); setItemResults({}); }}>{t("backToJobs")}</button>
+            <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", opacity: coSaveState === "saving" ? 0.7 : 1 }} disabled={coSaveState === "saving"} onClick={async () => { const ok = await doSaveCheckout(); if (ok) { setSelectedJob(null); setPhase("select"); setItemResults({}); } }}>{coSaveState === "saving" ? "Saving…" : `${t("backToJobs")}`}</button>
+          </div>
+        )}
+        {/* Explicit save — make sure everything reached the cloud */}
+        {items.length > 0 && (
+          <div style={{ position: "sticky", bottom: 12, zIndex: 5, marginTop: 16 }}>
+            <button
+              style={{ ...S.btn(coSaveState === "saved" ? "success" : (coSaveState && coSaveState.error) ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "14px", fontSize: 15, fontWeight: 700, boxShadow: "0 4px 24px rgba(0,0,0,0.5)", opacity: coSaveState === "saving" ? 0.75 : 1 }}
+              disabled={coSaveState === "saving"}
+              onClick={doSaveCheckout}
+            >
+              {coSaveState === "saving" ? "Saving…"
+                : coSaveState === "saved" ? "✓ All saved to cloud"
+                : (coSaveState && coSaveState.error) ? "Save Failed — tap to retry"
+                : "💾 Save"}
+            </button>
+            {coSaveState && coSaveState.error && (
+              <p style={{ fontSize: 12, color: "#f87171", textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>⚠ {coSaveState.error}</p>
+            )}
           </div>
         )}
       </div>
@@ -5206,7 +5235,7 @@ export default function App() {
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} photoVerification={photoVerification} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} photoVerification={photoVerification} saveNow={saveSettingsNow} />
       ) : (
         <div id="admin-layout" style={S.app}>
           <AdminTopBar
