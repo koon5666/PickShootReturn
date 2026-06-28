@@ -24,12 +24,14 @@ const SAMPLE_EQUIPMENT = [
 
 // ─── CLOUD API ───────────────────────────────────────────────────────────────
 const api = {
-  getData: () => fetch("/api/data").then(r => r.ok ? r.json() : {}),
+  getData: () => fetch("/api/data").then(r => { if (!r.ok) throw new Error("load failed"); return r.json(); }),
   putData: (body) => fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   getProfile: (empId) => fetch(`/api/profile/${empId}`).then(r => r.ok ? r.json() : null),
   putProfile: (empId, profileObj) => fetch(`/api/profile/${empId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profileObj) }),
   notify: (body) => fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {}),
   shareInvoice: (html) => fetch("/api/invoice-share", { method: "POST", headers: { "Content-Type": "text/html" }, body: html }).then(r => r.json()),
+  getBackup: () => fetch("/api/backup").then(r => r.ok ? r.json() : null),
+  putBackup: (body) => fetch("/api/backup", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 };
 
 // ─── ADMIN THEME SYSTEM ───────────────────────────────────────────────────────
@@ -94,8 +96,91 @@ const icons = {
   building: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10",
 };
 
-// ─── UTILITY: Date helpers ───────────────────────────────────────────────────
-const today = () => new Date().toISOString().split("T")[0];
+// ─── UTILITY: Date / time helpers ────────────────────────────────────────────
+// Admin-configurable, updated from cloud data on load so date math & time display
+// never depend on the device's locale/timezone guess.
+let APP_TZ = "Asia/Bangkok";   // IANA timezone id
+let TIME_FMT = "24";           // "12" | "24"
+function setTimePrefs(tz, fmt) { if (tz) APP_TZ = tz; if (fmt) TIME_FMT = fmt; }
+
+const today = () => {
+  try { return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date()); }
+  catch { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+};
+
+// Format an "HH:MM" 24-hour string per the admin time-format preference.
+function fmtClock(t) {
+  if (!t) return "—";
+  const [h, m] = t.slice(0, 5).split(":").map(Number);
+  if (Number.isNaN(h)) return "—";
+  if (TIME_FMT === "12") { const ampm = h >= 12 ? "PM" : "AM"; const h12 = h % 12 || 12; return `${h12}:${String(m).padStart(2, "0")} ${ampm}`; }
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+// Hours between two "HH:MM" times (handles an overnight wrap).
+function hoursWorked(call, wrap) {
+  if (!call || !wrap) return 0;
+  const [ch, cm] = call.slice(0, 5).split(":").map(Number);
+  const [wh, wm] = wrap.slice(0, 5).split(":").map(Number);
+  let mins = (wh * 60 + wm) - (ch * 60 + cm);
+  if (mins < 0) mins += 24 * 60;
+  return mins / 60;
+}
+
+const DEFAULT_OT_TIERS = [{ untilHour: 14, mult: 1.5 }, { untilHour: 16, mult: 2 }, { untilHour: 18, mult: 3 }];
+
+// Overtime amount (THB) for one day worked, under a position's rate rules.
+// ratePerHour = dayRate / hoursPerDay. Flat OT = otHours × ratePerHour × otMultiplier.
+// Variable OT walks tiered multipliers by total-hour bands (e.g. 12–14h ×1.5, 14–16h ×2…).
+function calcOtAmount(call, wrap, pos) {
+  if (!pos) return 0;
+  const base = parseFloat(pos.hoursPerDay) || 12;
+  const worked = hoursWorked(call, wrap);
+  if (worked <= base) return 0;
+  const dayRate = parseFloat(pos.dayRate) || 0;
+  const ratePerHour = base > 0 ? dayRate / base : 0;
+  if (pos.variableOT && (pos.otTiers || []).length) {
+    const tiers = (pos.otTiers || [])
+      .map(tr => ({ untilHour: parseFloat(tr.untilHour), mult: parseFloat(tr.mult) }))
+      .filter(tr => tr.untilHour > 0 && tr.mult > 0)
+      .sort((a, b) => a.untilHour - b.untilHour);
+    let cursor = base, amount = 0;
+    for (const tr of tiers) {
+      if (tr.untilHour <= cursor) continue;
+      const segEnd = Math.min(worked, tr.untilHour);
+      if (segEnd > cursor) { amount += (segEnd - cursor) * ratePerHour * tr.mult; cursor = segEnd; }
+      if (cursor >= worked) break;
+    }
+    if (cursor < worked) {
+      const lastMult = tiers.length ? tiers[tiers.length - 1].mult : (parseFloat(pos.otMultiplier) || 1.5);
+      amount += (worked - cursor) * ratePerHour * lastMult;
+    }
+    return amount;
+  }
+  const mult = parseFloat(pos.otMultiplier) || 1.5;
+  return (worked - base) * ratePerHour * mult;
+}
+
+const TIMEZONES = [
+  { id: "Asia/Bangkok", label: "Bangkok / Hanoi / Jakarta (GMT+7)" },
+  { id: "Asia/Ho_Chi_Minh", label: "Ho Chi Minh City (GMT+7)" },
+  { id: "Asia/Yangon", label: "Yangon (GMT+6:30)" },
+  { id: "Asia/Singapore", label: "Singapore / Kuala Lumpur (GMT+8)" },
+  { id: "Asia/Hong_Kong", label: "Hong Kong (GMT+8)" },
+  { id: "Asia/Manila", label: "Manila (GMT+8)" },
+  { id: "Asia/Shanghai", label: "Beijing / Shanghai (GMT+8)" },
+  { id: "Asia/Tokyo", label: "Tokyo / Seoul (GMT+9)" },
+  { id: "Asia/Kolkata", label: "India (GMT+5:30)" },
+  { id: "Asia/Dubai", label: "Dubai (GMT+4)" },
+  { id: "Australia/Sydney", label: "Sydney (GMT+10/+11)" },
+  { id: "Europe/London", label: "London (GMT+0/+1)" },
+  { id: "Europe/Paris", label: "Paris / Berlin (GMT+1/+2)" },
+  { id: "America/New_York", label: "New York (GMT-5/-4)" },
+  { id: "America/Los_Angeles", label: "Los Angeles (GMT-8/-7)" },
+  { id: "UTC", label: "UTC (GMT+0)" },
+];
+
+const haversineMeters = (lat1, lon1, lat2, lon2) => { const R=6371000,φ1=lat1*Math.PI/180,φ2=lat2*Math.PI/180,Δφ=(lat2-lat1)*Math.PI/180,Δλ=(lon2-lon1)*Math.PI/180,a=Math.sin(Δφ/2)**2+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2; return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); };
 const formatDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 const formatDateTime = (ts) => new Date(ts).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -158,18 +243,32 @@ function AvailBar({ available, total }) {
 // ─── PHOTO CAPTURE (geo-locked) ──────────────────────────────────────────────
 function GeoPhoto({ onCapture, label }) {
   const videoRef = useRef(null);
+  const streamRef = useRef(null);
   const [streaming, setStreaming] = useState(false);
   const [location, setLocation] = useState(null);
   const [locErr, setLocErr] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // Attach stream and call play() AFTER streaming=true has made the video element visible.
+  // Calling play() on a display:none element on iOS Safari prevents frame decoding (blank video).
+  useEffect(() => {
+    if (streaming && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [streaming]);
+
+  // Release camera on unmount (e.g. user switches items via tab nav before capturing)
+  useEffect(() => {
+    return () => { streamRef.current?.getTracks().forEach(t => t.stop()); };
+  }, []);
+
   const startCamera = async () => {
     setLoading(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-      videoRef.current.srcObject = stream;
-      videoRef.current.play();
+      streamRef.current = stream;
       setStreaming(true);
       navigator.geolocation.getCurrentPosition(
         (pos) => setLocation({ lat: pos.coords.latitude.toFixed(5), lng: pos.coords.longitude.toFixed(5), acc: Math.round(pos.coords.accuracy) }),
@@ -196,7 +295,8 @@ function GeoPhoto({ onCapture, label }) {
     const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
     setPhoto(dataUrl);
     // stop stream
-    videoRef.current.srcObject?.getTracks().forEach(t => t.stop());
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
     setStreaming(false);
     onCapture(dataUrl, location);
   };
@@ -756,7 +856,7 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
     </tr>`;
   }).join("");
 
-  const html = `<!DOCTYPE html><html><head><title>${invoice.invoiceNo}</title><meta charset="utf-8"><style>
+  const html = `<!DOCTYPE html><html><head><title>${invoice.invoiceNo}</title><meta charset="utf-8"><meta name="format-detection" content="telephone=no,email=no,address=no,date=no"><style>
     @page{size:A4 portrait;margin:0}
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;font-size:10.5px;background:#fff;padding:10mm}
@@ -772,9 +872,9 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
     .total-row td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:12px;padding-top:6px}
     .bottom-box{border:1.5px solid #ddd;border-radius:7px;padding:12px 16px;margin-top:10px;display:flex;gap:18px;align-items:center;justify-content:center}
     .id-wrap{width:160px;flex-shrink:0}
-    .id-img{width:100%;max-height:106px;object-fit:contain;border-radius:5px;display:block;border:1px solid #ddd}
+    .id-img{width:100%;height:auto;max-height:106px;border-radius:5px;display:block;border:1px solid #ddd}
     .sig-col{flex-shrink:0;display:flex;flex-direction:column;align-items:center}
-    .sig-img{width:160px;max-height:80px;object-fit:contain;opacity:.95}
+    .sig-img{width:160px;height:auto;max-height:80px;opacity:.95}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>
   <div class="hdr">
@@ -814,8 +914,7 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
       const cw = invoice.callWrap[d];
       if (!cw?.call && !cw?.wrap) return "";
       const label = new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-      const fmtTime = t => t ? t.slice(0, 5) : "—";
-      return `<tr><td>${label}</td><td>${fmtTime(cw.call)}</td><td>${fmtTime(cw.wrap)}</td></tr>`;
+      return `<tr><td>${label}</td><td>${fmtClock(cw.call)}</td><td>${fmtClock(cw.wrap)}</td></tr>`;
     }).join("")}</tbody>
   </table>` : ""}
   <table>
@@ -828,7 +927,7 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
     ${promptPayQR ? `<div style="text-align:center;flex-shrink:0">
       <div class="lbl" style="margin-bottom:6px">PromptPay / QR Payment</div>
       <img src="${promptPayQR}" style="width:208px;height:208px;object-fit:contain;border:1px solid #ddd;border-radius:6px;background:#fff"/>
-      ${(profileInfo?.bankName || profileInfo?.bankAccount || profileInfo?.accountName) ? `<div style="margin-top:6px;font-size:10px;color:#444;line-height:1.7;text-align:center">
+      ${(profileInfo?.bankName || profileInfo?.bankAccount || profileInfo?.accountName) ? `<div style="margin-top:6px;font-size:10px;color:#444;line-height:1.7;text-align:center;pointer-events:none">
         ${profileInfo.bankName ? `<div style="font-weight:700">${profileInfo.bankName}</div>` : ""}
         ${profileInfo.accountName ? `<div>${profileInfo.accountName}</div>` : ""}
         ${profileInfo.bankAccount ? `<div>${profileInfo.bankAccount}</div>` : ""}
@@ -873,7 +972,7 @@ function migrateItems(inv) {
   return items.length ? items : JSON.parse(JSON.stringify(DEFAULT_ITEMS));
 }
 
-function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose, allInvoices }) {
+function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], onSave, onClose, allInvoices }) {
   const [jobName, setJobName] = useState(existingInvoice?.jobName || job?.name || "");
   const [productionCompany, setProductionCompany] = useState(existingInvoice?.productionCompany || job?.production || "");
   const [shootDates] = useState(existingInvoice?.shootDates || job?.dates || []);
@@ -890,6 +989,36 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose, a
   const updateItem = (id, field, val) => setItems(p => p.map(it => it.id === id ? { ...it, [field]: val } : it));
   const addItem = () => setItems(p => [...p, { id: "i" + Date.now(), description: "", qty: 1, rate: "" }]);
   const removeItem = (id) => setItems(p => p.filter(it => it.id !== id));
+
+  // Position list comes from the employee's profile rates; fall back to the static list.
+  const positionNames = positions.length ? [...new Set(positions.map(p => p.name).filter(Boolean))] : POSITIONS;
+  const selectedPos = positions.find(p => p.name === position);
+  // Only auto-manage line items for new invoices, or older ones already built with auto rows.
+  const autoFillEnabled = !existingInvoice || (existingInvoice.items || []).some(it => it.auto);
+
+  // Auto-fill labor (day rate × days) and a single Overtime line from call/wrap times.
+  useEffect(() => {
+    if (!autoFillEnabled) return;
+    if (!selectedPos) { setItems(prev => prev.some(it => it.auto) ? prev.filter(it => !it.auto) : prev); return; }
+    const dayList = shootDates.length ? shootDates : Object.keys(callWrap);
+    const daysWithTime = dayList.filter(d => callWrap[d]?.call && callWrap[d]?.wrap);
+    const qtyDays = daysWithTime.length || dayList.length || 1;
+    const hpd = parseFloat(selectedPos.hoursPerDay) || 12;
+    let totalOt = 0;
+    dayList.forEach(d => { const cw = callWrap[d]; if (cw?.call && cw?.wrap) totalOt += calcOtAmount(cw.call, cw.wrap, selectedPos); });
+    totalOt = Math.round(totalOt);
+    setItems(prev => {
+      // keep manual rows, but drop the redundant empty default Labor/Overtime rows we now auto-generate
+      const manual = prev.filter(it => !it.auto).filter(it => {
+        const hasRate = (parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0) > 0;
+        const isLaborOrOt = /labor|overtime/i.test(it.description || "");
+        return hasRate || !isLaborOrOt;
+      });
+      const auto = [{ id: "auto-labor", description: `${selectedPos.name} (${hpd}hr)`, qty: qtyDays, rate: parseFloat(selectedPos.dayRate) || 0, auto: "labor" }];
+      if (totalOt > 0) auto.push({ id: "auto-ot", description: "Overtime", qty: 1, rate: totalOt, auto: "ot" });
+      return [...auto, ...manual];
+    });
+  }, [position, callWrap, positions]); // eslint-disable-line
 
   const total = items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0), 0);
 
@@ -940,8 +1069,11 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose, a
             <label style={S.label}>Position</label>
             <select style={S.select} value={position} onChange={e => setPosition(e.target.value)}>
               <option value="">Select position…</option>
-              {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
+              {positionNames.map(p => <option key={p} value={p}>{p}</option>)}
+              {position && !positionNames.includes(position) && <option value={position}>{position}</option>}
             </select>
+            {selectedPos && <p style={{ fontSize: 11, color: "var(--accent,#e8b84b)", margin: "5px 0 0" }}>฿{(parseFloat(selectedPos.dayRate) || 0).toLocaleString()} / {parseFloat(selectedPos.hoursPerDay) || 12}hr — rates auto-filled below</p>}
+            {positions.length === 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "5px 0 0" }}>Add roles &amp; day rates in your Profile to auto-fill invoices.</p>}
           </div>
           <div>
             <label style={S.label}>Status</label>
@@ -972,6 +1104,39 @@ function InvoiceCreateModal({ job, existingInvoice, employee, onSave, onClose, a
             </div>
           </div>
         )}
+
+        {/* Auto overtime summary */}
+        {selectedPos && (() => {
+          const dayList = shootDates.length ? shootDates : Object.keys(callWrap);
+          const hpd = parseFloat(selectedPos.hoursPerDay) || 12;
+          const rows = dayList.map(d => {
+            const cw = callWrap[d] || {};
+            if (!cw.call || !cw.wrap) return null;
+            const wk = hoursWorked(cw.call, cw.wrap);
+            return { d, wk, otH: Math.max(0, wk - hpd), ot: calcOtAmount(cw.call, cw.wrap, selectedPos) };
+          }).filter(Boolean);
+          if (!rows.length) return null;
+          const totalOt = Math.round(rows.reduce((s, r) => s + r.ot, 0));
+          const fmtH = h => (h % 1 ? h.toFixed(1) : h);
+          return (
+            <div style={{ ...S.card, background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)", padding: 14 }}>
+              <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Overtime (auto-calculated)</p>
+              {rows.map(r => {
+                const label = new Date(r.d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+                return (
+                  <div key={r.d} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-muted,#888)", padding: "2px 0" }}>
+                    <span>{label} · {fmtH(r.wk)}h worked{r.otH > 0 ? ` · OT ${fmtH(r.otH)}h` : " · no OT"}</span>
+                    <span style={{ color: r.ot > 0 ? "var(--accent,#e8b84b)" : "#555", fontWeight: 600 }}>{r.ot > 0 ? `฿${Math.round(r.ot).toLocaleString()}` : "—"}</span>
+                  </div>
+                );
+              })}
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, borderTop: "1px solid var(--divider-color,#252830)", marginTop: 6, paddingTop: 6 }}>
+                <span>Total OT</span><span style={{ color: "var(--accent,#e8b84b)" }}>฿{totalOt.toLocaleString()}</span>
+              </div>
+              <p style={{ fontSize: 10, color: "#555", margin: "8px 0 0" }}>Added as a single "Overtime" line item below. Fill call &amp; wrap times to update.</p>
+            </div>
+          );
+        })()}
 
         {/* Line items */}
         <div>
@@ -1671,7 +1836,7 @@ function DashboardCalendar({ jobs, equipment }) {
 }
 
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
-function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, lineGroupId, lineNotifyMuted }) {
+function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, lineNotifyMuted }) {
   const todayStr = today();
   const todayJobs = jobs.filter(j => j.dates.includes(todayStr));
   const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
@@ -1986,6 +2151,54 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         );
       })()}
 
+      {/* Pending Admin Approvals */}
+      {(adminRequests || []).length > 0 && (() => {
+        const pending = (adminRequests || []).filter(r => r.status === "pending");
+        const recent = [...(adminRequests || [])].reverse().slice(0, 15);
+        const typeLabel = { "production-house": "Production House", "equipment": "Equipment", "member-register": "New Member", "geo-return": "Return (Location Mismatch)" };
+        return (
+          <div style={S.card}>
+            <p style={{ ...S.sectionTitle, margin: "0 0 12px 0" }}>
+              Approvals
+              {pending.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pending.length} pending</span>}
+            </p>
+            {recent.map((req, i, arr) => (
+              <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
+                <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.name}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>
+                    {typeLabel[req.type] || req.type}
+                    {req.employeeName ? ` · by ${req.employeeName}` : " · Guest"}
+                    {req.address ? ` · ${req.address}` : ""}
+                    {req.category ? ` · ${req.category}` : ""}
+                    {req.total && req.type === "equipment" ? ` · ×${req.total}` : ""}
+                    {req.requestedPin && req.type === "member-register" ? ` · PIN: ${req.requestedPin}` : ""}
+                    {req.type === "geo-return" && req.jobName ? ` · ${req.jobName}` : ""}
+                  </p>
+                  {req.type === "geo-return" && (
+                    <div style={{ marginTop: 6 }}>
+                      <p style={{ margin: 0, fontSize: 11, color: req.distance !== null ? (req.distance > 50 ? "#f87171" : "#34d399") : "#888" }}>
+                        {req.distance !== null ? `📍 ${req.distance}m from pickup location` : "📍 GPS unavailable at return"}
+                      </p>
+                      {req.pickupLocation && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>Pickup: {req.pickupLocation.lat}, {req.pickupLocation.lng}</p>}
+                      {req.returnLocation && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>Return: {req.returnLocation.lat}, {req.returnLocation.lng}</p>}
+                    </div>
+                  )}
+                  {req.photo && <img src={req.photo} alt="preview" style={{ width: req.type === "geo-return" ? "100%" : 60, maxWidth: req.type === "geo-return" ? 260 : 60, height: req.type === "geo-return" ? "auto" : 60, objectFit: "cover", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />}
+                  {req.status === "pending" && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>Reject</button>
+                      <button style={{ ...S.btn("success"), padding: "5px 12px", fontSize: 12 }} onClick={() => approveAdminRequest(req)}>Approve</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {dashJobModal && (
         <JobFormModal
           editTarget={dashJobModal === "new" ? null : dashJobModal}
@@ -2029,7 +2242,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, lineGroupId, lineNotifyMuted }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
@@ -2042,13 +2255,17 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [selectedJob, setSelectedJob] = useState(null);
   const [checkedItems, setCheckedItems] = useState({});
   const [phase, setPhase] = useState("select");
-  const [capturePhoto, setCapturePhoto] = useState(null);
-  const [captureLocation, setCaptureLocation] = useState(null);
+  const [photoMode, setPhotoMode] = useState("pick"); // "pick" | "return"
+  const [photoItems, setPhotoItems] = useState([]); // ae list for current photo session
+  const [currentItemIdx, setCurrentItemIdx] = useState(0);
+  const [itemPhotos, setItemPhotos] = useState({}); // { [eqId]: { dataUrl, location } }
+  const [geoFailItems, setGeoFailItems] = useState([]); // items sent to admin for geo mismatch
   const [profilePhoto, setProfilePhoto] = useState(null);
   const [profileInfo, setProfileInfo] = useState({ firstName: "", lastName: "", nickname: "", phone: "", email: "", lineId: "", legalAddress: "", bankName: "", bankAccount: "", accountName: "" });
   const [idCard, setIdCard] = useState(null);
   const [promptPayQR, setPromptPayQR] = useState(null);
   const [signature, setSignature] = useState(null);
+  const [positions, setPositions] = useState([]); // [{ id, name, dayRate, hoursPerDay, variableOT, otMultiplier, otTiers }]
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [invoiceModal, setInvoiceModal] = useState(null); // null | { job, existing }
   const [expandedInv, setExpandedInv] = useState(null);
@@ -2059,6 +2276,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [invSending, setInvSending] = useState(null); // invoice id currently being sent
   const [revPeriod, setRevPeriod] = useState("all"); // all | year | custom
   const [revYear, setRevYear] = useState(new Date().getFullYear().toString());
+  const [showAdminReqModal, setShowAdminReqModal] = useState(null); // null | "production-house" | "equipment"
+  const [adminReqForm, setAdminReqForm] = useState({});
+  const [adminReqMsg, setAdminReqMsg] = useState(null);
+  const adminReqPhotoRef = useRef(null);
   const [revFrom, setRevFrom] = useState("");
   const [revTo, setRevTo] = useState("");
   const profileFileRef = useRef(null);
@@ -2080,14 +2301,26 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       if (d.idCard) setIdCard(d.idCard);
       if (d.promptPayQR) setPromptPayQR(d.promptPayQR);
       if (d.signature) setSignature(d.signature);
+      if (Array.isArray(d.positions)) setPositions(d.positions);
     }).catch(() => {}).finally(() => setProfileLoaded(true));
   }, [employee.id]);
+
+  // ── Profile positions / day rates ──
+  const addPosition = () => setPositions(p => p.length >= 5 ? p : [...p, { id: "pos" + Date.now(), name: "", dayRate: "", hoursPerDay: "12", variableOT: false, otMultiplier: "1.5", otTiers: DEFAULT_OT_TIERS.map(t => ({ ...t })) }]);
+  const updatePosition = (id, patch) => setPositions(p => p.map(x => x.id === id ? { ...x, ...patch } : x));
+  const removePosition = (id) => setPositions(p => p.filter(x => x.id !== id));
+  const updateTier = (posId, idx, patch) => setPositions(p => p.map(x => x.id === posId ? { ...x, otTiers: (x.otTiers || []).map((tr, i) => i === idx ? { ...tr, ...patch } : tr) } : x));
+  const addTier = (posId) => setPositions(p => p.map(x => x.id === posId ? { ...x, otTiers: [...(x.otTiers || []), { untilHour: "", mult: "" }] } : x));
+  const removeTier = (posId, idx) => setPositions(p => p.map(x => x.id === posId ? { ...x, otTiers: (x.otTiers || []).filter((_, i) => i !== idx) } : x));
 
   const saveProfile = async () => {
     if (!profileLoaded) return;
     setProfileSaveStatus("saving");
     try {
-      const res = await api.putProfile(employee.id, { photo: profilePhoto, ...profileInfo, idCard, promptPayQR, signature });
+      const cleanPositions = positions
+        .filter(p => (p.name || "").trim())
+        .map(p => ({ id: p.id, name: p.name.trim(), dayRate: parseFloat(p.dayRate) || 0, hoursPerDay: parseFloat(p.hoursPerDay) || 12, variableOT: !!p.variableOT, otMultiplier: parseFloat(p.otMultiplier) || 1.5, otTiers: (p.otTiers || []).map(tr => ({ untilHour: parseFloat(tr.untilHour) || 0, mult: parseFloat(tr.mult) || 0 })).filter(tr => tr.untilHour > 0 && tr.mult > 0) }));
+      const res = await api.putProfile(employee.id, { photo: profilePhoto, ...profileInfo, idCard, promptPayQR, signature, positions: cleanPositions });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       setProfileSaveStatus("saved");
       setTimeout(() => setProfileSaveStatus(null), 3000);
@@ -2129,31 +2362,93 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   };
 
   const toggleItem = (eqId) => setCheckedItems(p => ({ ...p, [eqId]: !p[eqId] }));
-  const allSelected = selectedJob && (selectedJob.assignedEquipment || []).every(ae => checkedItems[ae.eqId]);
+  // Done items (already picked/returned) count as satisfied so they don't block the proceed button
+  const allSelected = selectedJob && (() => {
+    const { pickedIds, returnedIds } = getJobCheckoutState(selectedJob);
+    return (selectedJob.assignedEquipment || []).every(ae => {
+      const done = phase === "return" ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId);
+      return done || !!checkedItems[ae.eqId];
+    });
+  })();
 
   const proceedToPhoto = () => {
     if (!allSelected) return;
-    setPhase(phase === "pick" ? "photo_pick" : "photo_return");
+    const isRet = phase === "return";
+    const { pickedIds, returnedIds } = getJobCheckoutState(selectedJob);
+    const items = (selectedJob.assignedEquipment || []).filter(ae =>
+      checkedItems[ae.eqId] && !(isRet ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId))
+    );
+    if (items.length === 0) return;
+    setPhotoMode(isRet ? "return" : "pick");
+    setPhotoItems(items);
+    setCurrentItemIdx(0);
+    setItemPhotos({});
+    setPhase("photo_each");
   };
 
   const submitCheckout = () => {
-    if (!capturePhoto) return;
-    const type = phase === "photo_pick" ? "pick" : "return";
-    const newCheckouts = (selectedJob.assignedEquipment || []).map(ae => ({
-      id: "co" + Date.now() + ae.eqId,
-      jobId: selectedJob.id,
-      jobName: selectedJob.name,
-      eqId: ae.eqId,
-      qty: ae.qty,
-      employeeId: employee.id,
-      employeeName: employee.name,
-      type,
-      ts: Date.now(),
-      photo: capturePhoto,
-      location: captureLocation,
-    }));
-    setCheckouts(p => [...p, ...newCheckouts]);
-    setPhase(type === "pick" ? "done_pick" : "done_return");
+    const now = Date.now();
+    if (photoMode === "pick") {
+      setCheckouts(p => [...p, ...photoItems.map(ae => ({
+        id: "co" + now + ae.eqId,
+        jobId: selectedJob.id, jobName: selectedJob.name,
+        eqId: ae.eqId, qty: ae.qty,
+        employeeId: employee.id, employeeName: employee.name,
+        type: "pick", ts: now,
+        photo: itemPhotos[ae.eqId]?.dataUrl || null,
+        location: itemPhotos[ae.eqId]?.location || null,
+      }))]);
+      setGeoFailItems([]);
+      setPhase("done_pick");
+    } else {
+      const immediate = [], needsApproval = [];
+      photoItems.forEach(ae => {
+        const eq = equipment.find(e => e.id === ae.eqId);
+        const captured = itemPhotos[ae.eqId];
+        const pickupCo = [...checkouts].reverse().find(c => c.jobId === selectedJob.id && c.eqId === ae.eqId && (c.type === "pick" || c.type === "checkout"));
+        let distance = null;
+        if (captured?.location && pickupCo?.location) {
+          distance = haversineMeters(+pickupCo.location.lat, +pickupCo.location.lng, +captured.location.lat, +captured.location.lng);
+        }
+        const geoOk = pickupCo?.location && captured?.location && distance !== null && distance <= 50;
+        if (geoOk) {
+          immediate.push(ae);
+        } else {
+          needsApproval.push({ ae, eq, captured, distance, pickupCo });
+        }
+      });
+
+      if (immediate.length > 0) {
+        setCheckouts(p => [...p, ...immediate.map(ae => ({
+          id: "co" + now + ae.eqId,
+          jobId: selectedJob.id, jobName: selectedJob.name,
+          eqId: ae.eqId, qty: ae.qty,
+          employeeId: employee.id, employeeName: employee.name,
+          type: "return", ts: now,
+          photo: itemPhotos[ae.eqId]?.dataUrl || null,
+          location: itemPhotos[ae.eqId]?.location || null,
+        }))]);
+      }
+
+      if (needsApproval.length > 0) {
+        setAdminRequests(p => [...(p || []), ...needsApproval.map(({ ae, eq, captured, distance, pickupCo }) => ({
+          id: "ar" + now + ae.eqId,
+          type: "geo-return",
+          status: "pending",
+          submittedAt: new Date().toISOString(),
+          employeeId: employee.id, employeeName: employee.name,
+          jobId: selectedJob.id, jobName: selectedJob.name,
+          eqId: ae.eqId, eqName: eq?.name || ae.eqId, qty: ae.qty,
+          photo: captured?.dataUrl || null,
+          returnLocation: captured?.location || null,
+          pickupLocation: pickupCo?.location || null,
+          distance: distance !== null ? Math.round(distance) : null,
+        }))]);
+      }
+
+      setGeoFailItems(needsApproval);
+      setPhase("done_return");
+    }
   };
 
   // ── Non-select phases (checkout flow) ──────────────────────────────────────
@@ -2161,34 +2456,90 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     const { pickedIds, returnedIds } = getJobCheckoutState(selectedJob);
 
     if (phase === "done_pick" || phase === "done_return") {
+      const allPhotos = Object.values(itemPhotos);
+      const reset = () => { setSelectedJob(null); setPhase("select"); setItemPhotos({}); setPhotoItems([]); setCheckedItems({}); setGeoFailItems([]); };
       return (
-        <div style={{ ...S.main, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "80vh" }}>
-          <div style={{ textAlign: "center", maxWidth: 400 }}>
-            <StepBar currentStep={phase === "done_pick" ? 1 : 2} />
-            <div style={{ fontSize: 60, marginBottom: 16 }}>{phase === "done_pick" ? "✅" : "🏁"}</div>
-            <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>{phase === "done_pick" ? t("gearPickedUp") : t("gearReturned")}</h2>
-            {capturePhoto && <img src={capturePhoto} alt="evidence" style={{ width: "100%", borderRadius: 8, marginBottom: 12 }} />}
-            <p style={{ color: "#666", marginBottom: 24 }}>{captureLocation ? t("savedGPS") : t("savedNoGPS")}</p>
-            <button style={S.btn("primary")} onClick={() => { setSelectedJob(null); setPhase("select"); setCapturePhoto(null); setCaptureLocation(null); setCheckedItems({}); }}>{t("backToJobs")}</button>
+        <div style={{ ...S.main, maxWidth: 500 }}>
+          <StepBar currentStep={phase === "done_pick" ? 1 : 2} />
+          <div style={{ textAlign: "center", marginBottom: 20 }}>
+            <div style={{ fontSize: 52, marginBottom: 8 }}>{phase === "done_pick" ? "✅" : geoFailItems.length > 0 ? "⚠️" : "🏁"}</div>
+            <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>{phase === "done_pick" ? t("gearPickedUp") : t("gearReturned")}</h2>
           </div>
+          {/* Per-item photo thumbnails */}
+          {photoItems.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+              {photoItems.map(ae => {
+                const eq = equipment.find(e => e.id === ae.eqId);
+                const p = itemPhotos[ae.eqId];
+                const failed = geoFailItems.some(f => f.ae.eqId === ae.eqId);
+                return (
+                  <div key={ae.eqId} style={{ flex: "1 1 140px", minWidth: 120 }}>
+                    {p?.dataUrl && <img src={p.dataUrl} alt={eq?.name} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 6, border: failed ? "2px solid #f87171" : "2px solid #34d399" }} />}
+                    <p style={{ margin: "4px 0 0", fontSize: 11, color: failed ? "#f87171" : "#34d399", fontWeight: 600 }}>{eq?.name}</p>
+                    {failed && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#f87171" }}>⚠ Pending admin approval</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {geoFailItems.length > 0 && (
+            <div style={{ ...S.card, background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.25)", marginBottom: 16 }}>
+              <p style={{ margin: 0, fontSize: 13, color: "#f87171", fontWeight: 600, marginBottom: 6 }}>⚠ Location mismatch — admin approval required</p>
+              {geoFailItems.map(({ ae, eq, distance }) => (
+                <p key={ae.eqId} style={{ margin: "3px 0 0", fontSize: 12, color: "#f87171" }}>
+                  {eq?.name || ae.eqId} — {distance !== null ? `${distance}m from pickup` : "GPS unavailable"}
+                </p>
+              ))}
+              <p style={{ margin: "8px 0 0", fontSize: 11, color: "#888" }}>These items will remain as "out" until admin approves the return.</p>
+            </div>
+          )}
+          <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center" }} onClick={reset}>{t("backToJobs")}</button>
         </div>
       );
     }
 
-    if (phase === "photo_pick" || phase === "photo_return") {
+    if (phase === "photo_each") {
+      const currentAe = photoItems[currentItemIdx];
+      const currentEq = currentAe ? equipment.find(e => e.id === currentAe.eqId) : null;
+      const currentCaptured = currentAe ? itemPhotos[currentAe.eqId] : null;
+      const isLast = currentItemIdx >= photoItems.length - 1;
+      const allCaptured = photoItems.length > 0 && photoItems.every(ae => itemPhotos[ae.eqId]);
       return (
         <div style={{ ...S.main, maxWidth: 500 }}>
-          <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => setPhase(phase === "photo_pick" ? "pick" : "return")}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
-          <StepBar currentStep={phase === "photo_pick" ? 0 : 2} />
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{phase === "photo_pick" ? t("pickUpPhoto") : t("returnPhoto")}</h2>
-          <p style={{ fontSize: 13, color: "#666", marginBottom: 20 }}>{t("photoInstruction")}</p>
-          <div style={{ ...S.card, background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)", marginBottom: 20 }}>
+          <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => { setPhase(photoMode === "pick" ? "pick" : "return"); setItemPhotos({}); }}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
+          <StepBar currentStep={photoMode === "pick" ? 0 : 2} />
+          {/* Progress */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+            {photoItems.map((ae, i) => {
+              const eq = equipment.find(e => e.id === ae.eqId);
+              const done = !!itemPhotos[ae.eqId];
+              return (
+                <div key={ae.eqId} onClick={() => setCurrentItemIdx(i)} style={{ flex: 1, padding: "6px 4px", borderRadius: 6, background: i === currentItemIdx ? "rgba(232,184,75,0.15)" : done ? "rgba(52,211,153,0.1)" : "#1a1e27", border: `1px solid ${i === currentItemIdx ? "#e8b84b" : done ? "#34d399" : "#252830"}`, cursor: "pointer", textAlign: "center" }}>
+                  <p style={{ margin: 0, fontSize: 9, fontWeight: 700, color: i === currentItemIdx ? "#e8b84b" : done ? "#34d399" : "#555", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{done ? "✓" : i + 1} {eq?.name?.split(" ").slice(0,2).join(" ")}</p>
+                </div>
+              );
+            })}
+          </div>
+          {/* Current item */}
+          <div style={{ ...S.card, marginBottom: 16, display: "flex", alignItems: "center", gap: 14 }}>
+            {currentEq?.photo && <img src={currentEq.photo} alt="" style={{ width: 56, height: 48, objectFit: "cover", borderRadius: 6 }} />}
+            <div>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{currentEq?.name}</p>
+              <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666" }}>{currentEq?.category} · {photoMode === "pick" ? "Pick up" : "Return"} photo {currentItemIdx + 1}/{photoItems.length}</p>
+            </div>
+          </div>
+          <div style={{ ...S.card, background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)", marginBottom: 16 }}>
             <p style={{ margin: 0, fontSize: 12, color: "#f87171", display: "flex", gap: 8, alignItems: "center" }}><Icon d={icons.lock} size={14} /> {t("photoLiveWarning")}</p>
           </div>
-          <GeoPhoto label={phase === "photo_pick" ? t("capturePickPhoto") : t("captureReturnPhoto")} onCapture={(dataUrl, loc) => { setCapturePhoto(dataUrl); setCaptureLocation(loc); }} />
-          {capturePhoto && (
-            <button style={{ ...S.btn("primary"), width: "100%", marginTop: 16, justifyContent: "center" }} onClick={submitCheckout}>
-              <Icon d={icons.check} size={15} /> {phase === "photo_pick" ? t("confirmPickUp") : t("confirmReturn")}
+          <GeoPhoto key={currentAe?.eqId + "-" + currentItemIdx} label={`${photoMode === "pick" ? "Pick-up" : "Return"} photo — ${currentEq?.name || ""}`} onCapture={(dataUrl, loc) => setItemPhotos(p => ({ ...p, [currentAe.eqId]: { dataUrl, location: loc } }))} />
+          {currentCaptured && !isLast && (
+            <button style={{ ...S.btn("primary"), width: "100%", marginTop: 16, justifyContent: "center" }} onClick={() => setCurrentItemIdx(i => i + 1)}>
+              Next Item → {photoItems[currentItemIdx + 1] && equipment.find(e => e.id === photoItems[currentItemIdx + 1]?.eqId)?.name}
+            </button>
+          )}
+          {allCaptured && (
+            <button style={{ ...S.btn("success"), width: "100%", marginTop: currentCaptured && !isLast ? 8 : 16, justifyContent: "center" }} onClick={submitCheckout}>
+              <Icon d={icons.check} size={15} /> {photoMode === "pick" ? t("confirmPickUp") : t("confirmReturn")} ({photoItems.length} items)
             </button>
           )}
         </div>
@@ -2361,6 +2712,37 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 );
               })}
             </div>
+
+            {/* Other Requests — Production House & Equipment */}
+            {(() => {
+              const myAdminReqs = (adminRequests || []).filter(r => r.employeeId === employee.id);
+              return (
+                <div style={S.card}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: myAdminReqs.length > 0 ? 12 : 0 }}>
+                    <p style={{ ...S.sectionTitle, margin: 0 }}>Other Requests</p>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("production-house"); setAdminReqForm({ name: "", address: "" }); setAdminReqMsg(null); }}>
+                        + Production House
+                      </button>
+                      <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("equipment"); setAdminReqForm({ name: "", category: "", total: "1", notes: "", photo: null }); setAdminReqMsg(null); }}>
+                        + Equipment
+                      </button>
+                    </div>
+                  </div>
+                  {myAdminReqs.length === 0 ? (
+                    <p style={{ fontSize: 13, color: "#555", marginTop: 10 }}>No requests yet.</p>
+                  ) : myAdminReqs.slice().reverse().map((req, i, arr) => (
+                    <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
+                      <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{req.name}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.type === "production-house" ? "Production House" : "Equipment"}{req.status === "approved" ? " — Added to system" : ""}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
 
             {/* Gear Request Modal */}
             {showGearRequest && (
@@ -2564,6 +2946,76 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </Modal>
             )}
 
+            {/* Production House Request Modal */}
+            {showAdminReqModal === "production-house" && (
+              <Modal title="Request New Production House" onClose={() => setShowAdminReqModal(null)}>
+                <div style={S.col}>
+                  <div>
+                    <label style={S.label}>Production House Name</label>
+                    <input style={S.input} value={adminReqForm.name || ""} onChange={e => setAdminReqForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Thai Film Co." autoFocus />
+                  </div>
+                  <div>
+                    <label style={S.label}>Billing Address</label>
+                    <textarea style={{ ...S.input, height: 80, resize: "vertical" }} value={adminReqForm.address || ""} onChange={e => setAdminReqForm(p => ({ ...p, address: e.target.value }))} placeholder="Full billing address…" />
+                  </div>
+                  {adminReqMsg && <p style={{ fontSize: 12, color: adminReqMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{adminReqMsg.text}</p>}
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                    <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>Cancel</button>
+                    <button style={S.btn("primary")} onClick={() => {
+                      if (!adminReqForm.name?.trim()) { setAdminReqMsg({ ok: false, text: "Name is required." }); return; }
+                      setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type: "production-house", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, name: adminReqForm.name.trim(), address: adminReqForm.address || "" }]);
+                      setShowAdminReqModal(null);
+                    }}>Submit Request</button>
+                  </div>
+                </div>
+              </Modal>
+            )}
+
+            {/* Equipment Add Request Modal */}
+            {showAdminReqModal === "equipment" && (
+              <Modal title="Request New Equipment" onClose={() => setShowAdminReqModal(null)}>
+                <div style={S.col}>
+                  <div>
+                    <label style={S.label}>Item Name</label>
+                    <input style={S.input} value={adminReqForm.name || ""} onChange={e => setAdminReqForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. DJI Ronin 4D" autoFocus />
+                  </div>
+                  <div>
+                    <label style={S.label}>Category</label>
+                    <input style={S.input} value={adminReqForm.category || ""} onChange={e => setAdminReqForm(p => ({ ...p, category: e.target.value }))} placeholder="e.g. Camera, Lens, Power…" />
+                  </div>
+                  <div>
+                    <label style={S.label}>Total Units</label>
+                    <input style={S.input} type="number" min={1} value={adminReqForm.total || "1"} onChange={e => setAdminReqForm(p => ({ ...p, total: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label style={S.label}>Notes</label>
+                    <input style={S.input} value={adminReqForm.notes || ""} onChange={e => setAdminReqForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" />
+                  </div>
+                  <div>
+                    <label style={S.label}>Photo (optional)</label>
+                    <input ref={adminReqPhotoRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = ev => setAdminReqForm(p => ({ ...p, photo: ev.target.result }));
+                      reader.readAsDataURL(file);
+                    }} />
+                    <button style={S.btn("ghost")} onClick={() => adminReqPhotoRef.current?.click()}><Icon d={icons.photo} size={14} /> {adminReqForm.photo ? "Change Photo" : "Upload Photo"}</button>
+                    {adminReqForm.photo && <img src={adminReqForm.photo} alt="preview" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 6, marginTop: 8 }} />}
+                  </div>
+                  {adminReqMsg && <p style={{ fontSize: 12, color: adminReqMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{adminReqMsg.text}</p>}
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                    <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>Cancel</button>
+                    <button style={S.btn("primary")} onClick={() => {
+                      if (!adminReqForm.name?.trim()) { setAdminReqMsg({ ok: false, text: "Item name is required." }); return; }
+                      setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type: "equipment", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, name: adminReqForm.name.trim(), category: adminReqForm.category || "", total: +adminReqForm.total || 1, notes: adminReqForm.notes || "", photo: adminReqForm.photo || null }]);
+                      setShowAdminReqModal(null);
+                    }}>Submit Request</button>
+                  </div>
+                </div>
+              </Modal>
+            )}
+
             {/* Calendar */}
             <div>
               <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("jobSchedule")}</p>
@@ -2681,6 +3133,91 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     value={profileInfo.legalAddress}
                     onChange={e => setProfileInfo(p => ({ ...p, legalAddress: e.target.value }))} />
                 </div>
+              </div>
+            </div>
+
+            {/* Positions & Day Rates */}
+            <div style={S.card}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <p style={{ ...S.sectionTitle, margin: 0 }}>Positions &amp; Day Rates</p>
+                {positions.length < 5 && (
+                  <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12 }} onClick={addPosition}><Icon d={icons.plus} size={12} /> Add Role</button>
+                )}
+              </div>
+              <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 14px", lineHeight: 1.6 }}>
+                Add up to 5 roles. Picking a role on an invoice auto-fills its day rate, and overtime is calculated from your call/wrap times.
+              </p>
+              {positions.length === 0 && <p style={{ fontSize: 13, color: "#666", margin: 0 }}>No roles yet — add one to auto-fill your invoices.</p>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {positions.map((pos, i) => {
+                  const rph = (parseFloat(pos.dayRate) || 0) / (parseFloat(pos.hoursPerDay) || 12);
+                  return (
+                    <div key={pos.id} style={{ border: "1px solid #2e3340", borderRadius: 10, padding: 14, background: "rgba(255,255,255,0.02)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                        <span style={S.badge("amber")}>Role {i + 1}</span>
+                        <div style={{ flex: 1 }} />
+                        <button style={{ ...S.btn("danger"), padding: "5px 8px" }} onClick={() => removePosition(pos.id)}><Icon d={icons.trash} size={13} /></button>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        <div>
+                          <label style={S.label}>Position Name</label>
+                          <input style={S.input} value={pos.name} placeholder="e.g. 1st Steadicam Assistant" onChange={e => updatePosition(pos.id, { name: e.target.value })} />
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          <div>
+                            <label style={S.label}>Day Rate (฿)</label>
+                            <input style={S.input} type="number" min="0" inputMode="decimal" value={pos.dayRate} placeholder="4500" onChange={e => updatePosition(pos.id, { dayRate: e.target.value })} />
+                          </div>
+                          <div>
+                            <label style={S.label}>Hours / Day</label>
+                            <input style={S.input} type="number" min="1" inputMode="decimal" value={pos.hoursPerDay} placeholder="12" onChange={e => updatePosition(pos.id, { hoursPerDay: e.target.value })} />
+                          </div>
+                        </div>
+                        {parseFloat(pos.dayRate) > 0 && parseFloat(pos.hoursPerDay) > 0 && (
+                          <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>Hourly rate: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}/hr</p>
+                        )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <label style={{ ...S.label, margin: 0 }}>Overtime (after {parseFloat(pos.hoursPerDay) || 12}h)</label>
+                          <div style={{ flex: 1 }} />
+                          <button onClick={() => updatePosition(pos.id, { variableOT: !pos.variableOT })} style={{ ...S.btn(pos.variableOT ? "primary" : "ghost"), padding: "5px 10px", fontSize: 12 }}>
+                            {pos.variableOT ? "Variable OT" : "Flat OT"}
+                          </button>
+                        </div>
+                        {!pos.variableOT ? (
+                          <div>
+                            <label style={S.label}>OT Multiplier (× hourly rate)</label>
+                            <input style={{ ...S.input, maxWidth: 140 }} type="number" min="1" step="0.25" inputMode="decimal" value={pos.otMultiplier} placeholder="1.5" onChange={e => updatePosition(pos.id, { otMultiplier: e.target.value })} />
+                          </div>
+                        ) : (
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                              <label style={{ ...S.label, margin: 0 }}>OT Tiers (hour band → multiplier)</label>
+                              <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => addTier(pos.id)}><Icon d={icons.plus} size={11} /> Tier</button>
+                            </div>
+                            {(pos.otTiers || []).map((tr, ti) => {
+                              const from = ti === 0 ? (parseFloat(pos.hoursPerDay) || 12) : (parseFloat((pos.otTiers[ti - 1] || {}).untilHour) || 0);
+                              return (
+                                <div key={ti} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 32px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                    <span style={{ fontSize: 11, color: "#666", whiteSpace: "nowrap" }}>{from}h–</span>
+                                    <input style={{ ...S.input, padding: "7px 8px" }} type="number" min="0" inputMode="decimal" value={tr.untilHour} placeholder="14" onChange={e => updateTier(pos.id, ti, { untilHour: e.target.value })} />
+                                    <span style={{ fontSize: 11, color: "#666" }}>h</span>
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                    <input style={{ ...S.input, padding: "7px 8px" }} type="number" min="1" step="0.25" inputMode="decimal" value={tr.mult} placeholder="1.5" onChange={e => updateTier(pos.id, ti, { mult: e.target.value })} />
+                                    <span style={{ fontSize: 11, color: "#666" }}>×</span>
+                                  </div>
+                                  <button style={{ ...S.btn("danger"), padding: "5px 6px", minWidth: 0 }} onClick={() => removeTier(pos.id, ti)}><Icon d={icons.x} size={12} /></button>
+                                </div>
+                              );
+                            })}
+                            <p style={{ fontSize: 10, color: "#555", margin: "2px 0 0" }}>Each tier covers hours up to its limit. Hours beyond the last tier use the last multiplier.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -3043,6 +3580,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   job={invoiceModal.job}
                   existingInvoice={invoiceModal.existing}
                   employee={employee}
+                  positions={positions}
                   onSave={saveInvoice}
                   onClose={() => setInvoiceModal(null)}
                   allInvoices={invoices}
@@ -3279,26 +3817,55 @@ function AdminReportsPage({ reports, setReports, equipment }) {
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
-function Login({ onLogin, employees, companyName, adminPin }) {
-  const [mode, setMode] = useState("choose"); // choose | admin | employee
+function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAdminRequests }) {
+  const [mode, setMode] = useState("choose"); // choose | admin | employee | register
   const [pin, setPin] = useState("");
   const [selectedEmp, setSelectedEmp] = useState(null);
   const [error, setError] = useState("");
   const [ddOpen, setDdOpen] = useState(false);
+  const [regForm, setRegForm] = useState({ name: "", pin: "", confirm: "" });
+  const [regMsg, setRegMsg] = useState(null);
+  const failedAttempts = useRef([]); // timestamps of recent failures
+  const [lockUntil, setLockUntil] = useState(0);
+  const [lockSecsLeft, setLockSecsLeft] = useState(0);
 
-  const tryLogin = () => {
-    if (mode === "admin") {
-      if (pin === adminPin) { onLogin({ role: "admin" }); }
-      else { setError("Incorrect PIN."); setPin(""); }
-    } else if (mode === "employee" && selectedEmp) {
-      const emp = employees.find(e => e.id === selectedEmp);
-      if (pin === emp.pin) { onLogin({ role: "employee", ...emp }); }
-      else { setError("Incorrect PIN."); setPin(""); }
+  useEffect(() => {
+    if (lockUntil <= Date.now()) return;
+    setLockSecsLeft(Math.ceil((lockUntil - Date.now()) / 1000));
+    const iv = setInterval(() => {
+      const left = Math.ceil((lockUntil - Date.now()) / 1000);
+      if (left <= 0) { setLockUntil(0); setLockSecsLeft(0); clearInterval(iv); }
+      else setLockSecsLeft(left);
+    }, 500);
+    return () => clearInterval(iv);
+  }, [lockUntil]);
+
+  const isLocked = Date.now() < lockUntil;
+
+  const recordFailure = () => {
+    const now = Date.now();
+    failedAttempts.current = [...failedAttempts.current, now].filter(t => now - t < 60000);
+    if (failedAttempts.current.length >= 5) {
+      const lockEnd = failedAttempts.current[0] + 60000;
+      setLockUntil(lockEnd);
+      failedAttempts.current = [];
     }
   };
 
-  const addDigit = (d) => { if (pin.length < 6) setPin(p => p + d); setError(""); };
-  const del = () => setPin(p => p.slice(0, -1));
+  const tryLogin = () => {
+    if (isLocked) return;
+    if (mode === "admin") {
+      if (pin === adminPin) { onLogin({ role: "admin" }); }
+      else { recordFailure(); setError("Incorrect PIN."); setPin(""); }
+    } else if (mode === "employee" && selectedEmp) {
+      const emp = employees.find(e => e.id === selectedEmp);
+      if (pin === emp.pin) { onLogin({ role: "employee", ...emp }); }
+      else { recordFailure(); setError("Incorrect PIN."); setPin(""); }
+    }
+  };
+
+  const addDigit = (d) => { if (!isLocked && pin.length < 6) setPin(p => p + d); setError(""); };
+  const del = () => { if (!isLocked) setPin(p => p.slice(0, -1)); };
 
   if (mode === "choose") return (
     <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -3309,6 +3876,42 @@ function Login({ onLogin, employees, companyName, adminPin }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("admin")}><Icon d={icons.lock} size={16} /> Admin Login</button>
           <button style={{ ...S.btn("ghost"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("employee")}><Icon d={icons.user} size={16} /> Employee Login</button>
+          <button style={{ background: "none", border: "none", color: "#555", fontSize: 12, cursor: "pointer", marginTop: 8, textDecoration: "underline" }} onClick={() => { setMode("register"); setRegForm({ name: "", pin: "", confirm: "" }); setRegMsg(null); }}>Request to register as teammate</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (mode === "register") return (
+    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ width: 300 }}>
+        <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => setMode("choose")}><Icon d={icons.arrow_left} size={14} /> Back</button>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Request to Join</h2>
+        <p style={{ fontSize: 12, color: "#555", marginBottom: 20 }}>Your request will be sent to the admin for approval.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={S.label}>Your Name</label>
+            <input style={S.input} value={regForm.name} onChange={e => setRegForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" />
+          </div>
+          <div>
+            <label style={S.label}>Desired PIN (4–6 digits)</label>
+            <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={regForm.pin} onChange={e => setRegForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 5678" />
+          </div>
+          <div>
+            <label style={S.label}>Confirm PIN</label>
+            <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={regForm.confirm} onChange={e => setRegForm(p => ({ ...p, confirm: e.target.value.replace(/\D/g, "") }))} placeholder="Re-enter PIN" />
+          </div>
+          {regMsg && <p style={{ fontSize: 12, color: regMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{regMsg.text}</p>}
+          <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "13px" }} onClick={() => {
+            if (!regForm.name.trim()) { setRegMsg({ ok: false, text: "Please enter your name." }); return; }
+            if (!/^\d{4,6}$/.test(regForm.pin)) { setRegMsg({ ok: false, text: "PIN must be 4–6 digits." }); return; }
+            if (regForm.pin !== regForm.confirm) { setRegMsg({ ok: false, text: "PINs do not match." }); return; }
+            const already = (adminRequests || []).some(r => r.type === "member-register" && r.status === "pending" && r.name.toLowerCase() === regForm.name.trim().toLowerCase());
+            if (already) { setRegMsg({ ok: false, text: "A request with this name is already pending." }); return; }
+            setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type: "member-register", status: "pending", submittedAt: new Date().toISOString(), name: regForm.name.trim(), requestedPin: regForm.pin }]);
+            setRegMsg({ ok: true, text: "Request sent! Ask your admin to approve it." });
+            setRegForm({ name: "", pin: "", confirm: "" });
+          }}>Send Request</button>
         </div>
       </div>
     </div>
@@ -3366,9 +3969,12 @@ function Login({ onLogin, employees, companyName, adminPin }) {
             ))}
           </div>
         </div>
-        {error && <p style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{error}</p>}
-        <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", padding: "12px" }} onClick={tryLogin} disabled={mode === "employee" && !selectedEmp}>
-          Unlock
+        {isLocked
+          ? <p style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 12 }}>Too many attempts — try again in {lockSecsLeft}s</p>
+          : error && <p style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{error}</p>
+        }
+        <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", padding: "12px", opacity: isLocked ? 0.5 : 1 }} onClick={tryLogin} disabled={isLocked || (mode === "employee" && !selectedEmp)}>
+          {isLocked ? `Locked (${lockSecsLeft}s)` : "Unlock"}
         </button>
 
       </div>
@@ -3377,7 +3983,7 @@ function Login({ onLogin, employees, companyName, adminPin }) {
 }
 
 // ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted }) {
+function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat }) {
   const [modal, setModal] = useState(null); // null | "add" | "edit" | "profile"
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
@@ -3388,6 +3994,8 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
   const [profileLoading, setProfileLoading] = useState(false);
   const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
   const [apMsg, setApMsg] = useState(null);
+  const [backupStatus, setBackupStatus] = useState(null); // null | "saving" | "saved" | "error" | "restoring" | "restored" | "confirm-restore" | "no-backup"
+  const [lastBackupAt, setLastBackupAt] = useState(() => { try { return localStorage.getItem("psr_last_backup"); } catch { return null; } });
 
   const openProfile = (emp) => {
     setProfileTarget(emp);
@@ -3478,6 +4086,29 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>Date &amp; Time</p>
+        <div style={S.col}>
+          <div>
+            <label style={S.label}>Timezone</label>
+            <select style={S.select} value={timezone} onChange={e => setTimezone(e.target.value)}>
+              {TIMEZONES.some(tz => tz.id === timezone) ? null : <option value={timezone}>{timezone}</option>}
+              {TIMEZONES.map(tz => <option key={tz.id} value={tz.id}>{tz.label}</option>)}
+            </select>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>Used for "today" date calculations and the job calendar, so the app never guesses from the device.</p>
+          </div>
+          <div>
+            <label style={S.label}>Time Format</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[{ v: "24", l: "24-hour (21:00)" }, { v: "12", l: "12-hour (9:00 PM)" }].map(o => (
+                <button key={o.v} onClick={() => setTimeFormat(o.v)} style={{ ...S.btn(timeFormat === o.v ? "primary" : "ghost"), flex: 1, justifyContent: "center" }}>{o.l}</button>
+              ))}
+            </div>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>Applies to call/wrap times shown on invoices.</p>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>Team Members ({employees.length})</p>
         <div style={S.col}>
           {employees.length === 0 && <p style={{ fontSize: 13, color: "#666" }}>No team members yet.</p>}
@@ -3497,15 +4128,6 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
                     {showPin[e.id] ? "hide" : "show"}
                   </button>
                 </p>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                  <span style={{ fontSize: 10, color: "#555", flexShrink: 0 }}>LINE ID:</span>
-                  <input
-                    style={{ ...S.input, fontSize: 11, padding: "3px 8px", height: "auto" }}
-                    value={e.lineUserId || ""}
-                    placeholder="Uxxxxxxxxxx…"
-                    onChange={ev => setEmployees(p => p.map(emp => emp.id === e.id ? { ...emp, lineUserId: ev.target.value } : emp))}
-                  />
-                </div>
               </div>
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                 <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openProfile(e)} title="View Profile"><Icon d={icons.user} size={13} /></button>
@@ -3649,6 +4271,88 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
               setTimeout(() => setApMsg(null), 3000);
             }}>Change Admin PIN</button>
           </div>
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <p style={S.sectionTitle}>💾 Data Backup</p>
+        <div style={S.col}>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>
+            Saves a full snapshot of all data (crew, equipment, jobs, invoices) to a separate cloud slot that auto-save never touches.
+          </p>
+          {lastBackupAt && (
+            <p style={{ fontSize: 12, color: "var(--text-muted,#666)", margin: 0 }}>
+              Last backup: <strong style={{ color: "var(--text,#e8e4dc)" }}>{new Date(lastBackupAt).toLocaleString()}</strong>
+            </p>
+          )}
+          {backupStatus === "saved" && <p style={{ fontSize: 12, color: "#34d399", margin: 0 }}>✓ Backup saved to cloud.</p>}
+          {backupStatus === "error" && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>Backup failed — check connection and try again.</p>}
+          {backupStatus === "restored" && <p style={{ fontSize: 12, color: "#34d399", margin: 0 }}>✓ Data restored from backup.</p>}
+          {backupStatus === "no-backup" && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>No backup found. Create one first.</p>}
+          <div style={S.row}>
+            <button
+              style={{ ...S.btn("primary"), flex: 1, justifyContent: "center", opacity: backupStatus === "saving" ? 0.7 : 1 }}
+              disabled={backupStatus === "saving" || backupStatus === "restoring"}
+              onClick={async () => {
+                setBackupStatus("saving");
+                try {
+                  const res = await createBackup();
+                  if (!res?.ok) throw new Error();
+                  const ts = new Date().toISOString();
+                  setLastBackupAt(ts);
+                  setBackupStatus("saved");
+                } catch { setBackupStatus("error"); }
+                setTimeout(() => setBackupStatus(null), 4000);
+              }}>
+              {backupStatus === "saving" ? "Saving…" : "Create Backup"}
+            </button>
+            <button
+              style={{ ...S.btn("ghost"), flex: 1, justifyContent: "center" }}
+              disabled={backupStatus === "saving" || backupStatus === "restoring"}
+              onClick={async () => {
+                const d = await api.getBackup();
+                if (!d) return;
+                const items = [
+                  `Crew: ${(d.employees || []).length} members`,
+                  `Equipment: ${(d.equipment || []).length} items`,
+                  `Jobs: ${(d.jobs || []).length}`,
+                  `Invoices: ${(d.invoices || []).length}`,
+                  `Saved: ${d.savedAt ? new Date(d.savedAt).toLocaleString() : "unknown"}`,
+                ].join("\n");
+                const url = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: "application/json" }));
+                const a = document.createElement("a");
+                a.href = url; a.download = `psr_backup_${(d.savedAt || new Date().toISOString()).slice(0,10)}.json`;
+                a.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
+              }}>
+              Download JSON
+            </button>
+          </div>
+          {backupStatus === "confirm-restore" ? (
+            <div style={{ background: "rgba(248,113,113,0.1)", border: "1px solid #f87171", borderRadius: 8, padding: "12px 14px" }}>
+              <p style={{ fontSize: 13, color: "#f87171", margin: "0 0 10px 0", fontWeight: 600 }}>This will overwrite ALL current data with the backup. Are you sure?</p>
+              <div style={S.row}>
+                <button style={{ ...S.btn("danger"), flex: 1, justifyContent: "center" }} onClick={async () => {
+                  setBackupStatus("restoring");
+                  try {
+                    const savedAt = await restoreBackup();
+                    if (!savedAt) { setBackupStatus("no-backup"); setTimeout(() => setBackupStatus(null), 4000); return; }
+                    setBackupStatus("restored");
+                  } catch { setBackupStatus("error"); }
+                  setTimeout(() => setBackupStatus(null), 4000);
+                }}>
+                  {backupStatus === "restoring" ? "Restoring…" : "Yes, Restore"}
+                </button>
+                <button style={{ ...S.btn("ghost"), flex: 1, justifyContent: "center" }} onClick={() => setBackupStatus(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button
+              style={{ ...S.btn("ghost"), justifyContent: "center", borderColor: "#f87171", color: "#f87171", opacity: backupStatus === "saving" || backupStatus === "restoring" ? 0.5 : 1 }}
+              disabled={backupStatus === "saving" || backupStatus === "restoring"}
+              onClick={() => setBackupStatus("confirm-restore")}>
+              Restore from Backup
+            </button>
+          )}
         </div>
       </div>
 
@@ -4057,10 +4761,14 @@ export default function App() {
   const [invoices, setInvoices] = useState([]);
   const [companyName, setCompanyName] = useState("GEAR DESK");
   const [equipmentRequests, setEquipmentRequests] = useState([]);
+  const [adminRequests, setAdminRequests] = useState([]);
   const [adminPin, setAdminPin] = useState("1234");
   const [lineGroupId, setLineGroupId] = useState(null);
+  const [timezone, setTimezone] = useState("Asia/Bangkok");
+  const [timeFormat, setTimeFormat] = useState("24"); // "12" | "24"
   const [lineNotifyMuted, setLineNotifyMuted] = useState(() => { try { return localStorage.getItem("psr_notify_muted") === "1"; } catch { return false; } });
   const [loaded, setLoaded] = useState(false);
+  const [cloudSynced, setCloudSynced] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
   const [themeStyle, setThemeStyle] = useState(() => { try { return localStorage.getItem("psr_theme_style") || "glassmorphism"; } catch { return "glassmorphism"; } });
@@ -4068,6 +4776,9 @@ export default function App() {
   const saveTimer = useRef(null);
 
   useEffect(() => { try { localStorage.setItem("psr_lang", lang); } catch {} }, [lang]);
+
+  // Keep the module-level date/time helpers in sync with admin prefs.
+  useEffect(() => { setTimePrefs(timezone, timeFormat); }, [timezone, timeFormat]);
 
   useEffect(() => {
     const id = "psr-theme-style";
@@ -4090,27 +4801,77 @@ export default function App() {
         if (d.invoices) setInvoices(d.invoices);
         if (d.companyName != null) setCompanyName(d.companyName);
         if (d.equipmentRequests) setEquipmentRequests(d.equipmentRequests);
+        if (d.adminRequests) setAdminRequests(d.adminRequests);
         if (d.adminPin) setAdminPin(d.adminPin);
         if (d.lineGroupId) setLineGroupId(d.lineGroupId);
+        if (d.timezone) setTimezone(d.timezone);
+        if (d.timeFormat) setTimeFormat(d.timeFormat);
+        setCloudSynced(true);
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
   }, []);
 
   // Save to cloud whenever data changes (debounced 800ms)
+  // cloudSynced guards against overwriting KV with initial defaults if the load request fails
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !cloudSynced) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const savePayload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin };
+      const savePayload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat };
       if (lineGroupId !== null) savePayload.lineGroupId = lineGroupId;
       api.putData(savePayload)
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminPin, loaded]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, loaded, cloudSynced]);
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
+  const pendingAdminRequests = (adminRequests || []).filter(r => r.status === "pending");
+
+  const approveAdminRequest = (req) => {
+    if (req.type === "production-house") {
+      setProductionCompanies(p => [...p, { id: "co" + Date.now(), name: req.name.trim(), address: req.address || "" }]);
+    } else if (req.type === "equipment") {
+      setEquipment(p => [...p, { id: "eq" + Date.now(), name: req.name.trim(), category: req.category || "", total: +req.total || 1, photo: req.photo || null, notes: req.notes || "" }]);
+    } else if (req.type === "member-register") {
+      setEmployees(p => [...p, { id: "e" + Date.now(), name: req.name.trim(), pin: req.requestedPin }]);
+    } else if (req.type === "geo-return") {
+      setCheckouts(p => [...p, { id: "co" + Date.now() + req.eqId, jobId: req.jobId, jobName: req.jobName, eqId: req.eqId, qty: req.qty, employeeId: req.employeeId, employeeName: req.employeeName, type: "return", ts: Date.now(), photo: req.photo || null, location: req.returnLocation || null, adminApproved: true }]);
+    }
+    setAdminRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: new Date().toISOString() } : r));
+  };
+
+  const rejectAdminRequest = (req) => {
+    setAdminRequests(p => p.map(r => r.id === req.id ? { ...r, status: "rejected", resolvedAt: new Date().toISOString() } : r));
+  };
+
+  const createBackup = async () => {
+    const payload = { savedAt: new Date().toISOString(), equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, lineGroupId, timezone, timeFormat };
+    const res = await api.putBackup(payload);
+    if (res?.ok) { try { localStorage.setItem("psr_last_backup", payload.savedAt); } catch {} }
+    return res;
+  };
+
+  const restoreBackup = async () => {
+    const d = await api.getBackup();
+    if (!d) return null;
+    if (d.equipment) setEquipment(d.equipment);
+    if (d.jobs) setJobs(d.jobs);
+    if (d.checkouts) setCheckouts(d.checkouts);
+    if (d.employees) setEmployees(d.employees);
+    if (d.reports) setReports(d.reports);
+    if (d.productionCompanies) setProductionCompanies(d.productionCompanies);
+    if (d.invoices) setInvoices(d.invoices);
+    if (d.companyName != null) setCompanyName(d.companyName);
+    if (d.equipmentRequests) setEquipmentRequests(d.equipmentRequests);
+    if (d.adminRequests) setAdminRequests(d.adminRequests);
+    if (d.adminPin) setAdminPin(d.adminPin);
+    if (d.lineGroupId !== undefined) setLineGroupId(d.lineGroupId);
+    if (d.timezone) setTimezone(d.timezone);
+    if (d.timeFormat) setTimeFormat(d.timeFormat);
+    return d.savedAt;
+  };
 
   return (
     <LangCtx.Provider value={lang}>
@@ -4120,9 +4881,9 @@ export default function App() {
           <p style={{ color: "#666", fontSize: 13, letterSpacing: "0.08em" }}>{LANG[lang]?.loading || "LOADING…"}</p>
         </div>
       ) : !user ? (
-        <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} />
+        <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />
       ) : (
         <div id="admin-layout" style={S.app}>
           <AdminTopBar
@@ -4136,12 +4897,12 @@ export default function App() {
             companyName={companyName}
           />
           <main style={{ ...S.main, paddingBottom: 80 }}>
-            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
+            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} />}
-            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} />}
+            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
         </div>
