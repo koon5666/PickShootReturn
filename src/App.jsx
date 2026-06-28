@@ -4069,7 +4069,7 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
 }
 
 // ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents }) {
+function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents, saveSettingsNow }) {
   const [modal, setModal] = useState(null); // null | "add" | "edit" | "profile"
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
@@ -4084,6 +4084,7 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
   const [lastBackupAt, setLastBackupAt] = useState(() => { try { return localStorage.getItem("psr_last_backup"); } catch { return null; } });
   const [kpiForm, setKpiForm] = useState({ punishmentId: "", points: "", reason: "" });
   const [kpiMsg, setKpiMsg] = useState(null);
+  const [saveState, setSaveState] = useState(null); // null | "saving" | "saved" | { error }
 
   const openProfile = (emp) => {
     setProfileTarget(emp);
@@ -4505,6 +4506,32 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
         <p style={S.sectionTitle}>System Info</p>
         <p style={{ fontSize: 13, color: "#666" }}>All data is stored in Cloudflare KV — synced across all devices automatically.</p>
         <p style={{ fontSize: 13, color: "#666", marginTop: 8 }}>Geo-locked photos use the browser's camera API — location metadata is embedded in the image stamp.</p>
+      </div>
+
+      {/* Save all settings */}
+      <div style={{ position: "sticky", bottom: 16, zIndex: 20, marginTop: 20 }}>
+        <button
+          style={{ ...S.btn(saveState === "saved" ? "success" : saveState && saveState.error ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, boxShadow: "0 4px 24px rgba(0,0,0,0.5)", opacity: saveState === "saving" ? 0.75 : 1 }}
+          disabled={saveState === "saving"}
+          onClick={async () => {
+            setSaveState("saving");
+            const res = await saveSettingsNow();
+            if (res.ok) { setSaveState("saved"); setTimeout(() => setSaveState(s => s === "saved" ? null : s), 3000); }
+            else { setSaveState({ error: res.error }); }
+          }}
+        >
+          {saveState === "saving" ? "Saving…"
+            : saveState === "saved" ? "✓ All settings saved to cloud"
+            : saveState && saveState.error ? "Save Failed — tap to retry"
+            : "💾 Save All Settings"}
+        </button>
+        {saveState && saveState.error && (
+          <p style={{ fontSize: 12, color: "#f87171", textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>⚠ {saveState.error}</p>
+        )}
+        {saveState === "saved" && (
+          <p style={{ fontSize: 11, color: "#34d399", textAlign: "center", margin: "8px 0 0" }}>Saved {new Date().toLocaleTimeString()}</p>
+        )}
+        <p style={{ fontSize: 11, color: "var(--text-muted,#666)", textAlign: "center", margin: "8px 0 0" }}>Changes also auto-save in the background — this button forces an immediate save and confirms it went through.</p>
       </div>
 
       {(modal === "add" || modal === "edit") && (
@@ -5036,6 +5063,22 @@ export default function App() {
     }, 800);
   }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, loaded, cloudSynced]);
 
+  // Immediate, awaitable save for the admin "Save" button — returns {ok} or {ok:false,error}.
+  const saveSettingsNow = async () => {
+    if (!loaded || !cloudSynced) return { ok: false, error: "Still syncing with the cloud — wait a moment, then try again." };
+    const payload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents };
+    if (lineGroupId !== null) payload.lineGroupId = lineGroupId;
+    try {
+      const res = await api.putData(payload);
+      if (!res.ok) { setSaveErr(true); return { ok: false, error: `Server error ${res.status} — changes not saved.` }; }
+      setSaveErr(false);
+      return { ok: true };
+    } catch (e) {
+      setSaveErr(true);
+      return { ok: false, error: (e && e.message) ? e.message : "Network error — check your connection and try again." };
+    }
+  };
+
   // One-time optimization: shrink oversized equipment photos already stored in KV.
   // Runs once in an admin session after load and persists through the normal guarded
   // save. Only ever replaces a photo with a strictly smaller one (never grows data).
@@ -5137,7 +5180,7 @@ export default function App() {
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} />}
-            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} />}
+            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} saveSettingsNow={saveSettingsNow} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
         </div>
