@@ -2010,21 +2010,28 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
       {/* Calendar */}
       <DashboardCalendar jobs={jobs} equipment={equipment} />
 
-      {/* Equipment status */}
-      <div style={S.card}>
-        <p style={S.sectionTitle}>Equipment Status Today</p>
-        {avList.filter(e => e.taken > 0).length === 0
-          ? <p style={{ color: "#666", fontSize: 13 }}>All equipment available.</p>
-          : avList.filter(e => e.taken > 0).map(eq => (
-            <div key={eq.id} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{eq.name}</p>
-                <p style={{ margin: 0, fontSize: 11, color: "#666" }}>{eq.taken} out · {eq.available} available</p>
-              </div>
-              <AvailBar available={eq.available} total={eq.total} />
+      {/* Equipment status — compact chips */}
+      {(() => {
+        const out = avList.filter(e => e.taken > 0);
+        return (
+          <div style={S.card}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: out.length ? 10 : 0, gap: 8 }}>
+              <p style={{ ...S.sectionTitle, margin: 0 }}>Equipment Out Today</p>
+              <span style={{ fontSize: 11, color: "#8a8f9d", flexShrink: 0 }}>{out.length} of {equipment.length} out</span>
             </div>
-          ))}
-      </div>
+            {out.length === 0
+              ? <p style={{ color: "#34d399", fontSize: 13, margin: 0 }}>✓ All equipment available.</p>
+              : <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {out.map(eq => (
+                    <span key={eq.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 16, background: "#0f1117", border: `1px solid ${eq.available === 0 ? "rgba(248,113,113,0.45)" : "#2e3340"}`, fontSize: 12, maxWidth: "100%" }}>
+                      <span style={{ fontWeight: 600, color: "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>{eq.name}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: eq.available === 0 ? "#f87171" : "#e8b84b", flexShrink: 0 }}>{eq.taken}/{eq.total}</span>
+                    </span>
+                  ))}
+                </div>}
+          </div>
+        );
+      })()}
 
       {/* Recent activity */}
       <div style={S.card}>
@@ -5051,7 +5058,9 @@ function AdminBottomNav({ activePage, setActivePage, unresolvedCount }) {
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user, setUser] = useState(null);
+  // Persist the signed-in user so a page refresh / pull-to-refresh keeps the session.
+  const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem("psr_user") || "null"); } catch { return null; } });
+  useEffect(() => { try { user ? localStorage.setItem("psr_user", JSON.stringify(user)) : localStorage.removeItem("psr_user"); } catch {} }, [user]);
   const [activePage, setActivePage] = useState("dashboard");
   const [equipment, setEquipment] = useState(SAMPLE_EQUIPMENT);
   const [jobs, setJobs] = useState([]);
