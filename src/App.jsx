@@ -94,6 +94,7 @@ const icons = {
   alert: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z M12 9v4 M12 17h.01",
   invoice: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
   building: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10",
+  bell: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0",
 };
 
 // ─── UTILITY: Date / time helpers ────────────────────────────────────────────
@@ -4450,7 +4451,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
 }
 
 // ─── SETTINGS PANEL ───────────────────────────────────────────────────────────
-function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents, saveSettingsNow, photoVerification, setPhotoVerification, onClose }) {
+function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents, saveSettingsNow, photoVerification, setPhotoVerification, themeStyle, setThemeStyle, themePalette, setThemePalette, onClose }) {
   const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
   const [apMsg, setApMsg] = useState(null);
   const [backupStatus, setBackupStatus] = useState(null);
@@ -4472,6 +4473,29 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
       </div>
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 120px", maxWidth: 600, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
+
+      <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>🎨 Theme</p>
+        <div style={{ marginBottom: 14 }}>
+          <p style={{ ...S.label, marginBottom: 8 }}>Style</p>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[{ id: "neumorphism", label: "Neumorphism" }, { id: "glassmorphism", label: "Glassmorphism" }, { id: "skeuomorphism", label: "Skeuomorphism" }].map(s => (
+              <button key={s.id} onClick={() => setThemeStyle(s.id)} style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: themeStyle === s.id ? "2px solid var(--accent,#e8b84b)" : "1px solid var(--border-color,#2e3340)", background: themeStyle === s.id ? "rgba(232,184,75,0.08)" : "transparent", color: themeStyle === s.id ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>{s.label}</button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p style={{ ...S.label, marginBottom: 8 }}>Color</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 6 }}>
+            {[{ id: "black-white", dot: "#e0e0e0", label: "B&W" }, { id: "teal-orange", dot: "#ff6a2a", label: "Teal" }, { id: "black-red", dot: "#dd3333", label: "Red" }, { id: "white-blue", dot: "#1a60d0", label: "Blue" }, { id: "black-yellow", dot: "#e8b84b", label: "Amber" }, { id: "black-blue", dot: "#3a80e8", label: "Navy" }].map(pal => (
+              <button key={pal.id} onClick={() => setThemePalette(pal.id)} style={{ padding: "8px 2px", borderRadius: 8, border: themePalette === pal.id ? `2px solid ${pal.dot}` : "1px solid var(--border-color,#2e3340)", background: "transparent", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                <div style={{ width: 18, height: 18, borderRadius: "50%", background: pal.dot }} />
+                <span style={{ fontSize: 9, color: "var(--text-muted,#666)", fontWeight: 600, textTransform: "uppercase" }}>{pal.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>Company</p>
@@ -5029,7 +5053,19 @@ function ThemeSelector({ themeStyle, setThemeStyle, themePalette, setThemePalett
 }
 
 // ─── ADMIN TOP BAR ────────────────────────────────────────────────────────────
-function AdminTopBar({ onLogout, saveErr, setLang, themeStyle, setThemeStyle, themePalette, setThemePalette, companyName, onOpenSettings }) {
+function AdminTopBar({ onLogout, saveErr, setLang, companyName, onOpenSettings, notifItems }) {
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef(null);
+  const notifCount = (notifItems || []).reduce((s, n) => s + n.count, 0);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const h = (e) => { if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false); };
+    document.addEventListener("mousedown", h);
+    document.addEventListener("touchstart", h);
+    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("touchstart", h); };
+  }, [notifOpen]);
+
   return (
     <header style={S.topbar}>
       <div style={S.logo}>
@@ -5040,9 +5076,57 @@ function AdminTopBar({ onLogout, saveErr, setLang, themeStyle, setThemeStyle, th
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <ThemeSelector themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} />
         <LangPill setLang={setLang} />
         {saveErr && <span title="Sync error" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
+
+        {/* Notification bell */}
+        <div ref={notifRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setNotifOpen(o => !o)}
+            style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? "rgba(232,184,75,0.1)" : "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
+            title="Notifications"
+          >
+            <Icon d={icons.bell} size={18} color={notifCount > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)"} />
+            {notifCount > 0 && (
+              <div style={{ position: "absolute", top: 4, right: 4, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", border: "1.5px solid var(--bg,#0f1117)" }} />
+            )}
+          </button>
+          {notifOpen && (
+            <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.6)", width: 270, zIndex: 300 }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--divider-color,#252830)" }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>
+                  Notifications {notifCount > 0 && <span style={{ ...{ padding: "1px 7px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: "#ef4444", color: "#fff" } }}>{notifCount}</span>}
+                </p>
+              </div>
+              {notifCount === 0 ? (
+                <div style={{ padding: "20px 16px", textAlign: "center" }}>
+                  <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted,#666)" }}>✓ All caught up</p>
+                </div>
+              ) : (
+                <div>
+                  {(notifItems || []).map((item, i) => (
+                    <div
+                      key={i}
+                      onClick={() => { item.onClick(); setNotifOpen(false); }}
+                      style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", cursor: "pointer", borderBottom: i < notifItems.length - 1 ? "1px solid var(--divider-color,#252830)" : "none", background: "transparent" }}
+                    >
+                      <div style={{ width: 32, height: 32, borderRadius: 8, background: `${item.color}1a`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <Icon d={item.icon} size={15} color={item.color} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{item.label}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: item.color }}>{item.count} {item.count === 1 ? "item" : "items"} need attention</p>
+                      </div>
+                      <Icon d={icons.arrow_left} size={14} color="var(--text-muted,#555)" strokeW={2} style={{ transform: "rotate(180deg)" }} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Settings gear */}
         <button
           onClick={onOpenSettings}
           style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
@@ -5050,6 +5134,8 @@ function AdminTopBar({ onLogout, saveErr, setLang, themeStyle, setThemeStyle, th
         >
           <Icon d={icons.gear} size={18} color="var(--text-muted,#8a8f9d)" />
         </button>
+
+        {/* Logout */}
         <button
           onClick={onLogout}
           style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
@@ -5246,6 +5332,12 @@ export default function App() {
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
   const pendingAdminRequests = (adminRequests || []).filter(r => r.status === "pending");
+  const pendingEquipReqCount = (equipmentRequests || []).filter(r => r.status === "pending").length;
+  const notifItems = [
+    pendingAdminRequests.length > 0 && { label: "Admin Approvals", count: pendingAdminRequests.length, color: "#e8b84b", icon: icons.check, onClick: () => setActivePage("dashboard") },
+    pendingEquipReqCount > 0 && { label: "Equipment Requests", count: pendingEquipReqCount, color: "#60a5fa", icon: icons.gear, onClick: () => setActivePage("team") },
+    unresolvedCount > 0 && { label: "Damage Reports", count: unresolvedCount, color: "#f87171", icon: icons.alert, onClick: () => setActivePage("reports") },
+  ].filter(Boolean);
 
   const approveAdminRequest = (req) => {
     if (req.type === "production-house") {
@@ -5313,12 +5405,9 @@ export default function App() {
             onLogout={() => setUser(null)}
             saveErr={saveErr}
             setLang={setLang}
-            themeStyle={themeStyle}
-            setThemeStyle={setThemeStyle}
-            themePalette={themePalette}
-            setThemePalette={setThemePalette}
             companyName={companyName}
             onOpenSettings={() => setSettingsPanelOpen(true)}
+            notifItems={notifItems}
           />
           <main style={{ ...S.main, paddingBottom: 80 }}>
             {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
@@ -5329,7 +5418,7 @@ export default function App() {
             {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
-          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} saveSettingsNow={saveSettingsNow} photoVerification={photoVerification} setPhotoVerification={setPhotoVerification} onClose={() => setSettingsPanelOpen(false)} />}
+          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} saveSettingsNow={saveSettingsNow} photoVerification={photoVerification} setPhotoVerification={setPhotoVerification} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} onClose={() => setSettingsPanelOpen(false)} />}
         </div>
       )}
     </LangCtx.Provider>
