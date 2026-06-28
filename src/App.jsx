@@ -95,6 +95,7 @@ const icons = {
   invoice: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8",
   building: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M9 22V12h6v10",
   bell: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0",
+  package: ["M16.5 9.4l-9-5.19", "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z", "M3.27 6.96L12 12.01l8.73-5.05", "M12 22.08V12"],
 };
 
 // ─── UTILITY: Date / time helpers ────────────────────────────────────────────
@@ -394,7 +395,7 @@ const LANG = {
   en: {
     // Nav
     navDashboard: "Dashboard", navEquipment: "Equipment", navJobs: "Job Bookings",
-    navTeam: "Team", navReports: "Reports", navInvoice: "Invoice",
+    navTeam: "Team", navReports: "Reports", navInvoice: "Invoice", navCheckout: "Checkout",
     tabInvoice: "Invoice",
     personalInfo: "Personal Info", documents: "Documents", legalAddress: "Legal Address",
     phone: "Phone", email: "Email", lineId: "Line ID", idCard: "ID Card", promptPayQR: "PromptPay / Bank QR",
@@ -419,7 +420,7 @@ const LANG = {
     myProfile: "My Profile",
     crewCard: "Your crew card",
     cameraCrew: "Camera Crew",
-    uploadPhoto: "Upload Photo",
+    uploadPhoto: "Upload Photo", replacePhoto: "Replace", uploadSignature: "Upload Signature",
     takeSelfie: "Take Selfie",
     removePhoto: "Remove Photo",
     recentActivity: "My Recent Activity",
@@ -465,6 +466,20 @@ const LANG = {
     changePasscode: "Change Passcode", newPinLabel: "New PIN (4–6 digits)", confirmPinLabel: "Confirm PIN", updatePasscode: "Update Passcode",
     signatureSection: "Signature (on white background)", signatureHint: "Sign on white paper, photograph it. The system will automatically remove the white background.",
     calendarSync: "Calendar Sync",
+    kpiMyScore: "⭐ My KPI Score", kpiFullScore: "✓ Full score — no deductions this period. Keep it up!",
+    kpiDeductions: "Deductions",
+    kpiPts: "pts",
+    profileSaveBtn: "Save Profile", profileSaving: "Saving…", profileSaved: "✓ Profile Saved", profileSaveFail: "Save Failed — Tap to Retry",
+    positionsTitle: "Positions & Day Rates",
+    positionsDesc: "Add up to 5 roles. Picking a role on an invoice auto-fills its day rate, and overtime is calculated from your call/wrap times.",
+    positionsEmpty: "No roles yet — add one to auto-fill your invoices.",
+    addRoleBtn: "Add Role", roleLabel: "Role",
+    positionName: "Position Name", dayRateLabel: "Day Rate (฿)", hoursPerDayLabel: "Hours / Day",
+    hourlyRate: "Hourly rate", perHr: "/hr",
+    otLabel: "Overtime (after {h}h)", flatOT: "Flat OT", variableOT: "Variable OT",
+    otMultiplierLabel: "OT Multiplier (× hourly rate)",
+    otTiersLabel: "OT Tiers (hour band → multiplier)", addTierBtn: "Tier",
+    otTiersNote: "Each tier covers hours up to its limit. Hours beyond the last tier use the last multiplier.",
     // Job form (admin)
     newJob: "New Job", editJob: "Edit Job",
     jobNameField: "Job Name", productionCoField: "Production Company",
@@ -474,11 +489,143 @@ const LANG = {
     // Common
     cancel: "Cancel", save: "Save", logout: "Log Out", back: "Back", loading: "Loading…",
     qty: "Qty",
+    // Equipment page (admin)
+    eqLibrary: "Equipment Library", eqAvailToday: "available today", eqAdd: "Add",
+    eqAddModal: "Add Equipment", eqEditModal: "Edit Equipment",
+    eqItemName: "Item Name", eqCategory: "Category", eqTotalUnits: "Total Units Owned",
+    eqOptNotes: "Optional notes", eqChangePhoto: "Change Photo", eqSaveEquipment: "Save Equipment",
+    eqNoHistory: "No checkout history yet.", eqSelectCat: "— Select category —",
+    eqNewCat: "＋ Add new category…", eqDeleteConfirm: "Delete this equipment?", eqAll: "All",
+    eqUnavail: "Unavail.", eqHistoryTitle: "History",
+    // Jobs page (admin)
+    jobBookings: "Job Bookings", jobNewJob: "New Job", jobNoJobs: "No jobs yet. Add your first job above.",
+    jobAssignGear: "Assign Gear", jobProductionDates: "Production Dates", jobAssignedEq: "Assigned Equipment",
+    jobReturnMode: "Return Mode",
+    jobSpanLabel: "Pick first · Return last day", jobSpanDesc: "Gear stays out for the whole shoot",
+    jobDailyLabel: "Pick & Return every day", jobDailyDesc: "Crew returns gear at the end of each shoot day",
+    jobTapAssign: "Tap a card to assign or unassign. Use +/− for multi-unit items.",
+    jobAssigned: "Assigned", jobSaveAssign: "Save Assignment", jobDeleteConfirm: "Delete this job?",
+    jobDailyReturn: "Daily return", jobAvailable: "Available", jobUnavailable: "Unavailable",
+    // Dashboard (admin)
+    dashOverview: "Overview", dashTodayJobsLabel: "Today's Jobs",
+    dashConfirmedLabel: "Confirmed Jobs", dashPencilLabel: "Pencil Jobs",
+    statusConfirmed: "Confirmed", statusPencil: "Pencil", statusCancelled: "Cancelled",
+    dashNoJobsCategory: "No jobs in this category.",
+    dashEqOutToday: "Equipment Out Today", dashAllAvail: "✓ All equipment available.",
+    dashRecentActivity: "Recent Activity", dashNoActivity: "No activity recorded yet.",
+    dashPicked: "PICKED", dashReturned: "RETURNED",
+    dashGearRequests: "Gear Requests", dashNoRequests: "No requests yet.",
+    dashApprovals: "Approvals", dashEdit: "Edit",
+    dashItems: "items", dashItem: "item",
+    dashApproveAll: "Approve all", dashApprove: "Approve", dashDeny: "Deny", dashReject: "Reject",
+    dashClose: "Close", dashPending: "pending", dashResolved: "resolved",
+    dashPendingFilter: "Pending", dashResolvedFilter: "Resolved", dashAllFilter: "All",
+    dashNoPending: "No pending approvals — you're all caught up.",
+    dashNoResolved: "No resolved requests yet.", dashNoAll: "No approval requests yet.",
+    dashGearReqDetail: "Gear Request Detail", dashRequestedItems: "Requested Items",
+    dashDateNeeded: "Date Needed", dashDatesNeeded: "Dates Needed",
+    dashPurpose: "Purpose", dashReason: "Reason", dashCheckoutStatus: "Checkout Status",
+    dashByLabel: "by", dashGuest: "Guest", dashReturn: "Return",
+    dashGpsFrom: "m from pickup", dashGpsUnavail: "GPS unavailable at return",
+    dashTypeProductionHouse: "Production House", dashTypeEquipment: "Equipment", dashTypeNewMember: "New Member",
+    dashRequested: "Requested",
+    // Team (admin)
+    teamTitle: "Team", teamManageCrew: "Manage crew access", teamAddMember: "Add Member",
+    teamMembers: "Team Members", teamNoMembers: "No team members yet.",
+    teamEqRequests: "Equipment Requests", teamNoEqRequests: "No equipment requests yet.",
+    teamPinShow: "show", teamPinHide: "hide", teamRemoveConfirm: "Remove this team member?",
+    teamAddTitle: "Add Team Member", teamEditTitle: "Edit Team Member",
+    teamNameLabel: "Name", teamPinLabel: "PIN (4–6 digits)",
+    teamAddMemberBtn: "Add Member", teamSaveChanges: "Save Changes",
+    teamNameRequired: "Name is required.", teamPinRequired: "PIN is required.", teamPinInvalid: "PIN must be 4–6 digits.",
+    teamKpiScore: "⭐ KPI Score", teamKpiPeriod: "Period",
+    teamKpiCustomDeduction: "Custom deduction…", teamKpiPoints: "Points",
+    teamKpiReason: "Reason (shown to employee)", teamKpiDeduct: "Deduct Points",
+    teamKpiDeductionsThisPeriod: "Deductions this period", teamKpiUndo: "Undo",
+    teamKpiErrPoints: "Enter points to deduct.", teamKpiErrReason: "Reason is required.",
+    teamKpiDeductedMsg: "Deducted {pts} pts.", teamKpiPeriodLabel: "Period:",
+    teamNoProfileDocs: "No profile documents uploaded yet.",
+    teamPractice: "Practice", teamWork: "Work",
+    teamPendingReqs: "pending", teamApprove: "Approve", teamDeny: "Deny",
+    // Settings
+    settingsTitle: "Settings", settingsLanguage: "Language",
+    settingsTheme: "🎨 Theme", settingsThemeStyle: "Style", settingsThemeColor: "Color",
+    settingsUsesDefault: "uses default",
+    settingsCompany: "Company", settingsCompanyHint: "Appears in the top bar and login screen.",
+    settingsDateTime: "Date & Time", settingsTimezone: "Timezone",
+    settingsTimezoneHint: "Used for \"today\" date calculations and the job calendar, so the app never guesses from the device.",
+    settingsTimeFormat: "Time Format", settingsTimeFormatHint: "Applies to call/wrap times shown on invoices.",
+    settingsCheckout: "📷 Checkout",
+    settingsPhotoOn: "Photo verification ON", settingsPhotoOff: "Photo verification OFF",
+    settingsPhotoOnDesc: "Crew take a photo of each item when checking out / returning. Return GPS is matched to pickup (within 50 m, else admin approval).",
+    settingsPhotoOffDesc: "Crew tap each item to check out / return instantly — no photo, no GPS check.",
+    settingsKpiTitle: "⭐ KPI Scoring", settingsKpiPeriodStart: "Period Start",
+    settingsKpiReset: "Reset (months)", settingsKpiMaxPoints: "Starting Points",
+    settingsKpiPunishments: "Punishments", settingsKpiNoPunishments: "No punishments yet.",
+    settingsKpiAddPunishment: "Add",
+    settingsKpiPunDesc: "Preset deductions you can pick when scoring a teammate. Label is shown to the employee as the reason.",
+    settingsKpiEveryoneStarts: "Everyone starts each period at", settingsKpiCurrPeriod: "Current period:",
+    settingsKpiDefaultStart: "Default start is Jan 1.",
+    settingsLineTitle: "Line OA Notifications",
+    settingsLineConnected: "Group chat connected", settingsLineNotConnected: "No group chat connected",
+    settingsLineRefresh: "↻ Refresh", settingsLineDisconnect: "Disconnect",
+    settingsLineMuted: "🔕 Notifications muted", settingsLineActive: "🔔 Notifications active",
+    settingsLineMutedDesc: "No messages sent to LINE — testing mode",
+    settingsLineActiveDesc: "All job/report/request events notify the group",
+    settingsCalSync: "📅 Calendar Sync", settingsCopyCalUrl: "📋 Copy Calendar URL",
+    settingsAdminPin: "Admin PIN", settingsCurrPin: "Current admin PIN",
+    settingsNewPin: "New PIN (4–6 digits)", settingsConfirmPin: "Confirm PIN",
+    settingsChangePin: "Change Admin PIN", settingsPinUpdated: "Admin PIN updated.",
+    settingsPinMismatch: "PINs do not match.", settingsPinInvalid: "PIN must be 4–6 digits.",
+    settingsBackup: "💾 Data Backup",
+    settingsBackupDesc: "Saves a full snapshot of all data (crew, equipment, jobs, invoices) to a separate cloud slot that auto-save never touches.",
+    settingsLastBackup: "Last backup", settingsBackupSaved: "✓ Backup saved to cloud.",
+    settingsBackupError: "Backup failed — check connection and try again.",
+    settingsBackupRestored: "✓ Data restored from backup.", settingsBackupNoBackup: "No backup found. Create one first.",
+    settingsCreateBackup: "Create Backup", settingsSavingBackup: "Saving…",
+    settingsDownloadJson: "Download JSON",
+    settingsRestoreConfirmMsg: "This will overwrite ALL current data with the backup. Are you sure?",
+    settingsYesRestore: "Yes, Restore", settingsRestoring: "Restoring…",
+    settingsRestoreFromBackup: "Restore from Backup",
+    settingsLineGroupConnected: "All job notifications go to the group. Free tier: 200 messages/month.",
+    settingsLineGroupNotConnected: "Without a group, notifications go to individual team members via their Line User ID above.",
+    settingsCalDescTitle: "Subscribe on iPhone:", settingsCopyUrl: "Copy",
+    settingsSystemInfo: "System Info",
+    settingsSysDesc1: "All data is stored in Cloudflare KV — synced across all devices automatically.",
+    settingsSysDesc2: "Geo-locked photos use the browser's camera API — location metadata is embedded in the image stamp.",
+    settingsPinReEnter: "Re-enter PIN",
+    settingsSaveAll: "💾 Save All Settings", settingsSaving: "Saving…",
+    settingsSaved: "✓ All settings saved to cloud", settingsSaveFailed: "Save Failed — tap to retry",
+    settingsSavedAt: "Saved",
+    settingsSaveHint: "Changes also auto-save in the background — this button forces an immediate save and confirms it went through.",
+    // Login
+    loginSystem: "Equipment Checkout System", loginAdmin: "Admin Login", loginEmployee: "Employee Login",
+    loginRegisterLink: "Request to register as teammate", loginRegisterTitle: "Request to Join",
+    loginRegisterDesc: "Your request will be sent to the admin for approval.",
+    loginYourName: "Your Name", loginFullName: "Full name",
+    loginDesiredPin: "Desired PIN (4–6 digits)", loginSendRequest: "Send Request",
+    loginPinPrompt: "Enter PIN", loginIncorrectPin: "Incorrect PIN.",
+    loginAccount: "Account", loginSelectAccount: "Select account…",
+    loginTooManyAttempts: "Too many attempts — try again in ",
+    loginSeconds: "s", loginLocked: "Locked", loginUnlock: "Unlock",
+    loginEnterName: "Please enter your name.", loginPinDigits: "PIN must be 4–6 digits.",
+    loginPinMatch: "PINs do not match.", loginPendingExists: "A request with this name is already pending.",
+    loginRequestSent: "Request sent! Ask your admin to approve it.",
+    // Notifications (admin topbar)
+    notifTitle: "Notifications", notifAllCaughtUp: "✓ All caught up",
+    notifItemsAttention: "items need attention",
+    notifAdminApprovals: "Admin Approvals", notifEquipRequests: "Equipment Requests", notifDamageReports: "Damage Reports",
+    // Admin checkout
+    adminCheckoutTitle: "Gear Checkout", adminCheckoutDesc: "Pick or return equipment for any confirmed job",
+    adminNoConfirmedJobs: "No confirmed jobs with assigned equipment.",
+    adminPickLabel: "Pick up", adminReturnLabel: "Return",
+    adminNoItemsOut: "No items currently checked out.", adminAllPicked: "All items picked up.",
+    adminAllReturned: "All items returned.",
   },
   th: {
     // Nav
     navDashboard: "ภาพรวม", navEquipment: "อุปกรณ์", navJobs: "งาน",
-    navTeam: "ทีม", navReports: "แจ้งปัญหา", navInvoice: "ใบแจ้งหนี้",
+    navTeam: "ทีม", navReports: "แจ้งปัญหา", navInvoice: "ใบแจ้งหนี้", navCheckout: "รับ-คืน",
     tabInvoice: "ใบแจ้งหนี้",
     personalInfo: "ข้อมูลส่วนตัว", documents: "เอกสาร", legalAddress: "ที่อยู่ตามทะเบียนบ้าน",
     phone: "โทรศัพท์", email: "อีเมล", lineId: "ไลน์ไอดี", idCard: "บัตรประชาชน", promptPayQR: "พร้อมเพย์ / QR ธนาคาร",
@@ -503,7 +650,7 @@ const LANG = {
     myProfile: "โปรไฟล์ของฉัน",
     crewCard: "บัตรทีมงาน",
     cameraCrew: "ทีมกล้อง",
-    uploadPhoto: "อัปโหลดรูป",
+    uploadPhoto: "อัปโหลดรูป", replacePhoto: "แทนที่", uploadSignature: "อัปโหลดลายเซ็น",
     takeSelfie: "ถ่ายเซลฟี่",
     removePhoto: "ลบรูป",
     recentActivity: "กิจกรรมล่าสุด",
@@ -549,6 +696,20 @@ const LANG = {
     changePasscode: "เปลี่ยนรหัสผ่าน", newPinLabel: "รหัสใหม่ (4–6 หลัก)", confirmPinLabel: "ยืนยันรหัส", updatePasscode: "อัปเดตรหัส",
     signatureSection: "ลายเซ็น (บนกระดาษขาว)", signatureHint: "เซ็นบนกระดาษขาวแล้วถ่ายรูป ระบบจะลบพื้นหลังขาวอัตโนมัติ",
     calendarSync: "ซิงก์ปฏิทิน",
+    kpiMyScore: "⭐ คะแนน KPI ของฉัน", kpiFullScore: "✓ คะแนนเต็ม — ไม่มีการหักคะแนนในช่วงนี้ เยี่ยมมาก!",
+    kpiDeductions: "การหักคะแนน",
+    kpiPts: "คะแนน",
+    profileSaveBtn: "บันทึกโปรไฟล์", profileSaving: "กำลังบันทึก…", profileSaved: "✓ บันทึกโปรไฟล์แล้ว", profileSaveFail: "บันทึกล้มเหลว — แตะเพื่อลองใหม่",
+    positionsTitle: "ตำแหน่งและค่าจ้าง",
+    positionsDesc: "เพิ่มได้สูงสุด 5 ตำแหน่ง การเลือกตำแหน่งในใบแจ้งหนี้จะกรอกค่าจ้างอัตโนมัติ",
+    positionsEmpty: "ยังไม่มีตำแหน่ง — เพิ่มเพื่อกรอกใบแจ้งหนี้อัตโนมัติ",
+    addRoleBtn: "เพิ่มตำแหน่ง", roleLabel: "ตำแหน่ง",
+    positionName: "ชื่อตำแหน่ง", dayRateLabel: "ค่าจ้างต่อวัน (฿)", hoursPerDayLabel: "ชั่วโมง/วัน",
+    hourlyRate: "อัตราชั่วโมงละ", perHr: "/ชม.",
+    otLabel: "โอที (หลัง {h} ชม.)", flatOT: "โอทีแบบคงที่", variableOT: "โอทีแบบขั้น",
+    otMultiplierLabel: "ตัวคูณโอที (× อัตราชั่วโมง)",
+    otTiersLabel: "ขั้นโอที (ช่วงชั่วโมง → ตัวคูณ)", addTierBtn: "เพิ่มขั้น",
+    otTiersNote: "แต่ละขั้นครอบคลุมชั่วโมงจนถึงขีดจำกัด ชั่วโมงเกินขั้นสุดท้ายใช้ตัวคูณสุดท้าย",
     // Job form (admin)
     newJob: "งานใหม่", editJob: "แก้ไขงาน",
     jobNameField: "ชื่องาน", productionCoField: "บริษัทผลิต",
@@ -558,6 +719,138 @@ const LANG = {
     // Common
     cancel: "ยกเลิก", save: "บันทึก", logout: "ออกจากระบบ", back: "กลับ", loading: "กำลังโหลด…",
     qty: "จำนวน",
+    // Equipment page (admin)
+    eqLibrary: "อุปกรณ์ทั้งหมด", eqAvailToday: "ว่างวันนี้", eqAdd: "เพิ่ม",
+    eqAddModal: "เพิ่มอุปกรณ์", eqEditModal: "แก้ไขอุปกรณ์",
+    eqItemName: "ชื่ออุปกรณ์", eqCategory: "หมวดหมู่", eqTotalUnits: "จำนวนทั้งหมดที่มี",
+    eqOptNotes: "หมายเหตุ (ถ้ามี)", eqChangePhoto: "เปลี่ยนรูป", eqSaveEquipment: "บันทึกอุปกรณ์",
+    eqNoHistory: "ยังไม่มีประวัติการยืม", eqSelectCat: "— เลือกหมวดหมู่ —",
+    eqNewCat: "＋ เพิ่มหมวดหมู่ใหม่…", eqDeleteConfirm: "ลบอุปกรณ์นี้ใช่ไหม?", eqAll: "ทั้งหมด",
+    eqUnavail: "ไม่ว่าง", eqHistoryTitle: "ประวัติ",
+    // Jobs page (admin)
+    jobBookings: "รายการงาน", jobNewJob: "เพิ่มงาน", jobNoJobs: "ยังไม่มีงาน",
+    jobAssignGear: "มอบหมายอุปกรณ์", jobProductionDates: "วันถ่ายทำ", jobAssignedEq: "อุปกรณ์ที่มอบหมาย",
+    jobReturnMode: "โหมดการคืน",
+    jobSpanLabel: "รับวันแรก · คืนวันสุดท้าย", jobSpanDesc: "อุปกรณ์ออกตลอดช่วงงาน",
+    jobDailyLabel: "รับ-คืนทุกวัน", jobDailyDesc: "ทีมงานคืนอุปกรณ์ทุกสิ้นวันถ่าย",
+    jobTapAssign: "แตะการ์ดเพื่อมอบหมายหรือยกเลิก ใช้ +/− สำหรับอุปกรณ์หลายชิ้น",
+    jobAssigned: "มอบหมายแล้ว", jobSaveAssign: "บันทึกการมอบหมาย", jobDeleteConfirm: "ลบงานนี้ใช่ไหม?",
+    jobDailyReturn: "คืนทุกวัน", jobAvailable: "ว่าง", jobUnavailable: "ไม่ว่าง",
+    // Dashboard (admin)
+    dashOverview: "ภาพรวม", dashTodayJobsLabel: "งานวันนี้",
+    dashConfirmedLabel: "งานยืนยัน", dashPencilLabel: "งานดินสอ",
+    statusConfirmed: "ยืนยัน", statusPencil: "ดินสอ", statusCancelled: "ยกเลิก",
+    dashNoJobsCategory: "ไม่มีงานในหมวดนี้",
+    dashEqOutToday: "อุปกรณ์ออกวันนี้", dashAllAvail: "✓ อุปกรณ์ทุกชิ้นว่างอยู่",
+    dashRecentActivity: "กิจกรรมล่าสุด", dashNoActivity: "ยังไม่มีกิจกรรม",
+    dashPicked: "รับแล้ว", dashReturned: "คืนแล้ว",
+    dashGearRequests: "คำขอยืมอุปกรณ์", dashNoRequests: "ยังไม่มีคำขอ",
+    dashApprovals: "รออนุมัติ", dashEdit: "แก้ไข",
+    dashItems: "รายการ", dashItem: "รายการ",
+    dashApproveAll: "อนุมัติทั้งหมด", dashApprove: "อนุมัติ", dashDeny: "ปฏิเสธ", dashReject: "ปฏิเสธ",
+    dashClose: "ปิด", dashPending: "รอดำเนินการ", dashResolved: "ดำเนินการแล้ว",
+    dashPendingFilter: "รอดำเนินการ", dashResolvedFilter: "ดำเนินการแล้ว", dashAllFilter: "ทั้งหมด",
+    dashNoPending: "ไม่มีคำขอรอดำเนินการ",
+    dashNoResolved: "ยังไม่มีคำขอที่ดำเนินการแล้ว", dashNoAll: "ยังไม่มีคำขออนุมัติ",
+    dashGearReqDetail: "รายละเอียดคำขอยืมอุปกรณ์", dashRequestedItems: "อุปกรณ์ที่ขอ",
+    dashDateNeeded: "วันที่ต้องการ", dashDatesNeeded: "วันที่ต้องการ",
+    dashPurpose: "วัตถุประสงค์", dashReason: "เหตุผล", dashCheckoutStatus: "สถานะการยืม",
+    dashByLabel: "โดย", dashGuest: "ผู้เยี่ยมชม", dashReturn: "คืน",
+    dashGpsFrom: "ม. จากจุดรับ", dashGpsUnavail: "ไม่มีข้อมูล GPS ณ จุดคืน",
+    dashTypeProductionHouse: "บริษัทผลิต", dashTypeEquipment: "อุปกรณ์", dashTypeNewMember: "สมาชิกใหม่",
+    dashRequested: "ขอเมื่อ",
+    // Team (admin)
+    teamTitle: "ทีมงาน", teamManageCrew: "จัดการสิทธิ์ทีมงาน", teamAddMember: "เพิ่มสมาชิก",
+    teamMembers: "สมาชิกทีม", teamNoMembers: "ยังไม่มีสมาชิก",
+    teamEqRequests: "คำขอยืมอุปกรณ์", teamNoEqRequests: "ยังไม่มีคำขอยืมอุปกรณ์",
+    teamPinShow: "แสดง", teamPinHide: "ซ่อน", teamRemoveConfirm: "ลบสมาชิกคนนี้ใช่ไหม?",
+    teamAddTitle: "เพิ่มสมาชิก", teamEditTitle: "แก้ไขสมาชิก",
+    teamNameLabel: "ชื่อ", teamPinLabel: "PIN (4–6 หลัก)",
+    teamAddMemberBtn: "เพิ่มสมาชิก", teamSaveChanges: "บันทึกการเปลี่ยนแปลง",
+    teamNameRequired: "กรุณากรอกชื่อ", teamPinRequired: "กรุณากรอก PIN", teamPinInvalid: "PIN ต้องมี 4–6 หลัก",
+    teamKpiScore: "⭐ คะแนน KPI", teamKpiPeriod: "ช่วงเวลา",
+    teamKpiCustomDeduction: "กำหนดเอง…", teamKpiPoints: "คะแนน",
+    teamKpiReason: "เหตุผล (แสดงให้ทีมงานเห็น)", teamKpiDeduct: "หักคะแนน",
+    teamKpiDeductionsThisPeriod: "การหักในช่วงนี้", teamKpiUndo: "ยกเลิก",
+    teamKpiErrPoints: "กรุณากรอกคะแนนที่จะหัก", teamKpiErrReason: "ต้องระบุเหตุผล",
+    teamKpiDeductedMsg: "หัก {pts} คะแนนแล้ว", teamKpiPeriodLabel: "ช่วงเวลา:",
+    teamNoProfileDocs: "ยังไม่มีเอกสารโปรไฟล์",
+    teamPractice: "ฝึกซ้อม", teamWork: "งาน",
+    teamPendingReqs: "รอดำเนินการ", teamApprove: "อนุมัติ", teamDeny: "ปฏิเสธ",
+    // Settings
+    settingsTitle: "การตั้งค่า", settingsLanguage: "ภาษา",
+    settingsTheme: "🎨 ธีม", settingsThemeStyle: "สไตล์", settingsThemeColor: "สี",
+    settingsUsesDefault: "ใช้ค่าเริ่มต้น",
+    settingsCompany: "บริษัท", settingsCompanyHint: "แสดงในแถบบนและหน้าเข้าสู่ระบบ",
+    settingsDateTime: "วันและเวลา", settingsTimezone: "เขตเวลา",
+    settingsTimezoneHint: "ใช้สำหรับคำนวณ \"วันนี้\" และปฏิทินงาน",
+    settingsTimeFormat: "รูปแบบเวลา", settingsTimeFormatHint: "ใช้กับเวลาในใบแจ้งหนี้",
+    settingsCheckout: "📷 การยืม-คืน",
+    settingsPhotoOn: "เปิดการยืนยันด้วยรูปภาพ", settingsPhotoOff: "ปิดการยืนยันด้วยรูปภาพ",
+    settingsPhotoOnDesc: "ทีมงานต้องถ่ายรูปอุปกรณ์ทุกชิ้น ระบบตรวจ GPS ณ จุดคืน (ภายใน 50 ม. ผ่านทันที หรือรออนุมัติจากผู้ดูแล)",
+    settingsPhotoOffDesc: "ทีมงานแตะรายการเพื่อรับ/คืนได้เลย ไม่ต้องถ่ายรูปหรือตรวจ GPS",
+    settingsKpiTitle: "⭐ คะแนน KPI", settingsKpiPeriodStart: "เริ่มต้นช่วง",
+    settingsKpiReset: "รีเซ็ตทุก (เดือน)", settingsKpiMaxPoints: "คะแนนเริ่มต้น",
+    settingsKpiEveryoneStarts: "ทีมงานทุกคนเริ่มต้นแต่ละช่วงที่", settingsKpiCurrPeriod: "ช่วงปัจจุบัน:",
+    settingsKpiDefaultStart: "ค่าเริ่มต้นคือวันที่ 1 มกราคม",
+    settingsKpiPunishments: "การหักคะแนน", settingsKpiNoPunishments: "ยังไม่มีการหักคะแนน",
+    settingsKpiAddPunishment: "เพิ่ม",
+    settingsKpiPunDesc: "เหตุผลสำเร็จรูปสำหรับหักคะแนน ชื่อจะแสดงให้ทีมงานเห็น",
+    settingsLineTitle: "LINE OA การแจ้งเตือน",
+    settingsLineConnected: "เชื่อมต่อกลุ่มแชทแล้ว", settingsLineNotConnected: "ยังไม่ได้เชื่อมต่อกลุ่มแชท",
+    settingsLineRefresh: "↻ รีเฟรช", settingsLineDisconnect: "ตัดการเชื่อมต่อ",
+    settingsLineMuted: "🔕 ปิดการแจ้งเตือน", settingsLineActive: "🔔 เปิดการแจ้งเตือน",
+    settingsLineMutedDesc: "ไม่ส่งข้อความไปที่ LINE — โหมดทดสอบ",
+    settingsLineActiveDesc: "ส่งแจ้งเตือนงาน/รายงาน/คำขอไปที่กลุ่ม",
+    settingsCalSync: "📅 ซิงก์ปฏิทิน", settingsCopyCalUrl: "📋 คัดลอก URL ปฏิทิน",
+    settingsAdminPin: "PIN ผู้ดูแล", settingsCurrPin: "PIN ผู้ดูแลปัจจุบัน",
+    settingsNewPin: "PIN ใหม่ (4–6 หลัก)", settingsConfirmPin: "ยืนยัน PIN",
+    settingsChangePin: "เปลี่ยน PIN ผู้ดูแล", settingsPinUpdated: "อัปเดต PIN ผู้ดูแลแล้ว",
+    settingsPinMismatch: "PIN ไม่ตรงกัน", settingsPinInvalid: "PIN ต้องมี 4–6 หลัก",
+    settingsBackup: "💾 สำรองข้อมูล",
+    settingsBackupDesc: "บันทึกสแนปช็อตข้อมูลทั้งหมด (ทีมงาน อุปกรณ์ งาน ใบแจ้งหนี้) ไปยังพื้นที่แยกที่การบันทึกอัตโนมัติไม่แตะต้อง",
+    settingsLastBackup: "สำรองล่าสุด", settingsBackupSaved: "✓ บันทึกสำรองบนคลาวด์แล้ว",
+    settingsBackupError: "บันทึกสำรองล้มเหลว — ตรวจสอบการเชื่อมต่อและลองใหม่",
+    settingsBackupRestored: "✓ กู้คืนข้อมูลจากสำรองแล้ว", settingsBackupNoBackup: "ไม่พบข้อมูลสำรอง กรุณาสร้างก่อน",
+    settingsCreateBackup: "สร้างข้อมูลสำรอง", settingsSavingBackup: "กำลังบันทึก…",
+    settingsDownloadJson: "ดาวน์โหลด JSON",
+    settingsRestoreConfirmMsg: "การดำเนินการนี้จะเขียนทับข้อมูลปัจจุบันทั้งหมดด้วยข้อมูลสำรอง แน่ใจหรือไม่?",
+    settingsYesRestore: "ใช่ กู้คืนเลย", settingsRestoring: "กำลังกู้คืน…",
+    settingsRestoreFromBackup: "กู้คืนจากสำรอง",
+    settingsLineGroupConnected: "การแจ้งเตือนงานทั้งหมดส่งไปที่กลุ่ม ฟรีสูงสุด 200 ข้อความ/เดือน",
+    settingsLineGroupNotConnected: "หากไม่มีกลุ่ม การแจ้งเตือนจะส่งถึงสมาชิกแต่ละคนผ่าน Line User ID",
+    settingsCalDescTitle: "สมัครสมาชิกบน iPhone:", settingsCopyUrl: "คัดลอก",
+    settingsSystemInfo: "ข้อมูลระบบ",
+    settingsSysDesc1: "ข้อมูลทั้งหมดเก็บใน Cloudflare KV — ซิงก์อัตโนมัติทุกอุปกรณ์",
+    settingsSysDesc2: "รูปถ่ายพร้อม GPS ใช้ Camera API ของเบราว์เซอร์ — ข้อมูลตำแหน่งฝังอยู่ในภาพ",
+    settingsPinReEnter: "ป้อน PIN อีกครั้ง",
+    settingsSaveAll: "💾 บันทึกการตั้งค่าทั้งหมด", settingsSaving: "กำลังบันทึก…",
+    settingsSaved: "✓ บันทึกการตั้งค่าทั้งหมดบนคลาวด์แล้ว", settingsSaveFailed: "บันทึกล้มเหลว — แตะเพื่อลองใหม่",
+    settingsSavedAt: "บันทึกเมื่อ",
+    settingsSaveHint: "การเปลี่ยนแปลงจะบันทึกอัตโนมัติ ปุ่มนี้บังคับบันทึกทันทีและยืนยันว่าสำเร็จ",
+    // Login
+    loginSystem: "ระบบยืม-คืนอุปกรณ์", loginAdmin: "เข้าสู่ระบบผู้ดูแล", loginEmployee: "เข้าสู่ระบบทีมงาน",
+    loginRegisterLink: "ขอลงทะเบียนเป็นทีมงาน", loginRegisterTitle: "ขอเข้าร่วม",
+    loginRegisterDesc: "คำขอจะส่งให้ผู้ดูแลพิจารณาอนุมัติ",
+    loginYourName: "ชื่อของคุณ", loginFullName: "ชื่อ-นามสกุล",
+    loginDesiredPin: "PIN ที่ต้องการ (4–6 หลัก)", loginSendRequest: "ส่งคำขอ",
+    loginPinPrompt: "ป้อน PIN", loginIncorrectPin: "PIN ไม่ถูกต้อง",
+    loginAccount: "บัญชีผู้ใช้", loginSelectAccount: "เลือกบัญชี…",
+    loginTooManyAttempts: "ผิดหลายครั้ง — ลองใหม่ใน ",
+    loginSeconds: " วินาที", loginLocked: "ล็อค", loginUnlock: "ปลดล็อค",
+    loginEnterName: "กรุณากรอกชื่อ", loginPinDigits: "PIN ต้องมี 4–6 หลัก",
+    loginPinMatch: "PIN ไม่ตรงกัน", loginPendingExists: "มีคำขอชื่อนี้อยู่แล้ว",
+    loginRequestSent: "ส่งคำขอแล้ว! รอผู้ดูแลอนุมัติ",
+    // Notifications (admin topbar)
+    notifTitle: "การแจ้งเตือน", notifAllCaughtUp: "✓ ไม่มีการแจ้งเตือน",
+    notifItemsAttention: "รายการรอดำเนินการ",
+    notifAdminApprovals: "รออนุมัติ", notifEquipRequests: "คำขออุปกรณ์", notifDamageReports: "แจ้งความเสียหาย",
+    // Admin checkout
+    adminCheckoutTitle: "ยืม-คืนอุปกรณ์", adminCheckoutDesc: "รับหรือคืนอุปกรณ์สำหรับงานที่ยืนยันแล้ว",
+    adminNoConfirmedJobs: "ไม่มีงานยืนยันที่มีอุปกรณ์",
+    adminPickLabel: "รับอุปกรณ์", adminReturnLabel: "คืนอุปกรณ์",
+    adminNoItemsOut: "ไม่มีอุปกรณ์ที่ยืมออกอยู่", adminAllPicked: "รับอุปกรณ์ครบแล้ว",
+    adminAllReturned: "คืนอุปกรณ์ครบแล้ว",
   },
 };
 
@@ -612,6 +905,7 @@ const EQ_SORT_OPTIONS = [
 ];
 
 function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
+  const t = useT();
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", category: "", total: 1, notes: "", photo: null });
@@ -646,12 +940,12 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
     setModal(null);
   };
 
-  const del = (id) => { if (window.confirm("Delete this equipment?")) setEquipment(p => p.filter(e => e.id !== id)); };
+  const del = (id) => { if (window.confirm(t("eqDeleteConfirm"))) setEquipment(p => p.filter(e => e.id !== id)); };
 
   const getHistory = (eqId) => checkouts.filter(c => c.eqId === eqId).sort((a, b) => b.ts - a.ts).slice(0, 20);
 
   const AvStatus = ({ av }) => {
-    if (av.available === 0) return <span style={{ ...S.badge("red"), fontSize: 10 }}>Unavail.</span>;
+    if (av.available === 0) return <span style={{ ...S.badge("red"), fontSize: 10 }}>{t("eqUnavail") || "Unavail."}</span>;
     if (av.available < av.total) return <span style={{ ...S.badge("amber"), fontSize: 10 }}>{av.available}/{av.total}</span>;
     return <span style={{ ...S.badge("green"), fontSize: 10 }}>{av.available}/{av.total}</span>;
   };
@@ -715,15 +1009,15 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
-          <h1 style={S.pageTitle}>Equipment Library</h1>
-          <p style={S.pageSubtitle}>{equipment.length} items · {availableList.filter(e => e.available > 0).length} available today</p>
+          <h1 style={S.pageTitle}>{t("eqLibrary")}</h1>
+          <p style={S.pageSubtitle}>{equipment.length} items · {availableList.filter(e => e.available > 0).length} {t("eqAvailToday")}</p>
         </div>
-        <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> Add</button>
+        <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> {t("eqAdd")}</button>
       </div>
 
       {/* Category filter chips */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-        <button onClick={() => setFilterCat(null)} style={{ ...S.badge(filterCat === null ? "amber" : "gray"), cursor: "pointer", border: "none", padding: "4px 10px" }}>All</button>
+        <button onClick={() => setFilterCat(null)} style={{ ...S.badge(filterCat === null ? "amber" : "gray"), cursor: "pointer", border: "none", padding: "4px 10px" }}>{t("eqAll")}</button>
         {existingCategories.map(c => (
           <button key={c} onClick={() => setFilterCat(filterCat === c ? null : c)} style={{ ...S.badge(filterCat === c ? "amber" : "gray"), cursor: "pointer", border: "none", padding: "4px 10px" }}>{c}</button>
         ))}
@@ -753,11 +1047,11 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
 
       {/* Add/Edit Modal */}
       {(modal === "add" || modal === "edit") && (
-        <Modal title={modal === "add" ? "Add Equipment" : "Edit Equipment"} onClose={() => setModal(null)}>
+        <Modal title={modal === "add" ? t("eqAddModal") : t("eqEditModal")} onClose={() => setModal(null)}>
           <div style={S.col}>
-            <div><label style={S.label}>Item Name</label><input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. ARRI Alexa Mini LF" /></div>
+            <div><label style={S.label}>{t("eqItemName")}</label><input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. ARRI Alexa Mini LF" /></div>
             <div>
-              <label style={S.label}>Category</label>
+              <label style={S.label}>{t("eqCategory")}</label>
               {form.category === "__new__" ? (
                 <div style={{ display: "flex", gap: 8 }}>
                   <input style={{ ...S.input, flex: 1 }} value={newCatInput} onChange={e => setNewCatInput(e.target.value)} placeholder="New category name…" autoFocus />
@@ -765,23 +1059,23 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
                 </div>
               ) : (
                 <select style={S.select} value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}>
-                  <option value="">— Select category —</option>
+                  <option value="">{t("eqSelectCat")}</option>
                   {existingCategories.map(c => <option key={c} value={c}>{c}</option>)}
-                  <option value="__new__">＋ Add new category…</option>
+                  <option value="__new__">{t("eqNewCat")}</option>
                 </select>
               )}
             </div>
-            <div><label style={S.label}>Total Units Owned</label><input style={S.input} type="number" min={1} value={form.total} onChange={e => setForm(p => ({ ...p, total: e.target.value }))} /></div>
-            <div><label style={S.label}>Notes</label><input style={S.input} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" /></div>
+            <div><label style={S.label}>{t("eqTotalUnits")}</label><input style={S.input} type="number" min={1} value={form.total} onChange={e => setForm(p => ({ ...p, total: e.target.value }))} /></div>
+            <div><label style={S.label}>{t("eqOptNotes")}</label><input style={S.input} value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} placeholder={t("eqOptNotes")} /></div>
             <div>
-              <label style={S.label}>Photo</label>
+              <label style={S.label}>{t("uploadPhoto")}</label>
               <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handlePhoto} />
-              <button style={S.btn("ghost")} onClick={() => fileRef.current.click()}><Icon d={icons.photo} size={14} /> {form.photo ? "Change Photo" : "Upload Photo"}</button>
+              <button style={S.btn("ghost")} onClick={() => fileRef.current.click()}><Icon d={icons.photo} size={14} /> {form.photo ? t("eqChangePhoto") : t("uploadPhoto")}</button>
               {form.photo && <img src={form.photo} alt="preview" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 6, marginTop: 8 }} />}
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
-              <button style={S.btn("ghost")} onClick={() => setModal(null)}>Cancel</button>
-              <button style={S.btn("primary")} onClick={save}>Save Equipment</button>
+              <button style={S.btn("ghost")} onClick={() => setModal(null)}>{t("cancel")}</button>
+              <button style={S.btn("primary")} onClick={save}>{t("eqSaveEquipment")}</button>
             </div>
           </div>
         </Modal>
@@ -789,9 +1083,9 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
 
       {/* History Modal */}
       {modal === "history" && histTarget && (
-        <Modal title={`History — ${histTarget.name}`} onClose={() => setModal(null)} wide>
+        <Modal title={`${t("eqHistoryTitle")} — ${histTarget.name}`} onClose={() => setModal(null)} wide>
           {getHistory(histTarget.id).length === 0 ? (
-            <p style={{ color: "#666", fontSize: 13 }}>No checkout history yet.</p>
+            <p style={{ color: "#666", fontSize: 13 }}>{t("eqNoHistory")}</p>
           ) : (
             <div style={S.col}>
               {getHistory(histTarget.id).map((c, i) => (
@@ -1430,6 +1724,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
 }
 
 function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees, lineGroupId, lineNotifyMuted }) {
+  const t = useT();
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
@@ -1439,7 +1734,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
   const openAdd = () => { setEditTarget(null); setModal("form"); };
   const openEdit = (job) => { setEditTarget(job); setModal("form"); };
-  const del = (id) => { if (window.confirm("Delete this job?")) setJobs(p => p.filter(j => j.id !== id)); };
+  const del = (id) => { if (window.confirm(t("jobDeleteConfirm"))) setJobs(p => p.filter(j => j.id !== id)); };
 
   const openAssign = (job) => {
     const init = {};
@@ -1471,15 +1766,15 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
         <div>
-          <h1 style={S.pageTitle}>Job Bookings</h1>
-          <p style={S.pageSubtitle}>{jobs.filter(j => j.status === "Confirmed").length} confirmed · {jobs.filter(j => j.status === "Pencil").length} pencil</p>
+          <h1 style={S.pageTitle}>{t("jobBookings")}</h1>
+          <p style={S.pageSubtitle}>{jobs.filter(j => j.status === "Confirmed").length} {t("dashConfirmedLabel")} · {jobs.filter(j => j.status === "Pencil").length} {t("dashPencilLabel")}</p>
         </div>
-        <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> New Job</button>
+        <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> {t("jobNewJob")}</button>
       </div>
 
       {/* Job list */}
       <div style={S.col}>
-        {jobs.length === 0 && <p style={{ color: "#666", fontSize: 13 }}>No jobs yet. Add your first job above.</p>}
+        {jobs.length === 0 && <p style={{ color: "#666", fontSize: 13 }}>{t("jobNoJobs")}</p>}
         {jobs.sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1).map(job => {
           const { outCount, picked, returned } = getCheckoutSummary(job);
           const todayDates = job.dates.filter(d => d >= today());
@@ -1491,7 +1786,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                     <span style={S.badge(statusColor[job.status])}>{job.status}</span>
                     <span style={S.badge(locationColor[job.location] || "gray")}>{job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</span>
                     <span style={S.badge("gray")}>{job.shootTime}</span>
-                    {job.checkoutMode === "daily" && <span style={S.badge("blue")}>Daily return</span>}
+                    {job.checkoutMode === "daily" && <span style={S.badge("blue")}>{t("jobDailyReturn")}</span>}
                   </div>
                   <h3 style={{ margin: "0 0 2px", fontSize: 16, fontWeight: 700 }}>{job.name}</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "#666" }}>{job.production}</p>
@@ -1501,7 +1796,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                   {outCount > 0 && <p style={{ margin: "4px 0 0", fontSize: 11, color: "#60a5fa" }}>{outCount} assigned · {picked} picked · {returned} returned</p>}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                  {job.status === "Confirmed" && <button style={{ ...S.btn("success"), padding: "6px 10px", fontSize: 12 }} onClick={() => openAssign(job)}><Icon d={icons.gear} size={13} /> Assign Gear</button>}
+                  {job.status === "Confirmed" && <button style={{ ...S.btn("success"), padding: "6px 10px", fontSize: 12 }} onClick={() => openAssign(job)}><Icon d={icons.gear} size={13} /> {t("jobAssignGear")}</button>}
                   <button style={{ ...S.btn("ghost"), padding: "6px 8px" }} onClick={() => openEdit(job)}><Icon d={icons.edit} size={14} /></button>
                   <button style={{ ...S.btn("danger"), padding: "6px 8px" }} onClick={() => del(job.id)}><Icon d={icons.trash} size={14} /></button>
                 </div>
@@ -1510,7 +1805,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
               {selectedJob?.id === job.id && (
                 <div style={{ marginTop: 16 }}>
                   <div style={S.divider} />
-                  <p style={S.sectionTitle}>Production Dates</p>
+                  <p style={S.sectionTitle}>{t("jobProductionDates")}</p>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {job.dates.map(d => (
                       <span key={d} style={{ ...S.badge(d === today() ? "amber" : d < today() ? "gray" : "blue") }}>{formatDate(d)}{d === today() ? " ★ Today" : ""}</span>
@@ -1519,7 +1814,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                   {(job.assignedEquipment || []).length > 0 && (
                     <>
                       <div style={S.divider} />
-                      <p style={S.sectionTitle}>Assigned Equipment</p>
+                      <p style={S.sectionTitle}>{t("jobAssignedEq")}</p>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                         {job.assignedEquipment.map(ae => {
                           const eq = equipment.find(e => e.id === ae.eqId);
@@ -1542,14 +1837,14 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
       {/* Assign Equipment Modal — kanban style */}
       {modal === "assign" && assignTarget && (
-        <Modal title={`Assign Gear — ${assignTarget.name}`} onClose={() => setModal(null)} wide>
+        <Modal title={`${t("jobAssignGear")} — ${assignTarget.name}`} onClose={() => setModal(null)} wide>
           {/* Return mode selector */}
           <div style={{ marginBottom: 18 }}>
-            <p style={{ ...S.label, marginBottom: 8 }}>Return Mode</p>
+            <p style={{ ...S.label, marginBottom: 8 }}>{t("jobReturnMode")}</p>
             <div style={{ display: "flex", gap: 8 }}>
               {[
-                { id: "span", label: "Pick first · Return last day", desc: "Gear stays out for the whole shoot" },
-                { id: "daily", label: "Pick & Return every day", desc: "Crew returns gear at the end of each shoot day" },
+                { id: "span", label: t("jobSpanLabel"), desc: t("jobSpanDesc") },
+                { id: "daily", label: t("jobDailyLabel"), desc: t("jobDailyDesc") },
               ].map(({ id, label, desc }) => (
                 <div key={id}
                   onClick={() => setAssignCheckoutMode(id)}
@@ -1563,7 +1858,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
               ))}
             </div>
           </div>
-          <p style={{ fontSize: 12, color: "#8a8f9d", marginBottom: 16 }}>Tap a card to assign or unassign. Use +/− for multi-unit items.</p>
+          <p style={{ fontSize: 12, color: "#8a8f9d", marginBottom: 16 }}>{t("jobTapAssign")}</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {equipment.map(eq => {
               const avList = calcAvailable(equipment, jobs.filter(j => j.id !== assignTarget.id), checkouts, assignTarget.dates[0] || today());
@@ -1608,7 +1903,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                     <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: isAssigned ? "#e8b84b" : "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eq.name}</p>
                     <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>
                       {eq.category}
-                      {isMulti ? ` · ${maxAvail} of ${eq.total} free` : maxAvail === 0 ? " · Unavailable" : " · Available"}
+                      {isMulti ? ` · ${maxAvail} of ${eq.total} free` : maxAvail === 0 ? ` · ${t("jobUnavailable")}` : ` · ${t("jobAvailable")}`}
                     </p>
                   </div>
 
@@ -1633,7 +1928,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
           {/* Summary */}
           {Object.values(assignForm).some(q => q > 0) && (
             <div style={{ marginTop: 14, padding: "10px 14px", background: "rgba(232,184,75,0.06)", border: "1px solid rgba(232,184,75,0.15)", borderRadius: 8 }}>
-              <p style={{ margin: 0, fontSize: 11, color: "#e8b84b", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Assigned</p>
+              <p style={{ margin: 0, fontSize: 11, color: "#e8b84b", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>{t("jobAssigned")}</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {Object.entries(assignForm).filter(([, q]) => q > 0).map(([eqId, qty]) => {
                   const eq = equipment.find(e => e.id === eqId);
@@ -1644,8 +1939,8 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
           )}
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
-            <button style={S.btn("ghost")} onClick={() => setModal(null)}>Cancel</button>
-            <button style={S.btn("primary")} onClick={saveAssign}>Save Assignment</button>
+            <button style={S.btn("ghost")} onClick={() => setModal(null)}>{t("cancel")}</button>
+            <button style={S.btn("primary")} onClick={saveAssign}>{t("jobSaveAssign")}</button>
           </div>
         </Modal>
       )}
@@ -1919,6 +2214,7 @@ function DashboardCalendar({ jobs, equipment }) {
 
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
 function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, lineNotifyMuted }) {
+  const t = useT();
   const todayStr = today();
   const todayJobs = jobs.filter(j => j.dates.includes(todayStr));
   const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
@@ -1963,15 +2259,15 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   const locationColor = { "Local (Bangkok)": "blue", "Out of Town": "amber", "Overseas": "red" };
 
   const statSections = {
-    today:     { jobs: todayJobs,     label: "Today's Jobs",    color: "#e8b84b", badge: "amber" },
-    confirmed: { jobs: confirmedJobs, label: "Confirmed Jobs",  color: "#34d399", badge: "green" },
-    pencil:    { jobs: pencilJobs,    label: "Pencil Jobs",     color: "#94a3b8", badge: "gray"  },
+    today:     { jobs: todayJobs,     label: t("dashTodayJobsLabel"),    color: "#e8b84b", badge: "amber" },
+    confirmed: { jobs: confirmedJobs, label: t("dashConfirmedLabel"),  color: "#34d399", badge: "green" },
+    pencil:    { jobs: pencilJobs,    label: t("dashPencilLabel"),     color: "#94a3b8", badge: "gray"  },
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
-        <h1 style={{ ...S.pageTitle, marginBottom: 2 }}>Overview</h1>
+        <h1 style={{ ...S.pageTitle, marginBottom: 2 }}>{t("dashOverview")}</h1>
         <p style={{ ...S.pageSubtitle, marginBottom: 0 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</p>
       </div>
 
@@ -2003,7 +2299,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           <div style={{ ...S.card, padding: "14px 16px", marginTop: -6, borderTop: `2px solid ${s.color}`, borderRadius: "0 0 10px 10px" }}>
             <p style={{ ...S.sectionTitle, color: s.color, marginBottom: 12 }}>{s.label}</p>
             {s.jobs.length === 0 ? (
-              <p style={{ fontSize: 13, color: "#555" }}>No jobs in this category.</p>
+              <p style={{ fontSize: 13, color: "#555" }}>{t("dashNoJobsCategory")}</p>
             ) : s.jobs.map((j, i) => (
               <div key={j.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < s.jobs.length - 1 ? 12 : 0, marginBottom: i < s.jobs.length - 1 ? 12 : 0, borderBottom: i < s.jobs.length - 1 ? "1px solid #252830" : "none" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -2024,7 +2320,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                     <span style={{ ...S.badge("blue") }}>{j.assignedEquipment.length} items</span>
                   )}
                   <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={e => { e.stopPropagation(); setDashJobModal(j); }}>
-                    <Icon d={icons.edit} size={12} /> Edit
+                    <Icon d={icons.edit} size={12} /> {t("dashEdit")}
                   </button>
                 </div>
               </div>
@@ -2042,11 +2338,11 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         return (
           <div style={S.card}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: out.length ? 10 : 0, gap: 8 }}>
-              <p style={{ ...S.sectionTitle, margin: 0 }}>Equipment Out Today</p>
+              <p style={{ ...S.sectionTitle, margin: 0 }}>{t("dashEqOutToday")}</p>
               <span style={{ fontSize: 11, color: "#8a8f9d", flexShrink: 0 }}>{out.length} of {equipment.length} out</span>
             </div>
             {out.length === 0
-              ? <p style={{ color: "#34d399", fontSize: 13, margin: 0 }}>✓ All equipment available.</p>
+              ? <p style={{ color: "#34d399", fontSize: 13, margin: 0 }}>{t("dashAllAvail")}</p>
               : <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {out.map(eq => (
                     <span key={eq.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 16, background: "#0f1117", border: `1px solid ${eq.available === 0 ? "rgba(248,113,113,0.45)" : "#2e3340"}`, fontSize: 12, maxWidth: "100%" }}>
@@ -2061,9 +2357,9 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
 
       {/* Recent activity */}
       <div style={S.card}>
-        <p style={S.sectionTitle}>Recent Activity</p>
+        <p style={S.sectionTitle}>{t("dashRecentActivity")}</p>
         {activityGroups.length === 0 ? (
-          <p style={{ color: "#666", fontSize: 13 }}>No activity recorded yet.</p>
+          <p style={{ color: "#666", fontSize: 13 }}>{t("dashNoActivity")}</p>
         ) : activityGroups.map((group, i, arr) => {
           const isExpanded = expandedActivityKeys.has(group.key);
           const sortedItems = [...group.items].sort((a, b) => b.ts - a.ts);
@@ -2073,7 +2369,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           return (
             <div key={group.key} style={{ paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
               <div onClick={() => toggleActivity(group.key)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                <span style={S.badge(isPick ? "amber" : "green")}>{isPick ? "PICKED" : "RETURNED"}</span>
+                <span style={S.badge(isPick ? "amber" : "green")}>{isPick ? t("dashPicked") : t("dashReturned")}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{group.label}</p>
                   <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{empNames} · {formatDateTime(group.latestTs)}</p>
@@ -2087,9 +2383,9 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                     const cIsPick = c.type === "pick" || c.type === "checkout";
                     return (
                       <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: ci < sortedItems.length - 1 ? "1px solid #1e2230" : "none" }}>
-                        <span style={S.badge(cIsPick ? "amber" : "green")}>{cIsPick ? "PICK" : "RETURN"}</span>
+                        <span style={S.badge(cIsPick ? "amber" : "green")}>{cIsPick ? t("pickEvt") : t("returnEvt")}</span>
                         <div style={{ flex: 1 }}>
-                          <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || "Unknown"} ×{c.qty}</p>
+                          <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || "—"} ×{c.qty}</p>
                           <p style={{ margin: 0, fontSize: 10, color: "#666" }}>{c.employeeName} · {formatDateTime(c.ts)}</p>
                         </div>
                       </div>
@@ -2119,12 +2415,12 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
       <div style={S.card}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <p style={{ ...S.sectionTitle, margin: 0 }}>
-            Gear Requests
-            {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pendingRequests.length} pending</span>}
+            {t("dashGearRequests")}
+            {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pendingRequests.length} {t("dashPending")}</span>}
           </p>
         </div>
         {(equipmentRequests || []).length === 0 ? (
-          <p style={{ fontSize: 13, color: "#555" }}>No requests yet.</p>
+          <p style={{ fontSize: 13, color: "#555" }}>{t("dashNoRequests")}</p>
         ) : [...(equipmentRequests || [])].reverse().slice(0, 10).map((req, i, arr) => {
           const itemLabel = req.items
             ? req.items.map(it => { const e = equipment.find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
@@ -2152,7 +2448,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         const items = req.items || [{ eqId: req.eqId, eqName: req.eqName, qty: req.qty }];
         const dateLabel = req.useDates?.length > 0 ? req.useDates.map(formatDate).join(", ") : req.useDate ? formatDate(req.useDate) : null;
         return (
-          <Modal title="Gear Request Detail" onClose={() => setDashReqModal(null)}>
+          <Modal title={t("dashGearReqDetail")} onClose={() => setDashReqModal(null)}>
             <div style={S.col}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
@@ -2160,7 +2456,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
               </div>
 
               <div style={{ borderTop: "1px solid #252830", paddingTop: 12 }}>
-                <p style={{ ...S.label, marginBottom: 8 }}>Requested Items</p>
+                <p style={{ ...S.label, marginBottom: 8 }}>{t("dashRequestedItems")}</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {items.map((item, i) => {
                     const eq = equipment.find(e => e.id === item.eqId);
@@ -2183,21 +2479,21 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
 
               {dateLabel && (
                 <div>
-                  <p style={S.label}>Date{req.useDates?.length > 1 ? "s" : ""} Needed</p>
+                  <p style={S.label}>{req.useDates?.length > 1 ? t("dashDatesNeeded") : t("dashDateNeeded")}</p>
                   <p style={{ fontSize: 13, color: "#e8e4dc", margin: 0 }}>{dateLabel}</p>
                 </div>
               )}
 
               <div>
-                <p style={S.label}>Purpose</p>
+                <p style={S.label}>{t("dashPurpose")}</p>
                 <p style={{ fontSize: 13, color: "#e8e4dc", margin: 0 }}>
-                  {req.purpose === "work" ? `Work — ${req.jobName || ""}${req.productionName ? ` (${req.productionName})` : ""}` : "Practice / Personal Use"}
+                  {req.purpose === "work" ? `${t("teamWork")} — ${req.jobName || ""}${req.productionName ? ` (${req.productionName})` : ""}` : t("purposePractice")}
                 </p>
               </div>
 
               {req.reason && (
                 <div>
-                  <p style={S.label}>Reason</p>
+                  <p style={S.label}>{t("dashReason")}</p>
                   <p style={{ fontSize: 13, color: "#8a8f9d", margin: 0 }}>{req.reason}</p>
                 </div>
               )}
@@ -2206,8 +2502,8 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
 
               {req.status === "pending" && (
                 <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
-                  <button style={{ ...S.btn("danger"), flex: 1 }} onClick={() => denyRequest(req)}>Deny</button>
-                  <button style={{ ...S.btn("success"), flex: 1 }} onClick={() => approveRequest(req)}>Approve</button>
+                  <button style={{ ...S.btn("danger"), flex: 1 }} onClick={() => denyRequest(req)}>{t("dashDeny")}</button>
+                  <button style={{ ...S.btn("success"), flex: 1 }} onClick={() => approveRequest(req)}>{t("dashApprove")}</button>
                 </div>
               )}
               {req.status === "approved" && (() => {
@@ -2217,7 +2513,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 const returnedIds = new Set(reqCheckouts.filter(c => c.type === "return").map(c => c.eqId));
                 return (
                   <div style={{ borderTop: "1px solid #252830", paddingTop: 12 }}>
-                    <p style={{ ...S.label, marginBottom: 8 }}>Checkout Status</p>
+                    <p style={{ ...S.label, marginBottom: 8 }}>{t("dashCheckoutStatus")}</p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {items.map((item, i) => {
                         const eq = equipment.find(e => e.id === item.eqId);
@@ -2237,7 +2533,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 );
               })()}
               {req.status !== "pending" && (
-                <button style={{ ...S.btn("ghost"), width: "100%" }} onClick={() => setDashReqModal(null)}>Close</button>
+                <button style={{ ...S.btn("ghost"), width: "100%" }} onClick={() => setDashReqModal(null)}>{t("dashClose")}</button>
               )}
             </div>
           </Modal>
@@ -2250,7 +2546,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         const pendingCount = allReqs.filter(r => r.status === "pending").length;
         const isResolved = (r) => r.status === "approved" || r.status === "rejected";
         const filtered = allReqs.filter(r => approvalFilter === "all" ? true : approvalFilter === "pending" ? r.status === "pending" : isResolved(r));
-        const typeLabel = { "production-house": "Production House", "equipment": "Equipment", "member-register": "New Member" };
+        const typeLabel = { "production-house": t("dashTypeProductionHouse"), "equipment": t("dashTypeEquipment"), "member-register": t("dashTypeNewMember") };
         // Geo-return requests consolidate into one collapsible row per job; others stay individual.
         const geo = filtered.filter(r => r.type === "geo-return");
         const others = filtered.filter(r => r.type !== "geo-return");
@@ -2266,13 +2562,13 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           ...Object.values(geoGroups).map(g => ({ ...g, kind: "geo-group", sortTs: g.latest })),
           ...others.map(r => ({ kind: "single", req: r, sortTs: new Date(r.submittedAt || 0).getTime() })),
         ].sort((a, b) => b.sortTs - a.sortTs).slice(0, 50);
-        const tabs = [{ k: "pending", l: "Pending" }, { k: "resolved", l: "Resolved" }, { k: "all", l: "All" }];
+        const tabs = [{ k: "pending", l: t("dashPendingFilter") }, { k: "resolved", l: t("dashResolvedFilter") }, { k: "all", l: t("dashAllFilter") }];
         return (
           <div style={S.card}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
               <p style={{ ...S.sectionTitle, margin: 0 }}>
-                Approvals
-                {pendingCount > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pendingCount} pending</span>}
+                {t("dashApprovals")}
+                {pendingCount > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pendingCount} {t("dashPending")}</span>}
               </p>
               <div style={{ display: "flex", gap: 4, background: "#0f1117", padding: 3, borderRadius: 8, border: "1px solid #252830" }}>
                 {tabs.map(tb => (
@@ -2282,7 +2578,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
             </div>
             {rows.length === 0 && (
               <p style={{ fontSize: 13, color: "#666", margin: 0 }}>
-                {approvalFilter === "pending" ? "No pending approvals — you're all caught up." : approvalFilter === "resolved" ? "No resolved requests yet." : "No approval requests yet."}
+                {approvalFilter === "pending" ? t("dashNoPending") : approvalFilter === "resolved" ? t("dashNoResolved") : t("dashNoAll")}
               </p>
             )}
             <div style={{ maxHeight: 520, overflowY: rows.length > 6 ? "auto" : "visible", margin: "0 -4px", padding: "0 4px" }}>
@@ -2295,13 +2591,13 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 return (
                   <div key={g.key} style={divider}>
                     <div onClick={() => toggleApproval(g.key)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                      <span style={S.badge(pend.length ? "amber" : "green")}>{pend.length ? `${pend.length} pending` : "resolved"}</span>
+                      <span style={S.badge(pend.length ? "amber" : "green")}>{pend.length ? `${pend.length} ${t("dashPending")}` : t("dashResolved")}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{g.jobName} <span style={{ color: "#8a8f9d", fontWeight: 500 }}>· Return</span></p>
-                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{g.items.length} {g.items.length === 1 ? "item" : "items"}{g.employeeName ? ` · by ${g.employeeName}` : ""}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{g.items.length} {t("dashItems")}{g.employeeName ? ` · ${t("dashByLabel")} ${g.employeeName}` : ""}</p>
                       </div>
                       {pend.length > 0 && (
-                        <button style={{ ...S.btn("success"), padding: "4px 10px", fontSize: 11, flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); pend.forEach(r => approveAdminRequest(r)); }}>Approve all</button>
+                        <button style={{ ...S.btn("success"), padding: "4px 10px", fontSize: 11, flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); pend.forEach(r => approveAdminRequest(r)); }}>{t("dashApproveAll")}</button>
                       )}
                       <span style={{ color: "#666", fontSize: 14, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</span>
                     </div>
@@ -2313,14 +2609,14 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.eqName || req.eqId}</p>
                               <p style={{ margin: "2px 0 0", fontSize: 11, color: req.distance !== null ? (req.distance > 50 ? "#f87171" : "#34d399") : "#888" }}>
-                                {req.distance !== null ? `📍 ${req.distance}m from pickup` : "📍 GPS unavailable at return"}
+                                {req.distance !== null ? `📍 ${req.distance}${t("dashGpsFrom")}` : `📍 ${t("dashGpsUnavail")}`}
                               </p>
                               <p style={{ margin: "3px 0 0", fontSize: 10, color: "#555" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
                               {req.photo && <img src={req.photo} alt="preview" style={{ width: "100%", maxWidth: 260, height: "auto", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />}
                               {req.status === "pending" && (
                                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                                  <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>Reject</button>
-                                  <button style={{ ...S.btn("success"), padding: "5px 12px", fontSize: 12 }} onClick={() => approveAdminRequest(req)}>Approve</button>
+                                  <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>{t("dashReject")}</button>
+                                  <button style={{ ...S.btn("success"), padding: "5px 12px", fontSize: 12 }} onClick={() => approveAdminRequest(req)}>{t("dashApprove")}</button>
                                 </div>
                               )}
                             </div>
@@ -2339,7 +2635,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                     <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.name}</p>
                     <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>
                       {typeLabel[req.type] || req.type}
-                      {req.employeeName ? ` · by ${req.employeeName}` : " · Guest"}
+                      {req.employeeName ? ` · ${t("dashByLabel")} ${req.employeeName}` : ` · ${t("dashGuest")}`}
                       {req.address ? ` · ${req.address}` : ""}
                       {req.category ? ` · ${req.category}` : ""}
                       {req.total && req.type === "equipment" ? ` · ×${req.total}` : ""}
@@ -2349,8 +2645,8 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                     {req.photo && <img src={req.photo} alt="preview" style={{ width: 60, maxWidth: 60, height: 60, objectFit: "cover", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />}
                     {req.status === "pending" && (
                       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>Reject</button>
-                        <button style={{ ...S.btn("success"), padding: "5px 12px", fontSize: 12 }} onClick={() => approveAdminRequest(req)}>Approve</button>
+                        <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>{t("dashReject")}</button>
+                        <button style={{ ...S.btn("success"), padding: "5px 12px", fontSize: 12 }} onClick={() => approveAdminRequest(req)}>{t("dashApprove")}</button>
                       </div>
                     )}
                   </div>
@@ -2779,9 +3075,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Stats — clickable, expand one at a time */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               {[
-                { key: "today", label: "Today", value: availableJobs.length, color: "#e8b84b" },
-                { key: "confirmed", label: "Confirmed", value: confirmedJobs.length, color: "#34d399" },
-                { key: "pencil", label: "Pencil", value: pencilJobs.length, color: "#94a3b8" },
+                { key: "today", label: t("tabToday"), value: availableJobs.length, color: "#e8b84b" },
+                { key: "confirmed", label: t("statusConfirmed"), value: confirmedJobs.length, color: "#34d399" },
+                { key: "pencil", label: t("statusPencil"), value: pencilJobs.length, color: "#94a3b8" },
               ].map(stat => (
                 <div key={stat.key} onClick={() => setExpandedStat(expandedStat === stat.key ? null : stat.key)} style={{ ...S.card, textAlign: "center", padding: "12px 6px", cursor: "pointer", border: expandedStat === stat.key ? `1px solid ${stat.color}40` : undefined, transition: "border-color .15s" }}>
                   <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
@@ -2823,7 +3119,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Gear Checkout Requests */}
             <div style={S.card}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <p style={{ ...S.sectionTitle, margin: 0 }}>{t("gearRequests")} {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} pending</span>}</p>
+                <p style={{ ...S.sectionTitle, margin: 0 }}>{t("gearRequests")} {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} {t("dashPending")}</span>}</p>
                 <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12 }} onClick={() => setShowGearRequest(true)}>
                   <Icon d={icons.plus} size={13} /> {t("requestBtn")}
                 </button>
@@ -2978,7 +3274,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                                   <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: isSelected ? "#e8b84b" : "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eq.name}</p>
                                   <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>
                                     {eq.category}
-                                    {isMulti ? ` · ${maxAvail} of ${eq.total} free` : maxAvail === 0 ? " · Unavailable" : " · Available"}
+                                    {isMulti ? ` · ${maxAvail} of ${eq.total} free` : maxAvail === 0 ? ` · ${t("jobUnavailable")}` : ` · ${t("jobAvailable")}`}
                                   </p>
                                 </div>
                                 {isMulti && isSelected && (
@@ -3242,20 +3538,20 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               const myEvents = (kpiEvents || []).filter(ev => ev.employeeId === employee.id && ev.ts >= start.getTime() && ev.ts < end.getTime()).sort((a, b) => b.ts - a.ts);
               return (
                 <div style={S.card}>
-                  <p style={S.sectionTitle}>⭐ My KPI Score</p>
+                  <p style={S.sectionTitle}>{t("kpiMyScore")}</p>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
                     <StarRating value={stars} size={26} />
                     <span style={{ fontSize: 24, fontWeight: 800, color: "#e8b84b" }}>{stars.toFixed(1)}</span>
-                    <span style={{ fontSize: 13, color: "#8a8f9d" }}>{score}/{max} pts</span>
+                    <span style={{ fontSize: 13, color: "#8a8f9d" }}>{score}/{max} {t("kpiPts")}</span>
                   </div>
                   <p style={{ fontSize: 11, color: "#666", margin: "0 0 4px" }}>
-                    Period: {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                    {t("teamKpiPeriodLabel")} {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                   </p>
                   {myEvents.length === 0 ? (
-                    <p style={{ fontSize: 13, color: "#34d399", margin: "8px 0 0" }}>✓ Full score — no deductions this period. Keep it up!</p>
+                    <p style={{ fontSize: 13, color: "#34d399", margin: "8px 0 0" }}>{t("kpiFullScore")}</p>
                   ) : (
                     <div style={{ marginTop: 12, borderTop: "1px solid #252830", paddingTop: 10 }}>
-                      <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Deductions</p>
+                      <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("kpiDeductions")}</p>
                       {myEvents.map(ev => (
                         <div key={ev.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
                           <span style={{ ...S.badge("red"), flexShrink: 0 }}>−{ev.points}</span>
@@ -3303,7 +3599,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 <div>
                   <label style={S.label}>{t("legalAddress")}</label>
                   <textarea style={{ ...S.input, height: 80, resize: "vertical", lineHeight: 1.5 }}
-                    placeholder="Legal Address"
+                    placeholder={t("legalAddress")}
                     value={profileInfo.legalAddress}
                     onChange={e => setProfileInfo(p => ({ ...p, legalAddress: e.target.value }))} />
                 </div>
@@ -3313,60 +3609,58 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Positions & Day Rates */}
             <div style={S.card}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <p style={{ ...S.sectionTitle, margin: 0 }}>Positions &amp; Day Rates</p>
+                <p style={{ ...S.sectionTitle, margin: 0 }}>{t("positionsTitle")}</p>
                 {positions.length < 5 && (
-                  <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12 }} onClick={addPosition}><Icon d={icons.plus} size={12} /> Add Role</button>
+                  <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12 }} onClick={addPosition}><Icon d={icons.plus} size={12} /> {t("addRoleBtn")}</button>
                 )}
               </div>
-              <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 14px", lineHeight: 1.6 }}>
-                Add up to 5 roles. Picking a role on an invoice auto-fills its day rate, and overtime is calculated from your call/wrap times.
-              </p>
-              {positions.length === 0 && <p style={{ fontSize: 13, color: "#666", margin: 0 }}>No roles yet — add one to auto-fill your invoices.</p>}
+              <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 14px", lineHeight: 1.6 }}>{t("positionsDesc")}</p>
+              {positions.length === 0 && <p style={{ fontSize: 13, color: "#666", margin: 0 }}>{t("positionsEmpty")}</p>}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 {positions.map((pos, i) => {
                   const rph = (parseFloat(pos.dayRate) || 0) / (parseFloat(pos.hoursPerDay) || 12);
                   return (
                     <div key={pos.id} style={{ border: "1px solid #2e3340", borderRadius: 10, padding: 14, background: "rgba(255,255,255,0.02)" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                        <span style={S.badge("amber")}>Role {i + 1}</span>
+                        <span style={S.badge("amber")}>{t("roleLabel")} {i + 1}</span>
                         <div style={{ flex: 1 }} />
                         <button style={{ ...S.btn("danger"), padding: "5px 8px" }} onClick={() => removePosition(pos.id)}><Icon d={icons.trash} size={13} /></button>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                         <div>
-                          <label style={S.label}>Position Name</label>
+                          <label style={S.label}>{t("positionName")}</label>
                           <input style={S.input} value={pos.name} placeholder="e.g. 1st Steadicam Assistant" onChange={e => updatePosition(pos.id, { name: e.target.value })} />
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                           <div>
-                            <label style={S.label}>Day Rate (฿)</label>
+                            <label style={S.label}>{t("dayRateLabel")}</label>
                             <input style={S.input} type="number" min="0" inputMode="decimal" value={pos.dayRate} placeholder="4500" onChange={e => updatePosition(pos.id, { dayRate: e.target.value })} />
                           </div>
                           <div>
-                            <label style={S.label}>Hours / Day</label>
+                            <label style={S.label}>{t("hoursPerDayLabel")}</label>
                             <input style={S.input} type="number" min="1" inputMode="decimal" value={pos.hoursPerDay} placeholder="12" onChange={e => updatePosition(pos.id, { hoursPerDay: e.target.value })} />
                           </div>
                         </div>
                         {parseFloat(pos.dayRate) > 0 && parseFloat(pos.hoursPerDay) > 0 && (
-                          <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>Hourly rate: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}/hr</p>
+                          <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>{t("hourlyRate")}: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}{t("perHr")}</p>
                         )}
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                          <label style={{ ...S.label, margin: 0 }}>Overtime (after {parseFloat(pos.hoursPerDay) || 12}h)</label>
+                          <label style={{ ...S.label, margin: 0 }}>{t("otLabel").replace("{h}", parseFloat(pos.hoursPerDay) || 12)}</label>
                           <div style={{ flex: 1 }} />
                           <button onClick={() => updatePosition(pos.id, { variableOT: !pos.variableOT })} style={{ ...S.btn(pos.variableOT ? "primary" : "ghost"), padding: "5px 10px", fontSize: 12 }}>
-                            {pos.variableOT ? "Variable OT" : "Flat OT"}
+                            {pos.variableOT ? t("variableOT") : t("flatOT")}
                           </button>
                         </div>
                         {!pos.variableOT ? (
                           <div>
-                            <label style={S.label}>OT Multiplier (× hourly rate)</label>
+                            <label style={S.label}>{t("otMultiplierLabel")}</label>
                             <input style={{ ...S.input, maxWidth: 140 }} type="number" min="1" step="0.25" inputMode="decimal" value={pos.otMultiplier} placeholder="1.5" onChange={e => updatePosition(pos.id, { otMultiplier: e.target.value })} />
                           </div>
                         ) : (
                           <div>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                              <label style={{ ...S.label, margin: 0 }}>OT Tiers (hour band → multiplier)</label>
-                              <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => addTier(pos.id)}><Icon d={icons.plus} size={11} /> Tier</button>
+                              <label style={{ ...S.label, margin: 0 }}>{t("otTiersLabel")}</label>
+                              <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => addTier(pos.id)}><Icon d={icons.plus} size={11} /> {t("addTierBtn")}</button>
                             </div>
                             {(pos.otTiers || []).map((tr, ti) => {
                               const from = ti === 0 ? (parseFloat(pos.hoursPerDay) || 12) : (parseFloat((pos.otTiers[ti - 1] || {}).untilHour) || 0);
@@ -3385,7 +3679,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                                 </div>
                               );
                             })}
-                            <p style={{ fontSize: 10, color: "#555", margin: "2px 0 0" }}>Each tier covers hours up to its limit. Hours beyond the last tier use the last multiplier.</p>
+                            <p style={{ fontSize: 10, color: "#555", margin: "2px 0 0" }}>{t("otTiersNote")}</p>
                           </div>
                         )}
                       </div>
@@ -3406,7 +3700,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     {idCard && <img src={idCard} alt="ID" style={{ width: 100, height: 66, objectFit: "cover", borderRadius: 6, border: "1px solid #2e3340" }} />}
                     <input ref={idCardRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDocUpload(setIdCard, { maxDim: 1400, quality: 0.72 })} />
                     <button style={S.btn("ghost")} onClick={() => idCardRef.current.click()}>
-                      <Icon d={icons.photo} size={14} /> {idCard ? "Replace" : "Upload"}
+                      <Icon d={icons.photo} size={14} /> {idCard ? t("replacePhoto") : t("uploadPhoto")}
                     </button>
                     {idCard && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setIdCard(null)}><Icon d={icons.x} size={13} /></button>}
                   </div>
@@ -3418,7 +3712,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     {promptPayQR && <img src={promptPayQR} alt="QR" style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff" }} />}
                     <input ref={promptPayRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDocUpload(setPromptPayQR, { maxDim: 1000, quality: 0.85 })} />
                     <button style={S.btn("ghost")} onClick={() => promptPayRef.current.click()}>
-                      <Icon d={icons.photo} size={14} /> {promptPayQR ? "Replace" : "Upload"}
+                      <Icon d={icons.photo} size={14} /> {promptPayQR ? t("replacePhoto") : t("uploadPhoto")}
                     </button>
                     {promptPayQR && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setPromptPayQR(null)}><Icon d={icons.x} size={13} /></button>}
                   </div>
@@ -3445,7 +3739,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       r.readAsDataURL(f);
                     }} />
                     <button style={S.btn("ghost")} onClick={() => signatureRef.current.click()}>
-                      <Icon d={icons.photo} size={14} /> {signature ? "Replace" : "Upload Signature"}
+                      <Icon d={icons.photo} size={14} /> {signature ? t("replacePhoto") : t("uploadSignature")}
                     </button>
                     {signature && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setSignature(null)}><Icon d={icons.x} size={13} /></button>}
                   </div>
@@ -3507,7 +3801,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 disabled={profileSaveStatus === "saving"}
                 onClick={saveProfile}
               >
-                {profileSaveStatus === "saving" ? "Saving…" : profileSaveStatus === "saved" ? "✓ Profile Saved" : profileSaveStatus === "error" ? "Save Failed — Tap to Retry" : "Save Profile"}
+                {profileSaveStatus === "saving" ? t("profileSaving") : profileSaveStatus === "saved" ? t("profileSaved") : profileSaveStatus === "error" ? t("profileSaveFail") : t("profileSaveBtn")}
               </button>
             </div>
 
@@ -4020,6 +4314,7 @@ function AdminReportsPage({ reports, setReports, equipment }) {
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
 function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAdminRequests }) {
+  const t = useT();
   const [mode, setMode] = useState("choose"); // choose | admin | employee | register
   const [pin, setPin] = useState("");
   const [selectedEmp, setSelectedEmp] = useState(null);
@@ -4058,11 +4353,11 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
     if (isLocked) return;
     if (mode === "admin") {
       if (pin === adminPin) { onLogin({ role: "admin" }); }
-      else { recordFailure(); setError("Incorrect PIN."); setPin(""); }
+      else { recordFailure(); setError(t("loginIncorrectPin")); setPin(""); }
     } else if (mode === "employee" && selectedEmp) {
       const emp = employees.find(e => e.id === selectedEmp);
       if (pin === emp.pin) { onLogin({ role: "employee", ...emp }); }
-      else { recordFailure(); setError("Incorrect PIN."); setPin(""); }
+      else { recordFailure(); setError(t("loginIncorrectPin")); setPin(""); }
     }
   };
 
@@ -4075,11 +4370,11 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
       <div style={{ textAlign: "center", maxWidth: 340 }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}><Icon d={icons.film} size={48} color="#e8b84b" /></div>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: "#e8e4dc", marginBottom: 4 }}>{companyName || "GEAR DESK"}</h1>
-        <p style={{ color: "#666", marginBottom: 40, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase" }}>Equipment Checkout System</p>
+        <p style={{ color: "#666", marginBottom: 40, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase" }}>{t("loginSystem")}</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("admin")}><Icon d={icons.lock} size={16} /> Admin Login</button>
-          <button style={{ ...S.btn("ghost"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("employee")}><Icon d={icons.user} size={16} /> Employee Login</button>
-          <button style={{ background: "none", border: "none", color: "#555", fontSize: 12, cursor: "pointer", marginTop: 8, textDecoration: "underline" }} onClick={() => { setMode("register"); setRegForm({ name: "", pin: "", confirm: "" }); setRegMsg(null); }}>Request to register as teammate</button>
+          <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("admin")}><Icon d={icons.lock} size={16} /> {t("loginAdmin")}</button>
+          <button style={{ ...S.btn("ghost"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("employee")}><Icon d={icons.user} size={16} /> {t("loginEmployee")}</button>
+          <button style={{ background: "none", border: "none", color: "#555", fontSize: 12, cursor: "pointer", marginTop: 8, textDecoration: "underline" }} onClick={() => { setMode("register"); setRegForm({ name: "", pin: "", confirm: "" }); setRegMsg(null); }}>{t("loginRegisterLink")}</button>
         </div>
       </div>
     </div>
@@ -4089,33 +4384,33 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
     <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/logo.png)", backgroundRepeat: "no-repeat", backgroundPosition: "center", backgroundSize: "min(92vw, 620px)", opacity: 0.06, pointerEvents: "none" }} />
       <div style={{ width: 300 }}>
-        <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => setMode("choose")}><Icon d={icons.arrow_left} size={14} /> Back</button>
-        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Request to Join</h2>
-        <p style={{ fontSize: 12, color: "#555", marginBottom: 20 }}>Your request will be sent to the admin for approval.</p>
+        <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => setMode("choose")}><Icon d={icons.arrow_left} size={14} /> {t("back")}</button>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{t("loginRegisterTitle")}</h2>
+        <p style={{ fontSize: 12, color: "#555", marginBottom: 20 }}>{t("loginRegisterDesc")}</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={S.label}>Your Name</label>
-            <input style={S.input} value={regForm.name} onChange={e => setRegForm(p => ({ ...p, name: e.target.value }))} placeholder="Full name" />
+            <label style={S.label}>{t("loginYourName")}</label>
+            <input style={S.input} value={regForm.name} onChange={e => setRegForm(p => ({ ...p, name: e.target.value }))} placeholder={t("loginFullName")} />
           </div>
           <div>
-            <label style={S.label}>Desired PIN (4–6 digits)</label>
+            <label style={S.label}>{t("loginDesiredPin")}</label>
             <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={regForm.pin} onChange={e => setRegForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 5678" />
           </div>
           <div>
-            <label style={S.label}>Confirm PIN</label>
-            <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={regForm.confirm} onChange={e => setRegForm(p => ({ ...p, confirm: e.target.value.replace(/\D/g, "") }))} placeholder="Re-enter PIN" />
+            <label style={S.label}>{t("settingsConfirmPin")}</label>
+            <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={regForm.confirm} onChange={e => setRegForm(p => ({ ...p, confirm: e.target.value.replace(/\D/g, "") }))} placeholder={t("settingsPinReEnter")} />
           </div>
           {regMsg && <p style={{ fontSize: 12, color: regMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{regMsg.text}</p>}
           <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "13px" }} onClick={() => {
-            if (!regForm.name.trim()) { setRegMsg({ ok: false, text: "Please enter your name." }); return; }
-            if (!/^\d{4,6}$/.test(regForm.pin)) { setRegMsg({ ok: false, text: "PIN must be 4–6 digits." }); return; }
-            if (regForm.pin !== regForm.confirm) { setRegMsg({ ok: false, text: "PINs do not match." }); return; }
+            if (!regForm.name.trim()) { setRegMsg({ ok: false, text: t("loginEnterName") }); return; }
+            if (!/^\d{4,6}$/.test(regForm.pin)) { setRegMsg({ ok: false, text: t("loginPinDigits") }); return; }
+            if (regForm.pin !== regForm.confirm) { setRegMsg({ ok: false, text: t("loginPinMatch") }); return; }
             const already = (adminRequests || []).some(r => r.type === "member-register" && r.status === "pending" && r.name.toLowerCase() === regForm.name.trim().toLowerCase());
-            if (already) { setRegMsg({ ok: false, text: "A request with this name is already pending." }); return; }
+            if (already) { setRegMsg({ ok: false, text: t("loginPendingExists") }); return; }
             setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type: "member-register", status: "pending", submittedAt: new Date().toISOString(), name: regForm.name.trim(), requestedPin: regForm.pin }]);
-            setRegMsg({ ok: true, text: "Request sent! Ask your admin to approve it." });
+            setRegMsg({ ok: true, text: t("loginRequestSent") });
             setRegForm({ name: "", pin: "", confirm: "" });
-          }}>Send Request</button>
+          }}>{t("loginSendRequest")}</button>
         </div>
       </div>
     </div>
@@ -4125,17 +4420,17 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
     <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
       <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/logo.png)", backgroundRepeat: "no-repeat", backgroundPosition: "center", backgroundSize: "min(92vw, 620px)", opacity: 0.06, pointerEvents: "none" }} />
       <div style={{ width: 300 }}>
-        <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => { setMode("choose"); setPin(""); setError(""); setSelectedEmp(null); }}><Icon d={icons.arrow_left} size={14} /> Back</button>
-        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{mode === "admin" ? "Admin PIN" : "Employee Login"}</h2>
+        <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => { setMode("choose"); setPin(""); setError(""); setSelectedEmp(null); }}><Icon d={icons.arrow_left} size={14} /> {t("back")}</button>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{mode === "admin" ? t("loginAdmin") : t("loginEmployee")}</h2>
         {mode === "employee" && (() => {
           const selEmp = employees.find(e => e.id === selectedEmp);
           return (
             <div style={{ marginBottom: 20, position: "relative" }}>
-              <label style={S.label}>Account</label>
+              <label style={S.label}>{t("loginAccount")}</label>
               <button
                 onClick={() => setDdOpen(o => !o)}
                 style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 14px", background: "#1a1e27", border: `1px solid ${ddOpen ? "#e8b84b" : "#2e3340"}`, borderRadius: 10, color: selEmp ? "#e8e4dc" : "#555", fontSize: 14, fontWeight: selEmp ? 600 : 400, cursor: "pointer", transition: "border-color .15s" }}>
-                <span>{selEmp ? selEmp.name : "Select account…"}</span>
+                <span>{selEmp ? selEmp.name : t("loginSelectAccount")}</span>
                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ opacity: 0.5, transform: ddOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }}><path d="M6 9l6 6 6-6" /></svg>
               </button>
               {ddOpen && (
@@ -4159,7 +4454,7 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
           <label style={S.label}>PIN</label>
           <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", height: 32, marginBottom: 16 }}>
             {pin.length === 0
-              ? <span style={{ fontSize: 12, color: "#444", letterSpacing: "0.08em", textTransform: "uppercase" }}>Enter PIN</span>
+              ? <span style={{ fontSize: 12, color: "#444", letterSpacing: "0.08em", textTransform: "uppercase" }}>{t("loginPinPrompt")}</span>
               : Array.from({ length: pin.length }).map((_, i) => (
                   <div key={i} style={{ width: 11, height: 11, borderRadius: "50%", background: "#e8b84b" }} />
                 ))
@@ -4175,11 +4470,11 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
           </div>
         </div>
         {isLocked
-          ? <p style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 12 }}>Too many attempts — try again in {lockSecsLeft}s</p>
+          ? <p style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{t("loginTooManyAttempts")}{lockSecsLeft}{t("loginSeconds")}</p>
           : error && <p style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{error}</p>
         }
         <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", padding: "12px", opacity: isLocked ? 0.5 : 1 }} onClick={tryLogin} disabled={isLocked || (mode === "employee" && !selectedEmp)}>
-          {isLocked ? `Locked (${lockSecsLeft}s)` : "Unlock"}
+          {isLocked ? `${t("loginLocked")} (${lockSecsLeft}${t("loginSeconds")})` : t("loginUnlock")}
         </button>
 
       </div>
@@ -4189,6 +4484,7 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
 
 // ─── TEAM PAGE ────────────────────────────────────────────────────────────────
 function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, kpiConfig, kpiEvents, setKpiEvents, punishments }) {
+  const t = useT();
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
@@ -4230,9 +4526,9 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
   const openEdit = (emp) => { setForm({ name: emp.name, pin: emp.pin }); setEditTarget(emp); setFormErr(""); setModal("edit"); };
 
   const validate = () => {
-    if (!form.name.trim()) return "Name is required.";
-    if (!form.pin.trim()) return "PIN is required.";
-    if (!/^\d{4,6}$/.test(form.pin)) return "PIN must be 4–6 digits.";
+    if (!form.name.trim()) return t("teamNameRequired");
+    if (!form.pin.trim()) return t("teamPinRequired");
+    if (!/^\d{4,6}$/.test(form.pin)) return t("teamPinInvalid");
     return null;
   };
 
@@ -4248,23 +4544,23 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
   };
 
   const delEmployee = (id) => {
-    if (window.confirm("Remove this team member?")) setEmployees(p => p.filter(e => e.id !== id));
+    if (window.confirm(t("teamRemoveConfirm"))) setEmployees(p => p.filter(e => e.id !== id));
   };
 
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
         <div>
-          <h1 style={S.pageTitle}>Team</h1>
-          <p style={S.pageSubtitle}>Manage crew access</p>
+          <h1 style={S.pageTitle}>{t("teamTitle")}</h1>
+          <p style={S.pageSubtitle}>{t("teamManageCrew")}</p>
         </div>
-        <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> Add Member</button>
+        <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> {t("teamAddMember")}</button>
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>Team Members ({employees.length})</p>
+        <p style={S.sectionTitle}>{t("teamMembers")} ({employees.length})</p>
         <div style={S.col}>
-          {employees.length === 0 && <p style={{ fontSize: 13, color: "#666" }}>No team members yet.</p>}
+          {employees.length === 0 && <p style={{ fontSize: 13, color: "#666" }}>{t("teamNoMembers")}</p>}
           {employees.map((e, i) => (
             <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: i < employees.length - 1 ? 14 : 0, marginBottom: i < employees.length - 1 ? 14 : 0, borderBottom: i < employees.length - 1 ? "1px solid #252830" : "none" }}>
               <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -4282,7 +4578,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
                   PIN:&nbsp;
                   <span style={{ fontFamily: "monospace", letterSpacing: 2 }}>{showPin[e.id] ? e.pin : "•".repeat(e.pin.length)}</span>
                   <button onClick={() => setShowPin(p => ({ ...p, [e.id]: !p[e.id] }))} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 11, padding: 0 }}>
-                    {showPin[e.id] ? "hide" : "show"}
+                    {showPin[e.id] ? t("teamPinHide") : t("teamPinShow")}
                   </button>
                 </p>
               </div>
@@ -4297,9 +4593,9 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>Equipment Requests {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} pending</span>}</p>
+        <p style={S.sectionTitle}>{t("teamEqRequests")} {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} {t("teamPendingReqs")}</span>}</p>
         {(equipmentRequests || []).length === 0 ? (
-          <p style={{ fontSize: 13, color: "#666" }}>No equipment requests yet.</p>
+          <p style={{ fontSize: 13, color: "#666" }}>{t("teamNoEqRequests")}</p>
         ) : [...(equipmentRequests || [])].reverse().map((req, i, arr) => {
           const itemLabel = req.items
             ? req.items.map(it => { const e = (equipment || []).find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
@@ -4319,8 +4615,8 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
                 </div>
                 {req.status === "pending" && (
                   <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
-                    <button style={{ ...S.btn("success"), padding: "5px 10px", fontSize: 12 }} onClick={() => approveRequest(req)}>Approve</button>
-                    <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 12 }} onClick={() => denyRequest(req.id)}>Deny</button>
+                    <button style={{ ...S.btn("success"), padding: "5px 10px", fontSize: 12 }} onClick={() => approveRequest(req)}>{t("teamApprove")}</button>
+                    <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 12 }} onClick={() => denyRequest(req.id)}>{t("teamDeny")}</button>
                   </div>
                 )}
               </div>
@@ -4330,20 +4626,20 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
       </div>
 
       {(modal === "add" || modal === "edit") && (
-        <Modal title={modal === "add" ? "Add Team Member" : "Edit Team Member"} onClose={() => setModal(null)}>
+        <Modal title={modal === "add" ? t("teamAddTitle") : t("teamEditTitle")} onClose={() => setModal(null)}>
           <div style={S.col}>
             <div>
-              <label style={S.label}>Name</label>
+              <label style={S.label}>{t("teamNameLabel")}</label>
               <input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Somchai" autoFocus />
             </div>
             <div>
-              <label style={S.label}>PIN (4–6 digits)</label>
+              <label style={S.label}>{t("teamPinLabel")}</label>
               <input style={S.input} type="text" inputMode="numeric" maxLength={6} value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 1234" />
             </div>
             {formErr && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>{formErr}</p>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button style={S.btn("ghost")} onClick={() => setModal(null)}>Cancel</button>
-              <button style={S.btn("primary")} onClick={saveEmployee}>{modal === "add" ? "Add Member" : "Save Changes"}</button>
+              <button style={S.btn("ghost")} onClick={() => setModal(null)}>{t("cancel")}</button>
+              <button style={S.btn("primary")} onClick={saveEmployee}>{modal === "add" ? t("teamAddMemberBtn") : t("teamSaveChanges")}</button>
             </div>
           </div>
         </Modal>
@@ -4360,39 +4656,39 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
             const myEvents = (kpiEvents || []).filter(ev => ev.employeeId === profileTarget.id && ev.ts >= start.getTime() && ev.ts < end.getTime()).sort((a, b) => b.ts - a.ts);
             const submit = () => {
               const pts = parseFloat(kpiForm.points) || 0;
-              if (pts <= 0) { setKpiMsg({ ok: false, text: "Enter points to deduct." }); return; }
-              if (!kpiForm.reason.trim()) { setKpiMsg({ ok: false, text: "Reason is required." }); return; }
+              if (pts <= 0) { setKpiMsg({ ok: false, text: t("teamKpiErrPoints") }); return; }
+              if (!kpiForm.reason.trim()) { setKpiMsg({ ok: false, text: t("teamKpiErrReason") }); return; }
               setKpiEvents(p => [...(p || []), { id: "kpi" + Date.now(), employeeId: profileTarget.id, points: pts, reason: kpiForm.reason.trim(), punishmentId: kpiForm.punishmentId || null, ts: Date.now(), by: "admin" }]);
               setKpiForm({ punishmentId: "", points: "", reason: "" });
-              setKpiMsg({ ok: true, text: `Deducted ${pts} pts.` });
+              setKpiMsg({ ok: true, text: t("teamKpiDeductedMsg").replace("{pts}", pts) });
               setTimeout(() => setKpiMsg(null), 3000);
             };
             return (
               <div style={{ ...S.card, background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)" }}>
-                <p style={S.sectionTitle}>⭐ KPI Score</p>
+                <p style={S.sectionTitle}>{t("teamKpiScore")}</p>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
                   <StarRating value={stars} size={22} />
                   <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>{stars.toFixed(1)}</span>
-                  <span style={{ fontSize: 13, color: "#8a8f9d" }}>{score}/{max} pts</span>
+                  <span style={{ fontSize: 13, color: "#8a8f9d" }}>{score}/{max} {t("kpiPts")}</span>
                 </div>
-                <p style={{ fontSize: 11, color: "#666", margin: "0 0 12px" }}>Period: {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                <p style={{ fontSize: 11, color: "#666", margin: "0 0 12px" }}>{t("teamKpiPeriodLabel")} {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {(punishments || []).length > 0 && (
                     <select style={S.select} value={kpiForm.punishmentId} onChange={e => { const pun = (punishments || []).find(x => x.id === e.target.value); setKpiForm(f => ({ punishmentId: e.target.value, points: pun ? String(pun.points) : f.points, reason: pun ? (pun.label + (pun.description ? ` — ${pun.description}` : "")) : f.reason })); }}>
-                      <option value="">Custom deduction…</option>
+                      <option value="">{t("teamKpiCustomDeduction")}</option>
                       {(punishments || []).map(pun => <option key={pun.id} value={pun.id}>{pun.label} (−{pun.points})</option>)}
                     </select>
                   )}
                   <div style={{ display: "grid", gridTemplateColumns: "90px 1fr", gap: 8 }}>
-                    <input style={S.input} type="number" min="0" step="0.1" value={kpiForm.points} placeholder="Points" onChange={e => setKpiForm(f => ({ ...f, points: e.target.value }))} />
-                    <input style={S.input} value={kpiForm.reason} placeholder="Reason (shown to employee)" onChange={e => setKpiForm(f => ({ ...f, reason: e.target.value }))} />
+                    <input style={S.input} type="number" min="0" step="0.1" value={kpiForm.points} placeholder={t("teamKpiPoints")} onChange={e => setKpiForm(f => ({ ...f, points: e.target.value }))} />
+                    <input style={S.input} value={kpiForm.reason} placeholder={t("teamKpiReason")} onChange={e => setKpiForm(f => ({ ...f, reason: e.target.value }))} />
                   </div>
                   {kpiMsg && <p style={{ fontSize: 12, color: kpiMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{kpiMsg.text}</p>}
-                  <button style={{ ...S.btn("danger"), justifyContent: "center" }} onClick={submit}>Deduct Points</button>
+                  <button style={{ ...S.btn("danger"), justifyContent: "center" }} onClick={submit}>{t("teamKpiDeduct")}</button>
                 </div>
                 {myEvents.length > 0 && (
                   <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 10 }}>
-                    <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Deductions this period</p>
+                    <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("teamKpiDeductionsThisPeriod")}</p>
                     {myEvents.map(ev => (
                       <div key={ev.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
                         <span style={{ ...S.badge("red"), flexShrink: 0 }}>−{ev.points}</span>
@@ -4400,7 +4696,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
                           <p style={{ margin: 0, fontSize: 13 }}>{ev.reason}</p>
                           <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>{new Date(ev.ts).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
                         </div>
-                        <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => setKpiEvents(p => p.filter(x => x.id !== ev.id))}>Undo</button>
+                        <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => setKpiEvents(p => p.filter(x => x.id !== ev.id))}>{t("teamKpiUndo")}</button>
                       </div>
                     ))}
                   </div>
@@ -4409,9 +4705,9 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
             );
           })()}
           {profileLoading ? (
-            <p style={{ color: "#666", textAlign: "center", padding: 24 }}>Loading…</p>
+            <p style={{ color: "#666", textAlign: "center", padding: 24 }}>{t("loading")}</p>
           ) : !profileData ? (
-            <p style={{ color: "#666", textAlign: "center", padding: 12 }}>No profile documents uploaded yet.</p>
+            <p style={{ color: "#666", textAlign: "center", padding: 12 }}>{t("teamNoProfileDocs")}</p>
           ) : (
             <div style={S.col}>
               {profileData.photo && (
@@ -4419,7 +4715,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
                   <img src={profileData.photo} alt="profile" style={{ width: 90, height: 90, borderRadius: "50%", objectFit: "cover", border: "3px solid #e8b84b" }} />
                 </div>
               )}
-              {[["Phone", profileData.phone], ["Email", profileData.email]].filter(([, v]) => v).map(([label, val]) => (
+              {[[t("phone"), profileData.phone], [t("email"), profileData.email]].filter(([, v]) => v).map(([label, val]) => (
                 <div key={label}>
                   <p style={{ ...S.sectionTitle, marginBottom: 3 }}>{label}</p>
                   <p style={{ margin: 0, fontSize: 14 }}>{val}</p>
@@ -4427,19 +4723,19 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
               ))}
               {profileData.legalAddress && (
                 <div>
-                  <p style={{ ...S.sectionTitle, marginBottom: 3 }}>Legal Address</p>
+                  <p style={{ ...S.sectionTitle, marginBottom: 3 }}>{t("legalAddress")}</p>
                   <p style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap", color: "#8a8f9d" }}>{profileData.legalAddress}</p>
                 </div>
               )}
               {profileData.idCard && (
                 <div>
-                  <p style={{ ...S.sectionTitle, marginBottom: 6 }}>ID Card</p>
+                  <p style={{ ...S.sectionTitle, marginBottom: 6 }}>{t("idCard")}</p>
                   <img src={profileData.idCard} alt="ID" style={{ width: "100%", maxWidth: 280, borderRadius: 8, border: "1px solid #2e3340" }} />
                 </div>
               )}
               {profileData.promptPayQR && (
                 <div>
-                  <p style={{ ...S.sectionTitle, marginBottom: 6 }}>PromptPay / Bank QR</p>
+                  <p style={{ ...S.sectionTitle, marginBottom: 6 }}>{t("promptPayQR")}</p>
                   <img src={profileData.promptPayQR} alt="QR" style={{ width: 120, height: 120, objectFit: "contain", borderRadius: 8, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />
                 </div>
               )}
@@ -4453,8 +4749,9 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
 }
 
 // ─── SETTINGS PANEL ───────────────────────────────────────────────────────────
-function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents, saveSettingsNow, photoVerification, setPhotoVerification, themeStyle, setThemeStyle, themePalette, setThemePalette, onClose }) {
+function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents, saveSettingsNow, photoVerification, setPhotoVerification, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, onClose }) {
   useEffect(() => { document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, []);
+  const t = useT();
   const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
   const [apMsg, setApMsg] = useState(null);
   const [backupStatus, setBackupStatus] = useState(null);
@@ -4472,15 +4769,25 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
         <button onClick={onClose} style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: 6, borderRadius: 6 }}>
           <Icon d={icons.x} size={20} color="var(--text-muted,#8a8f9d)" />
         </button>
-        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text,#e8e4dc)" }}>Settings</h1>
+        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text,#e8e4dc)" }}>{t("settingsTitle")}</h1>
       </div>
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 120px", maxWidth: 600, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
 
+      {/* Language card */}
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>🎨 Theme</p>
+        <p style={S.sectionTitle}>{t("settingsLanguage")}</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[{ id: "en", label: "🇬🇧 English" }, { id: "th", label: "🇹🇭 ภาษาไทย" }].map(l => (
+            <button key={l.id} onClick={() => setLang(l.id)} style={{ flex: 1, padding: "10px 4px", borderRadius: 8, border: lang === l.id ? "2px solid var(--accent,#e8b84b)" : "1px solid var(--border-color,#2e3340)", background: lang === l.id ? "rgba(232,184,75,0.08)" : "transparent", color: lang === l.id ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{l.label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>{t("settingsTheme")}</p>
         <div style={{ marginBottom: 14 }}>
-          <p style={{ ...S.label, marginBottom: 8 }}>Style</p>
+          <p style={{ ...S.label, marginBottom: 8 }}>{t("settingsThemeStyle")}</p>
           <div style={{ display: "flex", gap: 6 }}>
             {[{ id: "neumorphism", label: "Neumorphism" }, { id: "glassmorphism", label: "Glassmorphism" }, { id: "skeuomorphism", label: "Skeuomorphism" }].map(s => (
               <button key={s.id} onClick={() => setThemeStyle(s.id)} style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: themeStyle === s.id ? "2px solid var(--accent,#e8b84b)" : "1px solid var(--border-color,#2e3340)", background: themeStyle === s.id ? "rgba(232,184,75,0.08)" : "transparent", color: themeStyle === s.id ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>{s.label}</button>
@@ -4488,7 +4795,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
           </div>
         </div>
         <div>
-          <p style={{ ...S.label, marginBottom: 8 }}>Color</p>
+          <p style={{ ...S.label, marginBottom: 8 }}>{t("settingsThemeColor")}</p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 6 }}>
             {[{ id: "black-white", dot: "#e0e0e0", label: "B&W" }, { id: "teal-orange", dot: "#ff6a2a", label: "Teal" }, { id: "black-red", dot: "#dd3333", label: "Red" }, { id: "white-blue", dot: "#1a60d0", label: "Blue" }, { id: "black-yellow", dot: "#e8b84b", label: "Amber" }, { id: "black-blue", dot: "#3a80e8", label: "Navy" }].map(pal => (
               <button key={pal.id} onClick={() => setThemePalette(pal.id)} style={{ padding: "8px 2px", borderRadius: 8, border: themePalette === pal.id ? `2px solid ${pal.dot}` : "1px solid var(--border-color,#2e3340)", background: "transparent", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
@@ -4501,7 +4808,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>Company</p>
+        <p style={S.sectionTitle}>{t("settingsCompany")}</p>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <input
             style={{ ...S.input, flex: 1 }}
@@ -4511,37 +4818,37 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             maxLength={40}
           />
           {!companyName.trim() && (
-            <span style={{ fontSize: 11, color: "var(--text-muted,#666)", flexShrink: 0 }}>uses default</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted,#666)", flexShrink: 0 }}>{t("settingsUsesDefault")}</span>
           )}
         </div>
-        <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>Appears in the top bar and login screen.</p>
+        <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>{t("settingsCompanyHint")}</p>
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>Date &amp; Time</p>
+        <p style={S.sectionTitle}>{t("settingsDateTime")}</p>
         <div style={S.col}>
           <div>
-            <label style={S.label}>Timezone</label>
+            <label style={S.label}>{t("settingsTimezone")}</label>
             <select style={S.select} value={timezone} onChange={e => setTimezone(e.target.value)}>
               {TIMEZONES.some(tz => tz.id === timezone) ? null : <option value={timezone}>{timezone}</option>}
               {TIMEZONES.map(tz => <option key={tz.id} value={tz.id}>{tz.label}</option>)}
             </select>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>Used for "today" date calculations and the job calendar, so the app never guesses from the device.</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>{t("settingsTimezoneHint")}</p>
           </div>
           <div>
-            <label style={S.label}>Time Format</label>
+            <label style={S.label}>{t("settingsTimeFormat")}</label>
             <div style={{ display: "flex", gap: 8 }}>
               {[{ v: "24", l: "24-hour (21:00)" }, { v: "12", l: "12-hour (9:00 PM)" }].map(o => (
                 <button key={o.v} onClick={() => setTimeFormat(o.v)} style={{ ...S.btn(timeFormat === o.v ? "primary" : "ghost"), flex: 1, justifyContent: "center" }}>{o.l}</button>
               ))}
             </div>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>Applies to call/wrap times shown on invoices.</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>{t("settingsTimeFormatHint")}</p>
           </div>
         </div>
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>📷 Checkout</p>
+        <p style={S.sectionTitle}>{t("settingsCheckout")}</p>
         <div
           onClick={() => setPhotoVerification(!photoVerification)}
           style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: photoVerification ? "rgba(52,211,153,0.05)" : "rgba(255,255,255,0.03)", border: `1px solid ${photoVerification ? "rgba(52,211,153,0.2)" : "#252830"}`, cursor: "pointer", userSelect: "none" }}>
@@ -4550,47 +4857,45 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
           </div>
           <div style={{ flex: 1 }}>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: photoVerification ? "#34d399" : "var(--text,#e8e4dc)" }}>
-              {photoVerification ? "Photo verification ON" : "Photo verification OFF"}
+              {photoVerification ? t("settingsPhotoOn") : t("settingsPhotoOff")}
             </p>
             <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)", lineHeight: 1.5 }}>
-              {photoVerification
-                ? "Crew take a photo of each item when checking out / returning. Return GPS is matched to pickup (within 50 m, else admin approval)."
-                : "Crew tap each item to check out / return instantly — no photo, no GPS check."}
+              {photoVerification ? t("settingsPhotoOnDesc") : t("settingsPhotoOffDesc")}
             </p>
           </div>
         </div>
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>⭐ KPI Scoring</p>
+        <p style={S.sectionTitle}>{t("settingsKpiTitle")}</p>
         <div style={S.col}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
             <div>
-              <label style={S.label}>Period Start</label>
+              <label style={S.label}>{t("settingsKpiPeriodStart")}</label>
               <input style={S.input} type="date" value={kpiConfig.startDate || ""} onChange={e => setKpiConfig(c => ({ ...c, startDate: e.target.value }))} />
             </div>
             <div>
-              <label style={S.label}>Reset (months)</label>
+              <label style={S.label}>{t("settingsKpiReset")}</label>
               <input style={S.input} type="number" min="1" value={kpiConfig.resetMonths} onChange={e => setKpiConfig(c => ({ ...c, resetMonths: e.target.value }))} placeholder="12" />
             </div>
             <div>
-              <label style={S.label}>Starting Points</label>
+              <label style={S.label}>{t("settingsKpiMaxPoints")}</label>
               <input style={S.input} type="number" min="1" value={kpiConfig.maxPoints} onChange={e => setKpiConfig(c => ({ ...c, maxPoints: e.target.value }))} placeholder="100" />
             </div>
           </div>
           {(() => { const p = kpiPeriod(kpiConfig); const endLabel = new Date(p.end.getTime() - 86400000); return (
             <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>
-              Everyone starts each period at <strong style={{ color: "var(--accent,#e8b84b)" }}>{kpiMax(kpiConfig)} pts (★★★★★)</strong>. Current period:{" "}
-              <strong style={{ color: "var(--text,#e8e4dc)" }}>{p.start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {endLabel.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>. Default start is Jan 1.
+              {t("settingsKpiEveryoneStarts")} <strong style={{ color: "var(--accent,#e8b84b)" }}>{kpiMax(kpiConfig)} pts (★★★★★)</strong>. {t("settingsKpiCurrPeriod")}{" "}
+              <strong style={{ color: "var(--text,#e8e4dc)" }}>{p.start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {endLabel.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>. {t("settingsKpiDefaultStart")}
             </p>
           ); })()}
           <div style={{ borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 12 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <p style={{ ...S.sectionTitle, margin: 0 }}>Punishments</p>
-              <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={addPunishment}><Icon d={icons.plus} size={12} /> Add</button>
+              <p style={{ ...S.sectionTitle, margin: 0 }}>{t("settingsKpiPunishments")}</p>
+              <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={addPunishment}><Icon d={icons.plus} size={12} /> {t("settingsKpiAddPunishment")}</button>
             </div>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 10px" }}>Preset deductions you can pick when scoring a teammate. Label is shown to the employee as the reason.</p>
-            {(punishments || []).length === 0 && <p style={{ fontSize: 12, color: "#666", margin: 0 }}>No punishments yet.</p>}
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 10px" }}>{t("settingsKpiPunDesc")}</p>
+            {(punishments || []).length === 0 && <p style={{ fontSize: 12, color: "#666", margin: 0 }}>{t("settingsKpiNoPunishments")}</p>}
             <div style={S.col}>
               {(punishments || []).map(pun => (
                 <div key={pun.id} style={{ display: "grid", gridTemplateColumns: "1fr 72px 32px", gap: 6, alignItems: "center" }}>
@@ -4605,21 +4910,21 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>Line OA Notifications</p>
+        <p style={S.sectionTitle}>{t("settingsLineTitle")}</p>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "10px 14px", borderRadius: 8, background: lineGroupId ? "rgba(52,211,153,0.07)" : "rgba(255,255,255,0.03)", border: `1px solid ${lineGroupId ? "rgba(52,211,153,0.25)" : "#252830"}` }}>
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: lineGroupId ? "#34d399" : "#444", flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: lineGroupId ? "#34d399" : "#666" }}>
-              {lineGroupId ? "Group chat connected" : "No group chat connected"}
+              {lineGroupId ? t("settingsLineConnected") : t("settingsLineNotConnected")}
             </p>
             {lineGroupId && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lineGroupId}</p>}
           </div>
           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
             {!lineGroupId && (
-              <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => api.getData().then(d => { if (d.lineGroupId) setLineGroupId(d.lineGroupId); })}>↻ Refresh</button>
+              <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => api.getData().then(d => { if (d.lineGroupId) setLineGroupId(d.lineGroupId); })}>{t("settingsLineRefresh")}</button>
             )}
             {lineGroupId && (
-              <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11 }} onClick={async () => { const r = await api.putData({ lineGroupId: null }); if (r?.ok) setLineGroupId(null); }}>Disconnect</button>
+              <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11 }} onClick={async () => { const r = await api.putData({ lineGroupId: null }); if (r?.ok) setLineGroupId(null); }}>{t("settingsLineDisconnect")}</button>
             )}
           </div>
         </div>
@@ -4631,10 +4936,10 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
           </div>
           <div style={{ flex: 1 }}>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: lineNotifyMuted ? "#f87171" : "#34d399" }}>
-              {lineNotifyMuted ? "🔕 Notifications muted" : "🔔 Notifications active"}
+              {lineNotifyMuted ? t("settingsLineMuted") : t("settingsLineActive")}
             </p>
             <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#555)" }}>
-              {lineNotifyMuted ? "No messages sent to LINE — testing mode" : "All job/report/request events notify the group"}
+              {lineNotifyMuted ? t("settingsLineMutedDesc") : t("settingsLineActiveDesc")}
             </p>
           </div>
         </div>
@@ -4647,18 +4952,18 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
           4. The group ID is captured automatically when the OA joins or receives a message in the group
         </div>
         <p style={{ fontSize: 11, color: "var(--text-muted,#555)", marginTop: 10 }}>
-          {lineGroupId ? "All job notifications go to the group. Free tier: 200 messages/month." : "Without a group, notifications go to individual team members via their Line User ID above."}
+          {lineGroupId ? t("settingsLineGroupConnected") : t("settingsLineGroupNotConnected")}
         </p>
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>📅 Calendar Sync</p>
+        <p style={S.sectionTitle}>{t("settingsCalSync")}</p>
         <div style={S.col}>
           <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.7 }}>
             Subscribe to the job schedule in your iPhone Calendar. Pencil jobs appear as <strong style={{ color: "var(--text,#e8e4dc)" }}>tentative (striped)</strong>, Confirmed as <strong style={{ color: "#34d399" }}>solid</strong>. Auto-refreshes hourly.
           </p>
           <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.8 }}>
-            <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>Subscribe on iPhone:</strong>
+            <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>{t("settingsCalDescTitle")}</strong>
             1. Open <strong>Settings → Calendar → Accounts → Add Account → Other</strong><br />
             2. Tap <strong>Add Subscribed Calendar</strong><br />
             3. Paste this URL:<br />
@@ -4666,55 +4971,53 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             4. Tap <strong>Next</strong> → <strong>Save</strong>
           </div>
           <button style={{ ...S.btn("ghost"), alignSelf: "flex-start", fontSize: 12 }} onClick={() => { navigator.clipboard?.writeText("https://pickshootreturn.pages.dev/api/calendar"); }}>
-            📋 Copy Calendar URL
+            {t("settingsCopyCalUrl")}
           </button>
         </div>
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>Admin PIN</p>
+        <p style={S.sectionTitle}>{t("settingsAdminPin")}</p>
         <div style={S.col}>
-          <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0 }}>Current admin PIN: <strong style={{ color: "var(--accent,#e8b84b)", fontFamily: "monospace" }}>{adminPin}</strong></p>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0 }}>{t("settingsCurrPin")}: <strong style={{ color: "var(--accent,#e8b84b)", fontFamily: "monospace" }}>{adminPin}</strong></p>
           <div style={S.row}>
             <div style={{ flex: 1 }}>
-              <label style={S.label}>New PIN (4–6 digits)</label>
+              <label style={S.label}>{t("settingsNewPin")}</label>
               <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={apForm.newPin} onChange={e => setApForm(p => ({ ...p, newPin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 9999" />
             </div>
             <div style={{ flex: 1 }}>
-              <label style={S.label}>Confirm PIN</label>
-              <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={apForm.confirmPin} onChange={e => setApForm(p => ({ ...p, confirmPin: e.target.value.replace(/\D/g, "") }))} placeholder="Re-enter PIN" />
+              <label style={S.label}>{t("settingsConfirmPin")}</label>
+              <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={apForm.confirmPin} onChange={e => setApForm(p => ({ ...p, confirmPin: e.target.value.replace(/\D/g, "") }))} placeholder={t("settingsPinReEnter")} />
             </div>
           </div>
           {apMsg && <p style={{ fontSize: 12, color: apMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{apMsg.text}</p>}
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
             <button style={S.btn("primary")} onClick={() => {
               const { newPin, confirmPin } = apForm;
-              if (!/^\d{4,6}$/.test(newPin)) { setApMsg({ ok: false, text: "PIN must be 4–6 digits." }); return; }
-              if (newPin !== confirmPin) { setApMsg({ ok: false, text: "PINs do not match." }); return; }
+              if (!/^\d{4,6}$/.test(newPin)) { setApMsg({ ok: false, text: t("settingsPinInvalid") }); return; }
+              if (newPin !== confirmPin) { setApMsg({ ok: false, text: t("settingsPinMismatch") }); return; }
               setAdminPin(newPin);
               setApForm({ newPin: "", confirmPin: "" });
-              setApMsg({ ok: true, text: "Admin PIN updated." });
+              setApMsg({ ok: true, text: t("settingsPinUpdated") });
               setTimeout(() => setApMsg(null), 3000);
-            }}>Change Admin PIN</button>
+            }}>{t("settingsChangePin")}</button>
           </div>
         </div>
       </div>
 
       <div style={S.card}>
-        <p style={S.sectionTitle}>💾 Data Backup</p>
+        <p style={S.sectionTitle}>{t("settingsBackup")}</p>
         <div style={S.col}>
-          <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>
-            Saves a full snapshot of all data (crew, equipment, jobs, invoices) to a separate cloud slot that auto-save never touches.
-          </p>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>{t("settingsBackupDesc")}</p>
           {lastBackupAt && (
             <p style={{ fontSize: 12, color: "var(--text-muted,#666)", margin: 0 }}>
-              Last backup: <strong style={{ color: "var(--text,#e8e4dc)" }}>{new Date(lastBackupAt).toLocaleString()}</strong>
+              {t("settingsLastBackup")}: <strong style={{ color: "var(--text,#e8e4dc)" }}>{new Date(lastBackupAt).toLocaleString()}</strong>
             </p>
           )}
-          {backupStatus === "saved" && <p style={{ fontSize: 12, color: "#34d399", margin: 0 }}>✓ Backup saved to cloud.</p>}
-          {backupStatus === "error" && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>Backup failed — check connection and try again.</p>}
-          {backupStatus === "restored" && <p style={{ fontSize: 12, color: "#34d399", margin: 0 }}>✓ Data restored from backup.</p>}
-          {backupStatus === "no-backup" && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>No backup found. Create one first.</p>}
+          {backupStatus === "saved" && <p style={{ fontSize: 12, color: "#34d399", margin: 0 }}>{t("settingsBackupSaved")}</p>}
+          {backupStatus === "error" && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>{t("settingsBackupError")}</p>}
+          {backupStatus === "restored" && <p style={{ fontSize: 12, color: "#34d399", margin: 0 }}>{t("settingsBackupRestored")}</p>}
+          {backupStatus === "no-backup" && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>{t("settingsBackupNoBackup")}</p>}
           <div style={S.row}>
             <button
               style={{ ...S.btn("primary"), flex: 1, justifyContent: "center", opacity: backupStatus === "saving" ? 0.7 : 1 }}
@@ -4730,7 +5033,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
                 } catch { setBackupStatus("error"); }
                 setTimeout(() => setBackupStatus(null), 4000);
               }}>
-              {backupStatus === "saving" ? "Saving…" : "Create Backup"}
+              {backupStatus === "saving" ? t("settingsSavingBackup") : t("settingsCreateBackup")}
             </button>
             <button
               style={{ ...S.btn("ghost"), flex: 1, justifyContent: "center" }}
@@ -4738,24 +5041,17 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
               onClick={async () => {
                 const d = await api.getBackup();
                 if (!d) return;
-                const items = [
-                  `Crew: ${(d.employees || []).length} members`,
-                  `Equipment: ${(d.equipment || []).length} items`,
-                  `Jobs: ${(d.jobs || []).length}`,
-                  `Invoices: ${(d.invoices || []).length}`,
-                  `Saved: ${d.savedAt ? new Date(d.savedAt).toLocaleString() : "unknown"}`,
-                ].join("\n");
                 const url = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: "application/json" }));
                 const a = document.createElement("a");
                 a.href = url; a.download = `psr_backup_${(d.savedAt || new Date().toISOString()).slice(0,10)}.json`;
                 a.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
               }}>
-              Download JSON
+              {t("settingsDownloadJson")}
             </button>
           </div>
           {backupStatus === "confirm-restore" ? (
             <div style={{ background: "rgba(248,113,113,0.1)", border: "1px solid #f87171", borderRadius: 8, padding: "12px 14px" }}>
-              <p style={{ fontSize: 13, color: "#f87171", margin: "0 0 10px 0", fontWeight: 600 }}>This will overwrite ALL current data with the backup. Are you sure?</p>
+              <p style={{ fontSize: 13, color: "#f87171", margin: "0 0 10px 0", fontWeight: 600 }}>{t("settingsRestoreConfirmMsg")}</p>
               <div style={S.row}>
                 <button style={{ ...S.btn("danger"), flex: 1, justifyContent: "center" }} onClick={async () => {
                   setBackupStatus("restoring");
@@ -4766,9 +5062,9 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
                   } catch { setBackupStatus("error"); }
                   setTimeout(() => setBackupStatus(null), 4000);
                 }}>
-                  {backupStatus === "restoring" ? "Restoring…" : "Yes, Restore"}
+                  {backupStatus === "restoring" ? t("settingsRestoring") : t("settingsYesRestore")}
                 </button>
-                <button style={{ ...S.btn("ghost"), flex: 1, justifyContent: "center" }} onClick={() => setBackupStatus(null)}>Cancel</button>
+                <button style={{ ...S.btn("ghost"), flex: 1, justifyContent: "center" }} onClick={() => setBackupStatus(null)}>{t("cancel")}</button>
               </div>
             </div>
           ) : (
@@ -4776,16 +5072,16 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
               style={{ ...S.btn("ghost"), justifyContent: "center", borderColor: "#f87171", color: "#f87171", opacity: backupStatus === "saving" || backupStatus === "restoring" ? 0.5 : 1 }}
               disabled={backupStatus === "saving" || backupStatus === "restoring"}
               onClick={() => setBackupStatus("confirm-restore")}>
-              Restore from Backup
+              {t("settingsRestoreFromBackup")}
             </button>
           )}
         </div>
       </div>
 
-      <div style={S.card}>
-        <p style={S.sectionTitle}>System Info</p>
-        <p style={{ fontSize: 13, color: "#666" }}>All data is stored in Cloudflare KV — synced across all devices automatically.</p>
-        <p style={{ fontSize: 13, color: "#666", marginTop: 8 }}>Geo-locked photos use the browser's camera API — location metadata is embedded in the image stamp.</p>
+      <div style={{ ...S.card, marginTop: 20 }}>
+        <p style={S.sectionTitle}>{t("settingsSystemInfo")}</p>
+        <p style={{ fontSize: 13, color: "#666" }}>{t("settingsSysDesc1")}</p>
+        <p style={{ fontSize: 13, color: "#666", marginTop: 8 }}>{t("settingsSysDesc2")}</p>
       </div>
 
       {/* Save all settings */}
@@ -4800,18 +5096,18 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             else { setSaveState({ error: res.error }); }
           }}
         >
-          {saveState === "saving" ? "Saving…"
-            : saveState === "saved" ? "✓ All settings saved to cloud"
-            : saveState && saveState.error ? "Save Failed — tap to retry"
-            : "💾 Save All Settings"}
+          {saveState === "saving" ? t("settingsSaving")
+            : saveState === "saved" ? t("settingsSaved")
+            : saveState && saveState.error ? t("settingsSaveFailed")
+            : t("settingsSaveAll")}
         </button>
         {saveState && saveState.error && (
           <p style={{ fontSize: 12, color: "#f87171", textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>⚠ {saveState.error}</p>
         )}
         {saveState === "saved" && (
-          <p style={{ fontSize: 11, color: "#34d399", textAlign: "center", margin: "8px 0 0" }}>Saved {new Date().toLocaleTimeString()}</p>
+          <p style={{ fontSize: 11, color: "#34d399", textAlign: "center", margin: "8px 0 0" }}>{t("settingsSavedAt")} {new Date().toLocaleTimeString()}</p>
         )}
-        <p style={{ fontSize: 11, color: "var(--text-muted,#666)", textAlign: "center", margin: "8px 0 0" }}>Changes also auto-save in the background — this button forces an immediate save and confirms it went through.</p>
+        <p style={{ fontSize: 11, color: "var(--text-muted,#666)", textAlign: "center", margin: "8px 0 0" }}>{t("settingsSaveHint")}</p>
       </div>
 
       </div>
@@ -5056,7 +5352,8 @@ function ThemeSelector({ themeStyle, setThemeStyle, themePalette, setThemePalett
 }
 
 // ─── ADMIN TOP BAR ────────────────────────────────────────────────────────────
-function AdminTopBar({ onLogout, saveErr, setLang, companyName, onOpenSettings, notifItems }) {
+function AdminTopBar({ onLogout, saveErr, companyName, onOpenSettings, notifItems }) {
+  const t = useT();
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef(null);
   const notifCount = (notifItems || []).reduce((s, n) => s + n.count, 0);
@@ -5079,7 +5376,6 @@ function AdminTopBar({ onLogout, saveErr, setLang, companyName, onOpenSettings, 
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <LangPill setLang={setLang} />
         {saveErr && <span title="Sync error" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
 
         {/* Notification bell */}
@@ -5087,7 +5383,7 @@ function AdminTopBar({ onLogout, saveErr, setLang, companyName, onOpenSettings, 
           <button
             onClick={() => setNotifOpen(o => !o)}
             style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? "rgba(232,184,75,0.1)" : "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
-            title="Notifications"
+            title={t("notifTitle")}
           >
             <Icon d={icons.bell} size={18} color={notifCount > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)"} />
             {notifCount > 0 && (
@@ -5098,12 +5394,12 @@ function AdminTopBar({ onLogout, saveErr, setLang, companyName, onOpenSettings, 
             <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.6)", width: 270, zIndex: 300 }}>
               <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--divider-color,#252830)" }}>
                 <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>
-                  Notifications {notifCount > 0 && <span style={{ ...{ padding: "1px 7px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: "#ef4444", color: "#fff" } }}>{notifCount}</span>}
+                  {t("notifTitle")} {notifCount > 0 && <span style={{ ...{ padding: "1px 7px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: "#ef4444", color: "#fff" } }}>{notifCount}</span>}
                 </p>
               </div>
               {notifCount === 0 ? (
                 <div style={{ padding: "20px 16px", textAlign: "center" }}>
-                  <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted,#666)" }}>✓ All caught up</p>
+                  <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted,#666)" }}>{t("notifAllCaughtUp")}</p>
                 </div>
               ) : (
                 <div>
@@ -5118,7 +5414,7 @@ function AdminTopBar({ onLogout, saveErr, setLang, companyName, onOpenSettings, 
                       </div>
                       <div style={{ flex: 1 }}>
                         <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{item.label}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 11, color: item.color }}>{item.count} {item.count === 1 ? "item" : "items"} need attention</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: item.color }}>{item.count} {t("notifItemsAttention")}</p>
                       </div>
                       <Icon d={icons.arrow_left} size={14} color="var(--text-muted,#555)" strokeW={2} style={{ transform: "rotate(180deg)" }} />
                     </div>
@@ -5151,6 +5447,156 @@ function AdminTopBar({ onLogout, saveErr, setLang, companyName, onOpenSettings, 
   );
 }
 
+// ─── ADMIN CHECKOUT PAGE ──────────────────────────────────────────────────────
+function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, photoVerification }) {
+  const t = useT();
+  const todayStr = today();
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [phase, setPhase] = useState("pick"); // "pick" | "return"
+  const [captureAe, setCaptureAe] = useState(null);
+  const [itemResults, setItemResults] = useState({});
+
+  const getState = (job) => {
+    const mode = job.checkoutMode || "span";
+    const jc = checkouts.filter(c => c.jobId === job.id);
+    const relevant = mode === "daily"
+      ? jc.filter(c => new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(c.ts)) === todayStr)
+      : jc;
+    const pickedIds = new Set(relevant.filter(c => c.type === "pick" || c.type === "checkout").map(c => c.eqId));
+    const returnedIds = new Set(relevant.filter(c => c.type === "return").map(c => c.eqId));
+    const assigned = (job.assignedEquipment || []);
+    const allPicked = assigned.length > 0 && assigned.every(ae => pickedIds.has(ae.eqId));
+    const allReturned = assigned.length > 0 && assigned.every(ae => returnedIds.has(ae.eqId));
+    return { pickedIds, returnedIds, allPicked, allReturned };
+  };
+
+  const confirmedJobs = (jobs || []).filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0);
+
+  const selectJob = (job) => {
+    const { allPicked } = getState(job);
+    setSelectedJob(job);
+    setPhase(allPicked ? "return" : "pick");
+    setItemResults({});
+    setCaptureAe(null);
+  };
+
+  const commitItem = (ae, dataUrl, loc) => {
+    const now = Date.now();
+    const type = phase === "pick" ? "pick" : "return";
+    setCheckouts(p => [...p, { id: "co" + now + ae.eqId, jobId: selectedJob.id, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: "admin", employeeName: "Admin", type, ts: now, photo: dataUrl || null, location: loc || null, adminApproved: true }]);
+    setItemResults(r => ({ ...r, [ae.eqId]: "ok" }));
+  };
+
+  const onTapItem = (ae) => { if (photoVerification) setCaptureAe(ae); else commitItem(ae, null, null); };
+
+  if (captureAe && selectedJob) {
+    const eq = equipment.find(e => e.id === captureAe.eqId);
+    const isReturn = phase === "return";
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg,#0f1117)" }}>
+        <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", gap: 12 }}>
+          <button style={S.btn("ghost")} onClick={() => setCaptureAe(null)}><Icon d={icons.arrow_left} size={16} /> {t("back")}</button>
+        </div>
+        <GeoPhoto
+          key={captureAe.eqId}
+          label={`${isReturn ? t("adminReturnLabel") : t("adminPickLabel")} — ${eq?.name || ""}`}
+          onCapture={(dataUrl, loc) => { commitItem(captureAe, dataUrl, loc); setCaptureAe(null); }}
+        />
+      </div>
+    );
+  }
+
+  if (selectedJob) {
+    const isReturn = phase === "return";
+    const { pickedIds, returnedIds } = getState(selectedJob);
+    const items = (selectedJob.assignedEquipment || []).filter(ae =>
+      equipment.some(e => e.id === ae.eqId) && (isReturn ? pickedIds.has(ae.eqId) : true)
+    );
+    const itemDone = (ae) => (isReturn ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId)) || itemResults[ae.eqId] === "ok";
+    const allDone = items.length > 0 && items.every(itemDone);
+
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg,#0f1117)", paddingBottom: 100 }}>
+        <div style={{ padding: "16px 16px 0", display: "flex", alignItems: "center", gap: 12, borderBottom: "1px solid var(--divider-color,#252830)", paddingBottom: 14, marginBottom: 16 }}>
+          <button style={S.btn("ghost")} onClick={() => setSelectedJob(null)}><Icon d={icons.arrow_left} size={16} /> {t("back")}</button>
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{selectedJob.name}</p>
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{isReturn ? t("adminReturnLabel") : t("adminPickLabel")}</p>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button style={{ ...S.btn(!isReturn ? "primary" : "ghost"), padding: "6px 12px", fontSize: 12 }} onClick={() => { setPhase("pick"); setItemResults({}); }}>{t("adminPickLabel")}</button>
+            <button style={{ ...S.btn(isReturn ? "primary" : "ghost"), padding: "6px 12px", fontSize: 12 }} onClick={() => { setPhase("return"); setItemResults({}); }}>{t("adminReturnLabel")}</button>
+          </div>
+        </div>
+        <div style={{ padding: "0 16px" }}>
+          {items.length === 0 ? (
+            <p style={{ color: "#666", textAlign: "center", padding: 32 }}>{isReturn ? t("adminNoItemsOut") : t("adminAllPicked")}</p>
+          ) : items.map(ae => {
+            const eq = equipment.find(e => e.id === ae.eqId);
+            const done = itemDone(ae);
+            return (
+              <div key={ae.eqId} style={{ ...S.card, display: "flex", alignItems: "center", gap: 12, marginBottom: 10, opacity: done ? 0.5 : 1, cursor: done ? "default" : "pointer" }}
+                onClick={() => !done && onTapItem(ae)}>
+                {eq?.photo ? (
+                  <img src={eq.photo} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                ) : (
+                  <div style={{ width: 44, height: 44, borderRadius: 8, background: "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Icon d={icons.camera} size={18} color="#555" />
+                  </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{eq?.name || ae.eqId}</p>
+                  {ae.qty > 1 && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>×{ae.qty}</p>}
+                </div>
+                {done
+                  ? <span style={{ ...S.badge("green"), flexShrink: 0 }}>✓</span>
+                  : <span style={{ ...S.badge("amber"), flexShrink: 0, cursor: "pointer" }}>{isReturn ? t("adminReturnLabel") : t("adminPickLabel")}</span>
+                }
+              </div>
+            );
+          })}
+          {allDone && (
+            <div style={{ ...S.card, background: "rgba(52,211,153,0.07)", border: "1px solid rgba(52,211,153,0.25)", textAlign: "center", padding: 20, marginTop: 8 }}>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#34d399" }}>✓ {isReturn ? t("adminAllReturned") : t("adminAllPicked")}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "20px 16px 100px" }}>
+      <p style={{ ...S.sectionTitle, fontSize: 18, marginBottom: 4 }}>{t("adminCheckoutTitle")}</p>
+      <p style={{ fontSize: 12, color: "var(--text-muted,#666)", marginBottom: 20 }}>{t("adminCheckoutDesc")}</p>
+      {confirmedJobs.length === 0 ? (
+        <p style={{ color: "#666", textAlign: "center", padding: 32 }}>{t("adminNoConfirmedJobs")}</p>
+      ) : confirmedJobs.map(job => {
+        const { pickedIds, returnedIds, allPicked, allReturned } = getState(job);
+        const outCount = pickedIds.size - returnedIds.size;
+        return (
+          <div key={job.id} style={{ ...S.card, marginBottom: 12, cursor: "pointer" }} onClick={() => selectJob(job)}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{job.name}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>
+                  {(job.assignedEquipment || []).length} {t("jobAssignedEq").toLowerCase()} · {(job.dates || []).join(", ")}
+                </p>
+              </div>
+              {allReturned
+                ? <span style={S.badge("green")}>✓</span>
+                : outCount > 0
+                  ? <span style={S.badge("amber")}>{outCount} {t("dashEqOutToday").replace("Equipment ", "").toLowerCase()}</span>
+                  : <span style={S.badge("gray")}>{t("adminPickLabel")}</span>
+              }
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── ADMIN BOTTOM NAV ─────────────────────────────────────────────────────────
 function AdminBottomNav({ activePage, setActivePage, unresolvedCount }) {
   const t = useT();
@@ -5161,6 +5607,7 @@ function AdminBottomNav({ activePage, setActivePage, unresolvedCount }) {
     { key: "reports", label: t("navReports"), icon: icons.alert },
     { key: "invoice", label: t("navInvoice"), icon: icons.invoice },
     { key: "team", label: t("navTeam"), icon: icons.user },
+    { key: "checkout", label: t("navCheckout"), icon: icons.package },
   ];
 
   return (
@@ -5336,10 +5783,11 @@ export default function App() {
   const unresolvedCount = reports.filter(r => r.status === "open").length;
   const pendingAdminRequests = (adminRequests || []).filter(r => r.status === "pending");
   const pendingEquipReqCount = (equipmentRequests || []).filter(r => r.status === "pending").length;
+  const _tRoot = (key) => (LANG[lang] || LANG.en)[key] ?? LANG.en[key] ?? key;
   const notifItems = [
-    pendingAdminRequests.length > 0 && { label: "Admin Approvals", count: pendingAdminRequests.length, color: "#e8b84b", icon: icons.check, onClick: () => setActivePage("dashboard") },
-    pendingEquipReqCount > 0 && { label: "Equipment Requests", count: pendingEquipReqCount, color: "#60a5fa", icon: icons.gear, onClick: () => setActivePage("team") },
-    unresolvedCount > 0 && { label: "Damage Reports", count: unresolvedCount, color: "#f87171", icon: icons.alert, onClick: () => setActivePage("reports") },
+    pendingAdminRequests.length > 0 && { label: _tRoot("notifAdminApprovals"), count: pendingAdminRequests.length, color: "#e8b84b", icon: icons.check, onClick: () => setActivePage("dashboard") },
+    pendingEquipReqCount > 0 && { label: _tRoot("notifEquipRequests"), count: pendingEquipReqCount, color: "#60a5fa", icon: icons.gear, onClick: () => setActivePage("team") },
+    unresolvedCount > 0 && { label: _tRoot("notifDamageReports"), count: unresolvedCount, color: "#f87171", icon: icons.alert, onClick: () => setActivePage("reports") },
   ].filter(Boolean);
 
   const approveAdminRequest = (req) => {
@@ -5407,7 +5855,6 @@ export default function App() {
           <AdminTopBar
             onLogout={() => setUser(null)}
             saveErr={saveErr}
-            setLang={setLang}
             companyName={companyName}
             onOpenSettings={() => setSettingsPanelOpen(true)}
             notifItems={notifItems}
@@ -5419,9 +5866,10 @@ export default function App() {
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} />}
             {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} />}
+            {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} photoVerification={photoVerification} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
-          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} saveSettingsNow={saveSettingsNow} photoVerification={photoVerification} setPhotoVerification={setPhotoVerification} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} onClose={() => setSettingsPanelOpen(false)} />}
+          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} saveSettingsNow={saveSettingsNow} photoVerification={photoVerification} setPhotoVerification={setPhotoVerification} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} onClose={() => setSettingsPanelOpen(false)} />}
         </div>
       )}
     </LangCtx.Provider>
