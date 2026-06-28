@@ -407,6 +407,8 @@ const LANG = {
     noJobsToday: "No confirmed jobs with assigned equipment today.",
     allReturned: "✓ All Returned",
     onShoot: "🎬 On Shoot — Tap to Return",
+    gearOutTitle: "Gear Out — Tap to Return",
+    outBadge: "out",
     readyPick: "Ready to Pick Up",
     itemsAssigned: "items assigned",
     // Schedule tab
@@ -489,6 +491,8 @@ const LANG = {
     noJobsToday: "ไม่มีงานยืนยันที่มีอุปกรณ์พร้อมในวันนี้",
     allReturned: "✓ คืนครบแล้ว",
     onShoot: "🎬 กำลังถ่าย — แตะเพื่อคืน",
+    gearOutTitle: "อุปกรณ์ที่ยังไม่คืน — แตะเพื่อคืน",
+    outBadge: "ชิ้น",
     readyPick: "พร้อมรับอุปกรณ์",
     itemsAssigned: "รายการ",
     // Schedule tab
@@ -2294,7 +2298,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, photoVerification = true }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
@@ -2312,6 +2316,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [currentItemIdx, setCurrentItemIdx] = useState(0);
   const [itemPhotos, setItemPhotos] = useState({}); // { [eqId]: { dataUrl, location } }
   const [geoFailItems, setGeoFailItems] = useState([]); // items sent to admin for geo mismatch
+  const [captureAe, setCaptureAe] = useState(null); // item currently being photographed (per-item flow)
+  const [itemResults, setItemResults] = useState({}); // { [eqId]: "ok" | "pending" } this session
   const [profilePhoto, setProfilePhoto] = useState(null);
   const [profileInfo, setProfileInfo] = useState({ firstName: "", lastName: "", nickname: "", phone: "", email: "", lineId: "", legalAddress: "", bankName: "", bankAccount: "", accountName: "" });
   const [idCard, setIdCard] = useState(null);
@@ -2402,239 +2408,115 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     return { allPicked, allReturned, pickedIds, returnedIds };
   };
 
-  const selectJob = (job) => {
+  const selectJob = (job, forceReturn) => {
     setSelectedJob(job);
     const { allPicked } = getJobCheckoutState(job);
-    setPhase(allPicked ? "return" : "pick");
-    setCheckedItems({});
+    setPhase(forceReturn ? "return" : (allPicked ? "return" : "pick"));
+    setItemResults({});
+    setCaptureAe(null);
   };
 
-  const toggleItem = (eqId) => setCheckedItems(p => ({ ...p, [eqId]: !p[eqId] }));
-  // Only items whose equipment still exists are shown/tickable — ignore "ghost" assignments
-  // (equipment deleted after assignment) so they can't silently block the proceed gate.
-  // Done items (already picked/returned) count as satisfied too.
-  const allSelected = selectedJob && (() => {
-    const { pickedIds, returnedIds } = getJobCheckoutState(selectedJob);
-    const items = (selectedJob.assignedEquipment || []).filter(ae => equipment.some(e => e.id === ae.eqId));
-    if (items.length === 0) return false;
-    return items.every(ae => {
-      const done = phase === "return" ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId);
-      return done || !!checkedItems[ae.eqId];
-    });
-  })();
-
-  const proceedToPhoto = () => {
-    if (!allSelected) return;
-    const isRet = phase === "return";
-    const { pickedIds, returnedIds } = getJobCheckoutState(selectedJob);
-    const items = (selectedJob.assignedEquipment || []).filter(ae =>
-      equipment.some(e => e.id === ae.eqId) && checkedItems[ae.eqId] && !(isRet ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId))
-    );
-    if (items.length === 0) return;
-    setPhotoMode(isRet ? "return" : "pick");
-    setPhotoItems(items);
-    setCurrentItemIdx(0);
-    setItemPhotos({});
-    setPhase("photo_each");
-  };
-
-  const submitCheckout = () => {
+  // Commit ONE item immediately (per-item / barcode-style flow). dataUrl & loc are
+  // null when photo verification is off.
+  const commitItem = (ae, dataUrl, loc) => {
     const now = Date.now();
-    if (photoMode === "pick") {
-      setCheckouts(p => [...p, ...photoItems.map(ae => ({
-        id: "co" + now + ae.eqId,
-        jobId: selectedJob.id, jobName: selectedJob.name,
-        eqId: ae.eqId, qty: ae.qty,
-        employeeId: employee.id, employeeName: employee.name,
-        type: "pick", ts: now,
-        photo: itemPhotos[ae.eqId]?.dataUrl || null,
-        location: itemPhotos[ae.eqId]?.location || null,
-      }))]);
-      setGeoFailItems([]);
-      setPhase("done_pick");
+    const eq = equipment.find(e => e.id === ae.eqId);
+    if (phase === "pick") {
+      setCheckouts(p => [...p, { id: "co" + now + ae.eqId, jobId: selectedJob.id, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: "pick", ts: now, photo: dataUrl || null, location: loc || null }]);
+      setItemResults(r => ({ ...r, [ae.eqId]: "ok" }));
+      return;
+    }
+    // return — geo-validate against the pickup location (only when photos/GPS are on)
+    const pickupCo = [...checkouts].reverse().find(c => c.jobId === selectedJob.id && c.eqId === ae.eqId && (c.type === "pick" || c.type === "checkout"));
+    let distance = null;
+    if (loc && pickupCo?.location) distance = haversineMeters(+pickupCo.location.lat, +pickupCo.location.lng, +loc.lat, +loc.lng);
+    const geoOk = pickupCo?.location && loc && distance !== null && distance <= 50;
+    const needsApproval = photoVerification && !geoOk; // no photos => no GPS to check => accept
+    if (!needsApproval) {
+      setCheckouts(p => [...p, { id: "co" + now + ae.eqId, jobId: selectedJob.id, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: "return", ts: now, photo: dataUrl || null, location: loc || null }]);
+      setItemResults(r => ({ ...r, [ae.eqId]: "ok" }));
     } else {
-      const immediate = [], needsApproval = [];
-      photoItems.forEach(ae => {
-        const eq = equipment.find(e => e.id === ae.eqId);
-        const captured = itemPhotos[ae.eqId];
-        const pickupCo = [...checkouts].reverse().find(c => c.jobId === selectedJob.id && c.eqId === ae.eqId && (c.type === "pick" || c.type === "checkout"));
-        let distance = null;
-        if (captured?.location && pickupCo?.location) {
-          distance = haversineMeters(+pickupCo.location.lat, +pickupCo.location.lng, +captured.location.lat, +captured.location.lng);
-        }
-        const geoOk = pickupCo?.location && captured?.location && distance !== null && distance <= 50;
-        if (geoOk) {
-          immediate.push(ae);
-        } else {
-          needsApproval.push({ ae, eq, captured, distance, pickupCo });
-        }
-      });
-
-      if (immediate.length > 0) {
-        setCheckouts(p => [...p, ...immediate.map(ae => ({
-          id: "co" + now + ae.eqId,
-          jobId: selectedJob.id, jobName: selectedJob.name,
-          eqId: ae.eqId, qty: ae.qty,
-          employeeId: employee.id, employeeName: employee.name,
-          type: "return", ts: now,
-          photo: itemPhotos[ae.eqId]?.dataUrl || null,
-          location: itemPhotos[ae.eqId]?.location || null,
-        }))]);
-      }
-
-      if (needsApproval.length > 0) {
-        setAdminRequests(p => [...(p || []), ...needsApproval.map(({ ae, eq, captured, distance, pickupCo }) => ({
-          id: "ar" + now + ae.eqId,
-          type: "geo-return",
-          status: "pending",
-          submittedAt: new Date().toISOString(),
-          employeeId: employee.id, employeeName: employee.name,
-          jobId: selectedJob.id, jobName: selectedJob.name,
-          eqId: ae.eqId, eqName: eq?.name || ae.eqId, qty: ae.qty,
-          photo: captured?.dataUrl || null,
-          returnLocation: captured?.location || null,
-          pickupLocation: pickupCo?.location || null,
-          distance: distance !== null ? Math.round(distance) : null,
-        }))]);
-      }
-
-      setGeoFailItems(needsApproval);
-      setPhase("done_return");
+      setAdminRequests(p => [...(p || []), { id: "ar" + now + ae.eqId, type: "geo-return", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: selectedJob.id, jobName: selectedJob.name, eqId: ae.eqId, eqName: eq?.name || ae.eqId, qty: ae.qty, photo: dataUrl || null, returnLocation: loc || null, pickupLocation: pickupCo?.location || null, distance: distance !== null ? Math.round(distance) : null }]);
+      setItemResults(r => ({ ...r, [ae.eqId]: "pending" }));
     }
   };
 
-  // ── Non-select phases (checkout flow) ──────────────────────────────────────
+  const onTapItem = (ae) => { if (photoVerification) setCaptureAe(ae); else commitItem(ae, null, null); };
+
+  // ── Checkout / return flow (per-item, barcode-style) ───────────────────────
   if (phase !== "select" && selectedJob) {
-    const { pickedIds, returnedIds } = getJobCheckoutState(selectedJob);
-
-    if (phase === "done_pick" || phase === "done_return") {
-      const allPhotos = Object.values(itemPhotos);
-      const reset = () => { setSelectedJob(null); setPhase("select"); setItemPhotos({}); setPhotoItems([]); setCheckedItems({}); setGeoFailItems([]); };
-      return (
-        <div style={{ ...S.main, maxWidth: 500 }}>
-          <StepBar currentStep={phase === "done_pick" ? 1 : 2} />
-          <div style={{ textAlign: "center", marginBottom: 20 }}>
-            <div style={{ fontSize: 52, marginBottom: 8 }}>{phase === "done_pick" ? "✅" : geoFailItems.length > 0 ? "⚠️" : "🏁"}</div>
-            <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>{phase === "done_pick" ? t("gearPickedUp") : t("gearReturned")}</h2>
-          </div>
-          {/* Per-item photo thumbnails */}
-          {photoItems.length > 0 && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-              {photoItems.map(ae => {
-                const eq = equipment.find(e => e.id === ae.eqId);
-                const p = itemPhotos[ae.eqId];
-                const failed = geoFailItems.some(f => f.ae.eqId === ae.eqId);
-                return (
-                  <div key={ae.eqId} style={{ flex: "1 1 140px", minWidth: 120 }}>
-                    {p?.dataUrl && <img src={p.dataUrl} alt={eq?.name} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 6, border: failed ? "2px solid #f87171" : "2px solid #34d399" }} />}
-                    <p style={{ margin: "4px 0 0", fontSize: 11, color: failed ? "#f87171" : "#34d399", fontWeight: 600 }}>{eq?.name}</p>
-                    {failed && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#f87171" }}>⚠ Pending admin approval</p>}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {geoFailItems.length > 0 && (
-            <div style={{ ...S.card, background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.25)", marginBottom: 16 }}>
-              <p style={{ margin: 0, fontSize: 13, color: "#f87171", fontWeight: 600, marginBottom: 6 }}>⚠ Location mismatch — admin approval required</p>
-              {geoFailItems.map(({ ae, eq, distance }) => (
-                <p key={ae.eqId} style={{ margin: "3px 0 0", fontSize: 12, color: "#f87171" }}>
-                  {eq?.name || ae.eqId} — {distance !== null ? `${distance}m from pickup` : "GPS unavailable"}
-                </p>
-              ))}
-              <p style={{ margin: "8px 0 0", fontSize: 11, color: "#888" }}>These items will remain as "out" until admin approves the return.</p>
-            </div>
-          )}
-          <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center" }} onClick={reset}>{t("backToJobs")}</button>
-        </div>
-      );
-    }
-
-    if (phase === "photo_each") {
-      const currentAe = photoItems[currentItemIdx];
-      const currentEq = currentAe ? equipment.find(e => e.id === currentAe.eqId) : null;
-      const currentCaptured = currentAe ? itemPhotos[currentAe.eqId] : null;
-      const isLast = currentItemIdx >= photoItems.length - 1;
-      const allCaptured = photoItems.length > 0 && photoItems.every(ae => itemPhotos[ae.eqId]);
-      return (
-        <div style={{ ...S.main, maxWidth: 500 }}>
-          <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => { setPhase(photoMode === "pick" ? "pick" : "return"); setItemPhotos({}); }}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
-          <StepBar currentStep={photoMode === "pick" ? 0 : 2} />
-          {/* Progress */}
-          <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
-            {photoItems.map((ae, i) => {
-              const eq = equipment.find(e => e.id === ae.eqId);
-              const done = !!itemPhotos[ae.eqId];
-              return (
-                <div key={ae.eqId} onClick={() => setCurrentItemIdx(i)} style={{ flex: 1, padding: "6px 4px", borderRadius: 6, background: i === currentItemIdx ? "rgba(232,184,75,0.15)" : done ? "rgba(52,211,153,0.1)" : "#1a1e27", border: `1px solid ${i === currentItemIdx ? "#e8b84b" : done ? "#34d399" : "#252830"}`, cursor: "pointer", textAlign: "center" }}>
-                  <p style={{ margin: 0, fontSize: 9, fontWeight: 700, color: i === currentItemIdx ? "#e8b84b" : done ? "#34d399" : "#555", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{done ? "✓" : i + 1} {eq?.name?.split(" ").slice(0,2).join(" ")}</p>
-                </div>
-              );
-            })}
-          </div>
-          {/* Current item */}
-          <div style={{ ...S.card, marginBottom: 16, display: "flex", alignItems: "center", gap: 14 }}>
-            {currentEq?.photo && <img src={currentEq.photo} alt="" style={{ width: 56, height: 48, objectFit: "cover", borderRadius: 6 }} />}
-            <div>
-              <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{currentEq?.name}</p>
-              <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666" }}>{currentEq?.category} · {photoMode === "pick" ? "Pick up" : "Return"} photo {currentItemIdx + 1}/{photoItems.length}</p>
-            </div>
-          </div>
-          <div style={{ ...S.card, background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.15)", marginBottom: 16 }}>
-            <p style={{ margin: 0, fontSize: 12, color: "#f87171", display: "flex", gap: 8, alignItems: "center" }}><Icon d={icons.lock} size={14} /> {t("photoLiveWarning")}</p>
-          </div>
-          <GeoPhoto key={currentAe?.eqId + "-" + currentItemIdx} label={`${photoMode === "pick" ? "Pick-up" : "Return"} photo — ${currentEq?.name || ""}`} onCapture={(dataUrl, loc) => setItemPhotos(p => ({ ...p, [currentAe.eqId]: { dataUrl, location: loc } }))} />
-          {currentCaptured && !isLast && (
-            <button style={{ ...S.btn("primary"), width: "100%", marginTop: 16, justifyContent: "center" }} onClick={() => setCurrentItemIdx(i => i + 1)}>
-              Next Item → {photoItems[currentItemIdx + 1] && equipment.find(e => e.id === photoItems[currentItemIdx + 1]?.eqId)?.name}
-            </button>
-          )}
-          {allCaptured && (
-            <button style={{ ...S.btn("success"), width: "100%", marginTop: currentCaptured && !isLast ? 8 : 16, justifyContent: "center" }} onClick={submitCheckout}>
-              <Icon d={icons.check} size={15} /> {photoMode === "pick" ? t("confirmPickUp") : t("confirmReturn")} ({photoItems.length} items)
-            </button>
-          )}
-        </div>
-      );
-    }
-
-    // Checklist phase
     const isReturn = phase === "return";
+    const { pickedIds, returnedIds } = getJobCheckoutState(selectedJob);
+    // Pick: all assigned items that still exist. Return: only items currently OUT (picked, not returned).
+    const items = (selectedJob.assignedEquipment || []).filter(ae =>
+      equipment.some(e => e.id === ae.eqId) && (isReturn ? pickedIds.has(ae.eqId) : true)
+    );
+    const pendingReturn = (ae) => (adminRequests || []).some(r => r.type === "geo-return" && r.status === "pending" && r.jobId === selectedJob.id && r.eqId === ae.eqId);
+    const itemDone = (ae) => (isReturn ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId)) || itemResults[ae.eqId] === "ok" || (isReturn && pendingReturn(ae));
+    const allDone = items.length > 0 && items.every(itemDone);
+
+    // Per-item photo capture screen
+    if (captureAe) {
+      const eq = equipment.find(e => e.id === captureAe.eqId);
+      return (
+        <div style={{ ...S.main, maxWidth: 500 }}>
+          <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => setCaptureAe(null)}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
+          <div style={{ ...S.card, marginBottom: 16, display: "flex", alignItems: "center", gap: 14 }}>
+            {eq?.photo && <img src={eq.photo} alt="" style={{ width: 56, height: 48, objectFit: "cover", borderRadius: 6 }} />}
+            <div>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{eq?.name}</p>
+              <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666" }}>{isReturn ? "Return" : "Pick-up"} photo</p>
+            </div>
+          </div>
+          <GeoPhoto key={captureAe.eqId} label={`${isReturn ? "Return" : "Pick-up"} photo — ${eq?.name || ""}`} onCapture={(dataUrl, loc) => { commitItem(captureAe, dataUrl, loc); setCaptureAe(null); }} />
+        </div>
+      );
+    }
+
     return (
       <div style={{ ...S.main, maxWidth: 600 }}>
-        <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => { setSelectedJob(null); setPhase("select"); }}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
+        <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => { setSelectedJob(null); setPhase("select"); setItemResults({}); }}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
         <StepBar currentStep={isReturn ? 2 : 0} />
         <div style={{ ...S.card, marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{selectedJob.name}</h2>
           <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{selectedJob.production} · {selectedJob.location}{selectedJob.locationCity ? ` · ${selectedJob.locationCity}` : ""} · {selectedJob.shootTime}</p>
         </div>
-        <p style={S.sectionTitle}>{isReturn ? t("returnPhase") : t("pickPhase")} {t("tickWhenReady")}</p>
-        <div style={S.col}>
-          {(selectedJob.assignedEquipment || []).map(ae => {
-            const eq = equipment.find(e => e.id === ae.eqId);
-            if (!eq) return null;
-            const done = isReturn ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId);
-            const checked = done || !!checkedItems[ae.eqId];
-            return (
-              <div key={ae.eqId} style={{ ...S.card, background: "#0f1117", display: "flex", alignItems: "center", gap: 16, opacity: done ? 0.5 : 1 }}>
-                <div onClick={() => !done && toggleItem(ae.eqId)} style={{ width: 24, height: 24, borderRadius: 6, border: checked ? "none" : "2px solid #2e3340", background: checked ? "#e8b84b" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", cursor: done ? "default" : "pointer", flexShrink: 0 }}>
-                  {checked && <Icon d={icons.check} size={14} color="#0f1117" strokeW={3} />}
+        <p style={S.sectionTitle}>{isReturn ? "Tap each item to return" : "Tap each item to check out"}{photoVerification ? " · photo required" : ""}</p>
+        {items.length === 0 ? (
+          <p style={{ fontSize: 13, color: "#666" }}>{isReturn ? "No gear out to return for this job." : "Nothing to check out."}</p>
+        ) : (
+          <div style={S.col}>
+            {items.map(ae => {
+              const eq = equipment.find(e => e.id === ae.eqId);
+              const done = itemDone(ae);
+              const pend = isReturn && (itemResults[ae.eqId] === "pending" || pendingReturn(ae)) && !returnedIds.has(ae.eqId);
+              return (
+                <div key={ae.eqId} style={{ ...S.card, background: "#0f1117", display: "flex", alignItems: "center", gap: 14, opacity: done && !pend ? 0.6 : 1 }}>
+                  {eq.photo && <img src={eq.photo} alt="" style={{ width: 48, height: 40, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{eq.name}</p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666" }}>{eq.category} · {t("qty")}: {ae.qty}</p>
+                    {pend && <p style={{ margin: "3px 0 0", fontSize: 11, color: "#f87171", fontWeight: 600 }}>⚠ Sent for admin approval</p>}
+                  </div>
+                  {done ? (
+                    <span style={{ ...S.badge(pend ? "amber" : "green"), flexShrink: 0 }}>{pend ? "Pending" : (isReturn ? "✓ Returned" : "✓ Checked out")}</span>
+                  ) : (
+                    <button style={{ ...S.btn("primary"), flexShrink: 0, justifyContent: "center" }} onClick={() => onTapItem(ae)}>
+                      <Icon d={photoVerification ? icons.camera : icons.check} size={15} /> {photoVerification ? "Photo" : (isReturn ? "Return" : "Check out")}
+                    </button>
+                  )}
                 </div>
-                {eq.photo && <img src={eq.photo} alt="" style={{ width: 48, height: 40, objectFit: "cover", borderRadius: 6 }} />}
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{eq.name}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666" }}>{eq.category} · {t("qty")}: {ae.qty}{done ? ` · ${t("alreadyProcessed")}` : ""}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ marginTop: 20 }}>
-          {!allSelected && <p style={{ fontSize: 12, color: "#f87171", marginBottom: 12 }}>{t("tickAllWarning")}</p>}
-          <button style={{ ...S.btn(allSelected ? "primary" : "ghost"), width: "100%", justifyContent: "center" }} onClick={proceedToPhoto} disabled={!allSelected}>
-            <Icon d={icons.camera} size={15} /> {t("proceedPhoto")}
-          </button>
-        </div>
+              );
+            })}
+          </div>
+        )}
+        {allDone && (
+          <div style={{ ...S.card, background: "rgba(52,211,153,0.07)", border: "1px solid rgba(52,211,153,0.25)", marginTop: 16, textAlign: "center" }}>
+            <div style={{ fontSize: 38, marginBottom: 6 }}>{isReturn ? "🏁" : "✅"}</div>
+            <p style={{ margin: "0 0 12px", fontWeight: 700, color: "#34d399" }}>{isReturn ? "All gear returned!" : "All gear checked out!"}</p>
+            <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center" }} onClick={() => { setSelectedJob(null); setPhase("select"); setItemResults({}); }}>{t("backToJobs")}</button>
+          </div>
+        )}
       </div>
     );
   }
@@ -2689,6 +2571,36 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("todaysJobs")}</h1>
               <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{new Date().toLocaleDateString(lang === "th" ? "th-TH" : "en-GB", { weekday: "long", day: "2-digit", month: "long" })}</p>
             </div>
+
+            {/* Gear currently out — return any day (not just the shoot date) */}
+            {(() => {
+              const outJobs = jobs.filter(j => {
+                const { pickedIds, returnedIds } = getJobCheckoutState(j);
+                return (j.assignedEquipment || []).some(ae => pickedIds.has(ae.eqId) && !returnedIds.has(ae.eqId));
+              });
+              if (outJobs.length === 0) return null;
+              return (
+                <div style={{ ...S.card, background: "rgba(232,184,75,0.06)", border: "1px solid rgba(232,184,75,0.2)" }}>
+                  <p style={{ ...S.sectionTitle, marginBottom: 10 }}>🎬 {t("gearOutTitle")}</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {outJobs.map(job => {
+                      const { pickedIds, returnedIds } = getJobCheckoutState(job);
+                      const outCount = (job.assignedEquipment || []).filter(ae => pickedIds.has(ae.eqId) && !returnedIds.has(ae.eqId)).length;
+                      return (
+                        <div key={job.id} style={{ ...S.card, background: "#0f1117", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }} onClick={() => selectJob(job, true)}>
+                          <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{outCount} {t("outBadge")}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
+                          </div>
+                          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#e8b84b" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Stats — clickable, expand one at a time */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
@@ -4069,7 +3981,7 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
 }
 
 // ─── SETTINGS / EMPLOYEES PAGE ────────────────────────────────────────────────
-function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents, saveSettingsNow }) {
+function SettingsPage({ employees, setEmployees, companyName, setCompanyName, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, kpiConfig, setKpiConfig, punishments, setPunishments, kpiEvents, setKpiEvents, saveSettingsNow, photoVerification, setPhotoVerification }) {
   const [modal, setModal] = useState(null); // null | "add" | "edit" | "profile"
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", pin: "" });
@@ -4199,6 +4111,27 @@ function SettingsPage({ employees, setEmployees, companyName, setCompanyName, eq
               ))}
             </div>
             <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>Applies to call/wrap times shown on invoices.</p>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>📷 Checkout</p>
+        <div
+          onClick={() => setPhotoVerification(!photoVerification)}
+          style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: photoVerification ? "rgba(52,211,153,0.05)" : "rgba(255,255,255,0.03)", border: `1px solid ${photoVerification ? "rgba(52,211,153,0.2)" : "#252830"}`, cursor: "pointer", userSelect: "none" }}>
+          <div style={{ width: 36, height: 20, borderRadius: 10, background: photoVerification ? "#34d399" : "#444", position: "relative", flexShrink: 0, transition: "background .2s" }}>
+            <div style={{ position: "absolute", top: 2, left: photoVerification ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: photoVerification ? "#34d399" : "var(--text,#e8e4dc)" }}>
+              {photoVerification ? "Photo verification ON" : "Photo verification OFF"}
+            </p>
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)", lineHeight: 1.5 }}>
+              {photoVerification
+                ? "Crew take a photo of each item when checking out / returning. Return GPS is matched to pickup (within 50 m, else admin approval)."
+                : "Crew tap each item to check out / return instantly — no photo, no GPS check."}
+            </p>
           </div>
         </div>
       </div>
@@ -5000,6 +4933,7 @@ export default function App() {
   const [kpiConfig, setKpiConfig] = useState({ startDate: "", resetMonths: 12, maxPoints: 100 });
   const [punishments, setPunishments] = useState([]); // [{ id, label, points, description }]
   const [kpiEvents, setKpiEvents] = useState([]); // [{ id, employeeId, points, reason, punishmentId, ts, by }]
+  const [photoVerification, setPhotoVerification] = useState(true); // require a photo on checkout/return
   const [lineNotifyMuted, setLineNotifyMuted] = useState(() => { try { return localStorage.getItem("psr_notify_muted") === "1"; } catch { return false; } });
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState(false);
@@ -5043,6 +4977,7 @@ export default function App() {
         if (d.kpiConfig) setKpiConfig(d.kpiConfig);
         if (d.punishments) setPunishments(d.punishments);
         if (d.kpiEvents) setKpiEvents(d.kpiEvents);
+        if (d.photoVerification != null) setPhotoVerification(d.photoVerification);
         setCloudSynced(true);
       })
       .catch(() => {})
@@ -5055,18 +4990,18 @@ export default function App() {
     if (!loaded || !cloudSynced) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const savePayload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents };
+      const savePayload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification };
       if (lineGroupId !== null) savePayload.lineGroupId = lineGroupId;
       api.putData(savePayload)
         .then(() => setSaveErr(false))
         .catch(() => setSaveErr(true));
     }, 800);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, loaded, cloudSynced]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, loaded, cloudSynced]);
 
   // Immediate, awaitable save for the admin "Save" button — returns {ok} or {ok:false,error}.
   const saveSettingsNow = async () => {
     if (!loaded || !cloudSynced) return { ok: false, error: "Still syncing with the cloud — wait a moment, then try again." };
-    const payload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents };
+    const payload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification };
     if (lineGroupId !== null) payload.lineGroupId = lineGroupId;
     try {
       const res = await api.putData(payload);
@@ -5122,7 +5057,7 @@ export default function App() {
   };
 
   const createBackup = async () => {
-    const payload = { savedAt: new Date().toISOString(), equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, lineGroupId, timezone, timeFormat, kpiConfig, punishments, kpiEvents };
+    const payload = { savedAt: new Date().toISOString(), equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, lineGroupId, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification };
     const res = await api.putBackup(payload);
     if (res?.ok) { try { localStorage.setItem("psr_last_backup", payload.savedAt); } catch {} }
     return res;
@@ -5148,6 +5083,7 @@ export default function App() {
     if (d.kpiConfig) setKpiConfig(d.kpiConfig);
     if (d.punishments) setPunishments(d.punishments);
     if (d.kpiEvents) setKpiEvents(d.kpiEvents);
+    if (d.photoVerification != null) setPhotoVerification(d.photoVerification);
     return d.savedAt;
   };
 
@@ -5161,7 +5097,7 @@ export default function App() {
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} photoVerification={photoVerification} />
       ) : (
         <div id="admin-layout" style={S.app}>
           <AdminTopBar
@@ -5180,7 +5116,7 @@ export default function App() {
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
             {activePage === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} />}
-            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} saveSettingsNow={saveSettingsNow} />}
+            {activePage === "settings" && <SettingsPage employees={employees} setEmployees={setEmployees} companyName={companyName} setCompanyName={setCompanyName} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} punishments={punishments} setPunishments={setPunishments} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} saveSettingsNow={saveSettingsNow} photoVerification={photoVerification} setPhotoVerification={setPhotoVerification} />}
           </main>
           <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} />
         </div>
