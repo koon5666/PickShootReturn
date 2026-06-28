@@ -221,6 +221,31 @@ function StarRating({ value, size = 18 }) {
   );
 }
 
+// Downscale + JPEG-compress an image (File or dataURL) BEFORE it is stored in KV.
+// Photos from phones are multi-MB; this keeps the single `data` record and profile
+// records small (KV per-key cap is 25 MB). Returns a Promise<dataURL>.
+function compressImage(input, { maxDim = 1200, quality = 0.72 } = {}) {
+  return new Promise((resolve) => {
+    const draw = (src) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        try { resolve(canvas.toDataURL("image/jpeg", quality)); }
+        catch { resolve(typeof src === "string" ? src : null); }
+      };
+      img.onerror = () => resolve(typeof src === "string" ? src : null);
+      img.src = src;
+    };
+    if (typeof input === "string") draw(input);
+    else { const r = new FileReader(); r.onload = (e) => draw(e.target.result); r.onerror = () => resolve(null); r.readAsDataURL(input); }
+  });
+}
+
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 // CSS variables with fallbacks — admin layout overrides via #admin-layout selector.
 // Employee view never has #admin-layout so always uses the fallback (dark cinema).
@@ -600,7 +625,7 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts }) {
 
   const handlePhoto = (e) => {
     const f = e.target.files[0]; if (!f) return;
-    const r = new FileReader(); r.onload = (ev) => setForm(p => ({ ...p, photo: ev.target.result })); r.readAsDataURL(f);
+    compressImage(f, { maxDim: 1200, quality: 0.72 }).then(d => d && setForm(p => ({ ...p, photo: d })));
   };
 
   const save = () => {
@@ -2359,16 +2384,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
   const handleProfileUpload = (e) => {
     const f = e.target.files[0]; if (!f) return;
-    const r = new FileReader();
-    r.onload = (ev) => setProfilePhoto(ev.target.result);
-    r.readAsDataURL(f);
+    compressImage(f, { maxDim: 800, quality: 0.75 }).then(d => d && setProfilePhoto(d));
   };
 
-  const handleDocUpload = (setter) => (e) => {
+  const handleDocUpload = (setter, opts) => (e) => {
     const f = e.target.files[0]; if (!f) return;
-    const r = new FileReader();
-    r.onload = (ev) => setter(ev.target.result);
-    r.readAsDataURL(f);
+    compressImage(f, opts).then(d => d && setter(d));
   };
 
   const getJobCheckoutState = (job) => {
@@ -3027,9 +3048,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     <input ref={adminReqPhotoRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
                       const file = e.target.files?.[0];
                       if (!file) return;
-                      const reader = new FileReader();
-                      reader.onload = ev => setAdminReqForm(p => ({ ...p, photo: ev.target.result }));
-                      reader.readAsDataURL(file);
+                      compressImage(file, { maxDim: 1200, quality: 0.72 }).then(d => d && setAdminReqForm(p => ({ ...p, photo: d })));
                     }} />
                     <button style={S.btn("ghost")} onClick={() => adminReqPhotoRef.current?.click()}><Icon d={icons.photo} size={14} /> {adminReqForm.photo ? "Change Photo" : "Upload Photo"}</button>
                     {adminReqForm.photo && <img src={adminReqForm.photo} alt="preview" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 6, marginTop: 8 }} />}
@@ -3299,7 +3318,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   <label style={S.label}>{t("idCard")}</label>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                     {idCard && <img src={idCard} alt="ID" style={{ width: 100, height: 66, objectFit: "cover", borderRadius: 6, border: "1px solid #2e3340" }} />}
-                    <input ref={idCardRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDocUpload(setIdCard)} />
+                    <input ref={idCardRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDocUpload(setIdCard, { maxDim: 1400, quality: 0.72 })} />
                     <button style={S.btn("ghost")} onClick={() => idCardRef.current.click()}>
                       <Icon d={icons.photo} size={14} /> {idCard ? "Replace" : "Upload"}
                     </button>
@@ -3311,7 +3330,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   <label style={S.label}>{t("promptPayQR")}</label>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                     {promptPayQR && <img src={promptPayQR} alt="QR" style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff" }} />}
-                    <input ref={promptPayRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDocUpload(setPromptPayQR)} />
+                    <input ref={promptPayRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDocUpload(setPromptPayQR, { maxDim: 1000, quality: 0.85 })} />
                     <button style={S.btn("ghost")} onClick={() => promptPayRef.current.click()}>
                       <Icon d={icons.photo} size={14} /> {promptPayQR ? "Replace" : "Upload"}
                     </button>
@@ -3708,9 +3727,7 @@ function ReportModal({ employee, equipment, onSubmit, onClose }) {
 
   const addPhotos = (e) => {
     Array.from(e.target.files).forEach(f => {
-      const r = new FileReader();
-      r.onload = (ev) => setPhotos(p => [...p, ev.target.result]);
-      r.readAsDataURL(f);
+      compressImage(f, { maxDim: 1200, quality: 0.72 }).then(d => d && setPhotos(p => [...p, d]));
     });
     e.target.value = "";
   };
@@ -5018,6 +5035,28 @@ export default function App() {
         .catch(() => setSaveErr(true));
     }, 800);
   }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, loaded, cloudSynced]);
+
+  // One-time optimization: shrink oversized equipment photos already stored in KV.
+  // Runs once in an admin session after load and persists through the normal guarded
+  // save. Only ever replaces a photo with a strictly smaller one (never grows data).
+  const photosOptimizedRef = useRef(false);
+  useEffect(() => {
+    if (!loaded || !cloudSynced || photosOptimizedRef.current) return;
+    if (user?.role !== "admin") return;
+    const BIG = 300000; // ~225 KB+ of base64 → an uncompressed phone photo
+    if (!equipment.some(e => e.photo && e.photo.length > BIG)) { photosOptimizedRef.current = true; return; }
+    photosOptimizedRef.current = true;
+    (async () => {
+      const updated = [];
+      for (const e of equipment) {
+        if (e.photo && e.photo.length > BIG) {
+          const c = await compressImage(e.photo, { maxDim: 1200, quality: 0.72 });
+          updated.push(c && c.length < e.photo.length ? { ...e, photo: c } : e);
+        } else updated.push(e);
+      }
+      setEquipment(updated);
+    })();
+  }, [loaded, cloudSynced, user, equipment]);
 
   const unresolvedCount = reports.filter(r => r.status === "open").length;
   const pendingAdminRequests = (adminRequests || []).filter(r => r.status === "pending");
