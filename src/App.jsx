@@ -15,6 +15,8 @@ const api = {
   shareInvoice: (html) => fetch("/api/invoice-share", { method: "POST", headers: { "Content-Type": "text/html" }, body: html }).then(r => r.json()),
   getBackup: () => fetch("/api/backup").then(r => r.ok ? r.json() : null),
   putBackup: (body) => fetch("/api/backup", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  getBackupAuto: () => fetch("/api/backup_auto").then(r => r.ok ? r.json() : null),
+  putBackupAuto: (body) => fetch("/api/backup_auto", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 };
 
 // ─── ADMIN THEME SYSTEM ───────────────────────────────────────────────────────
@@ -5665,6 +5667,11 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [cloudSynced, setCloudSynced] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
+  // needsInit: KV returned all-null — could be new account or outage.
+  // Admin must explicitly click "Initialize" before auto-save is allowed.
+  const [needsInit, setNeedsInit] = useState(false);
+  // loadError: all 3 fetch attempts failed (network/server error).
+  const [loadError, setLoadError] = useState(false);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
   const [themeStyle, setThemeStyle] = useState(() => { try { return localStorage.getItem("psr_theme_style") || "glassmorphism"; } catch { return "glassmorphism"; } });
   const [themePalette, setThemePalette] = useState(() => { try { return localStorage.getItem("psr_theme_palette") || "black-yellow"; } catch { return "black-yellow"; } });
@@ -5690,33 +5697,55 @@ export default function App() {
     try { localStorage.setItem("psr_theme_style", themeStyle); localStorage.setItem("psr_theme_palette", themePalette); } catch {}
   }, [themeStyle, themePalette]);
 
-  // Load all data from cloud on mount
+  // Load all data from cloud on mount — up to 3 attempts with back-off.
+  // If all fields come back null, we block auto-save and require the admin
+  // to explicitly confirm initialization (prevents mistaking a KV outage
+  // for a brand-new empty account and overwriting real data).
   useEffect(() => {
-    api.getData()
-      .then(d => {
-        const kl = kvLoadedRef.current;
-        if (d.equipment) { setEquipment(d.equipment); kl.add("equipment"); }
-        if (d.jobs) { setJobs(d.jobs); kl.add("jobs"); }
-        if (d.checkouts) { setCheckouts(d.checkouts); kl.add("checkouts"); }
-        if (d.employees) { setEmployees(d.employees); kl.add("employees"); }
-        if (d.reports) { setReports(d.reports); kl.add("reports"); }
-        if (d.productionCompanies) { setProductionCompanies(d.productionCompanies); kl.add("productionCompanies"); }
-        if (d.invoices) { setInvoices(d.invoices); kl.add("invoices"); }
-        if (d.companyName != null) { setCompanyName(d.companyName); kl.add("companyName"); }
-        if (d.equipmentRequests) { setEquipmentRequests(d.equipmentRequests); kl.add("equipmentRequests"); }
-        if (d.adminRequests) { setAdminRequests(d.adminRequests); kl.add("adminRequests"); }
-        if (d.adminPin) { setAdminPin(d.adminPin); kl.add("adminPin"); }
-        if (d.lineGroupId) { setLineGroupId(d.lineGroupId); kl.add("lineGroupId"); }
-        if (d.timezone) { setTimezone(d.timezone); kl.add("timezone"); }
-        if (d.timeFormat) { setTimeFormat(d.timeFormat); kl.add("timeFormat"); }
-        if (d.kpiConfig) { setKpiConfig(d.kpiConfig); kl.add("kpiConfig"); }
-        if (d.punishments) { setPunishments(d.punishments); kl.add("punishments"); }
-        if (d.kpiEvents) { setKpiEvents(d.kpiEvents); kl.add("kpiEvents"); }
-        if (d.photoVerification != null) { setPhotoVerification(d.photoVerification); kl.add("photoVerification"); }
-        setCloudSynced(true);
-      })
-      .catch(() => {})
-      .finally(() => setLoaded(true));
+    const applyData = (d) => {
+      const kl = kvLoadedRef.current;
+      if (d.equipment) { setEquipment(d.equipment); kl.add("equipment"); }
+      if (d.jobs) { setJobs(d.jobs); kl.add("jobs"); }
+      if (d.checkouts) { setCheckouts(d.checkouts); kl.add("checkouts"); }
+      if (d.employees) { setEmployees(d.employees); kl.add("employees"); }
+      if (d.reports) { setReports(d.reports); kl.add("reports"); }
+      if (d.productionCompanies) { setProductionCompanies(d.productionCompanies); kl.add("productionCompanies"); }
+      if (d.invoices) { setInvoices(d.invoices); kl.add("invoices"); }
+      if (d.companyName != null) { setCompanyName(d.companyName); kl.add("companyName"); }
+      if (d.equipmentRequests) { setEquipmentRequests(d.equipmentRequests); kl.add("equipmentRequests"); }
+      if (d.adminRequests) { setAdminRequests(d.adminRequests); kl.add("adminRequests"); }
+      if (d.adminPin) { setAdminPin(d.adminPin); kl.add("adminPin"); }
+      if (d.lineGroupId) { setLineGroupId(d.lineGroupId); kl.add("lineGroupId"); }
+      if (d.timezone) { setTimezone(d.timezone); kl.add("timezone"); }
+      if (d.timeFormat) { setTimeFormat(d.timeFormat); kl.add("timeFormat"); }
+      if (d.kpiConfig) { setKpiConfig(d.kpiConfig); kl.add("kpiConfig"); }
+      if (d.punishments) { setPunishments(d.punishments); kl.add("punishments"); }
+      if (d.kpiEvents) { setKpiEvents(d.kpiEvents); kl.add("kpiEvents"); }
+      if (d.photoVerification != null) { setPhotoVerification(d.photoVerification); kl.add("photoVerification"); }
+    };
+    (async () => {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const d = await api.getData();
+          applyData(d);
+          if (kvLoadedRef.current.size === 0) {
+            // All fields null — show explicit init screen; do NOT set cloudSynced.
+            setNeedsInit(true);
+          } else {
+            setCloudSynced(true);
+          }
+          setLoaded(true);
+          return;
+        } catch {
+          if (attempt < 3) {
+            await new Promise(r => setTimeout(r, 1200 * attempt));
+          } else {
+            setLoadError(true);
+            setLoaded(true);
+          }
+        }
+      }
+    })();
   }, []);
 
   // Capture a reference snapshot of all state right after the initial KV load settles.
@@ -5741,8 +5770,10 @@ export default function App() {
     saveTimer.current = setTimeout(() => {
       const kl = kvLoadedRef.current;
       const snap = postLoadSnapRef.current;
-      const newAccount = kl.size === 0;
-      const safeSave = (key, val) => newAccount || kl.has(key) || (snap !== null && val !== snap[key]);
+      // kl.size === 0 means admin just initialized a fresh account (needsInit was shown
+      // and they clicked Initialize — initializeAccount() populated kl manually).
+      // The newAccount path no longer auto-triggers; initialization is always explicit.
+      const safeSave = (key, val) => kl.has(key) || (snap !== null && val !== snap[key]);
 
       const savePayload = {};
       if (safeSave("equipment", equipment)) savePayload.equipment = equipment;
@@ -5787,6 +5818,45 @@ export default function App() {
       return { ok: false, error: (e && e.message) ? e.message : "Network error — check your connection and try again." };
     }
   };
+
+  // Explicit account initialization — called when admin clicks "Initialize Account"
+  // on the needsInit screen. Writes the current (empty) state to KV, marks every
+  // field as loaded, then enables normal auto-save.
+  const initializeAccount = async () => {
+    const kl = kvLoadedRef.current;
+    const payload = {
+      equipment, jobs, checkouts, employees, reports, productionCompanies, invoices,
+      companyName, equipmentRequests, adminRequests, adminPin,
+      timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification,
+    };
+    try {
+      const res = await api.putData(payload);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      Object.keys(payload).forEach(k => kl.add(k));
+      setNeedsInit(false);
+      setCloudSynced(true);
+    } catch {
+      setSaveErr(true);
+    }
+  };
+
+  // Daily auto-backup — runs silently in the background once per admin session
+  // per 24-hour window. Writes to backup_auto (separate from the user's manual
+  // backup_manual key, which is never touched automatically).
+  const autoBackupDoneRef = useRef(false);
+  useEffect(() => {
+    if (!loaded || !cloudSynced || autoBackupDoneRef.current) return;
+    if (user?.role !== "admin") return;
+    if (kvLoadedRef.current.size === 0) return; // nothing to back up
+    autoBackupDoneRef.current = true;
+    const lastStr = (() => { try { return localStorage.getItem("psr_last_auto_backup"); } catch { return null; } })();
+    const last = lastStr ? +lastStr : 0;
+    if (Date.now() - last < 24 * 3600 * 1000) return;
+    const snapshot = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, savedAt: Date.now() };
+    api.putBackupAuto(snapshot).then(() => {
+      try { localStorage.setItem("psr_last_auto_backup", String(Date.now())); } catch {}
+    }).catch(() => {});
+  }, [loaded, cloudSynced, user]); // eslint-disable-line
 
   // One-time optimization: shrink oversized equipment photos already stored in KV.
   // Runs once in an admin session after load and persists through the normal guarded
@@ -5875,6 +5945,27 @@ export default function App() {
           <img src="/logo.png" alt="Pick Shoot Return" style={{ width: "min(72vw, 340px)", height: "auto", animation: "psrPulse 1.6s ease-in-out infinite" }} />
           <p style={{ color: "#666", fontSize: 13, letterSpacing: "0.12em" }}>{LANG[lang]?.loading || "LOADING…"}</p>
           <style>{"@keyframes psrPulse{0%,100%{opacity:.55}50%{opacity:1}}"}</style>
+        </div>
+      ) : loadError ? (
+        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
+          <div style={{ fontSize: 40 }}>⚠️</div>
+          <p style={{ color: "#f87171", fontSize: 17, fontWeight: 700, textAlign: "center" }}>Could Not Connect to Cloud Storage</p>
+          <p style={{ color: "#666", fontSize: 13, textAlign: "center", maxWidth: 320, lineHeight: 1.6 }}>
+            The app tried 3 times and could not reach the server. Your data has <strong style={{ color: "#e8b84b" }}>not been changed</strong>. Check your internet connection and try again.
+          </p>
+          <button onClick={() => window.location.reload()} style={{ marginTop: 8, padding: "12px 28px", background: "#e8b84b", color: "#0e0e08", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Retry</button>
+        </div>
+      ) : needsInit && user?.role === "admin" ? (
+        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
+          <div style={{ fontSize: 40 }}>🗄️</div>
+          <p style={{ color: "#f0f0dc", fontSize: 17, fontWeight: 700, textAlign: "center" }}>No Data Found in Cloud Storage</p>
+          <p style={{ color: "#8a8a68", fontSize: 13, textAlign: "center", maxWidth: 340, lineHeight: 1.6 }}>
+            All cloud storage fields came back empty. This is expected for a <strong style={{ color: "#e8b84b" }}>brand-new account</strong>.<br /><br />
+            If you <strong style={{ color: "#f87171" }}>previously had data</strong>, this may be a temporary connection issue — try reloading before clicking Initialize.
+          </p>
+          <button onClick={() => window.location.reload()} style={{ padding: "10px 24px", background: "transparent", color: "#8a8a68", border: "1px solid #353520", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Reload First</button>
+          <button onClick={initializeAccount} style={{ padding: "12px 28px", background: "#e8b84b", color: "#0e0e08", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Initialize Fresh Account</button>
+          {saveErr && <p style={{ color: "#f87171", fontSize: 12 }}>Save failed — check your connection and try again.</p>}
         </div>
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
