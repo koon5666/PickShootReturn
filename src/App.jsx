@@ -19,6 +19,8 @@ const api = {
   putBackupAuto: (body) => fetch("/api/backup_auto", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 };
 
+const CACHE_KEY = "psr_cache"; // localStorage key for offline fallback cache
+
 // ─── ADMIN THEME SYSTEM ───────────────────────────────────────────────────────
 const PALETTES = {
   "black-white":  { bg: "#111", s1: "#1e1e1e", s2: "#2b2b2b", bdr: "#3a3a3a", text: "#f0f0f0", muted: "#888", acc: "#e0e0e0", accT: "#111" },
@@ -497,6 +499,8 @@ const LANG = {
     statusConfirmed: "Confirmed", statusPencil: "Pencil", statusCancelled: "Cancelled",
     dashNoJobsCategory: "No jobs in this category.",
     dashEqOutToday: "Equipment Out Today", dashAllAvail: "✓ All equipment available.",
+    dashStillOut: "Not Returned", dashStillOutOverdue: "OVERDUE", dashStillOutActive: "OUT",
+    dashStillOutEmpty: "✓ All gear has been returned.",
     dashRecentActivity: "Recent Activity", dashNoActivity: "No activity recorded yet.",
     dashPicked: "PICKED", dashReturned: "RETURNED",
     dashGearRequests: "Gear Requests", dashNoRequests: "No requests yet.",
@@ -731,6 +735,8 @@ const LANG = {
     statusConfirmed: "ยืนยัน", statusPencil: "ดินสอ", statusCancelled: "ยกเลิก",
     dashNoJobsCategory: "ไม่มีงานในหมวดนี้",
     dashEqOutToday: "อุปกรณ์ออกวันนี้", dashAllAvail: "✓ อุปกรณ์ทุกชิ้นว่างอยู่",
+    dashStillOut: "ยังไม่ได้คืน", dashStillOutOverdue: "เกินกำหนด", dashStillOutActive: "ออกอยู่",
+    dashStillOutEmpty: "✓ อุปกรณ์ทุกชิ้นถูกคืนแล้ว",
     dashRecentActivity: "กิจกรรมล่าสุด", dashNoActivity: "ยังไม่มีกิจกรรม",
     dashPicked: "รับแล้ว", dashReturned: "คืนแล้ว",
     dashGearRequests: "คำขอยืมอุปกรณ์", dashNoRequests: "ยังไม่มีคำขอ",
@@ -2234,6 +2240,26 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   const pencilJobs = jobs.filter(j => j.status === "Pencil");
   const avList = calcAvailable(equipment, jobs, checkouts, todayStr);
   const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
+
+  // Gear that was picked up but never returned — grouped by job
+  const stillOutItems = (() => {
+    const results = [];
+    jobs.forEach(job => {
+      const jobCheckouts = checkouts.filter(c => c.jobId === job.id);
+      const pickedIds = new Set(jobCheckouts.filter(c => c.type === "pick" || c.type === "checkout").map(c => c.eqId));
+      const returnedIds = new Set(jobCheckouts.filter(c => c.type === "return").map(c => c.eqId));
+      const outIds = [...pickedIds].filter(id => !returnedIds.has(id));
+      const lastJobDate = job.dates.length ? job.dates[job.dates.length - 1] : null;
+      const overdue = lastJobDate ? lastJobDate < todayStr : false;
+      outIds.forEach(eqId => {
+        const eq = equipment.find(e => e.id === eqId);
+        const pickEvent = jobCheckouts.filter(c => (c.type === "pick" || c.type === "checkout") && c.eqId === eqId).sort((a, b) => b.ts - a.ts)[0];
+        if (eq) results.push({ job, eq, pickedBy: pickEvent?.employeeName || "—", pickedAt: pickEvent?.ts || 0, overdue });
+      });
+    });
+    return results.sort((a, b) => (b.overdue ? 1 : 0) - (a.overdue ? 1 : 0) || b.pickedAt - a.pickedAt);
+  })();
+
   const [expandedStat, setExpandedStat] = useState(null);
   const [dashJobModal, setDashJobModal] = useState(null);
   const [dashReqModal, setDashReqModal] = useState(null);
@@ -2367,6 +2393,37 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           </div>
         );
       })()}
+
+      {/* Still Out */}
+      <div style={{ ...S.card, border: stillOutItems.some(i => i.overdue) ? "1px solid rgba(248,113,113,0.35)" : "1px solid #252830" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stillOutItems.length ? 10 : 0 }}>
+          <p style={{ ...S.sectionTitle, margin: 0 }}>{t("dashStillOut")}</p>
+          {stillOutItems.length > 0 && (
+            <span style={{ fontSize: 11, color: "#8a8f9d" }}>{stillOutItems.length} item{stillOutItems.length !== 1 ? "s" : ""}</span>
+          )}
+        </div>
+        {stillOutItems.length === 0
+          ? <p style={{ color: "#34d399", fontSize: 13, margin: 0 }}>{t("dashStillOutEmpty")}</p>
+          : stillOutItems.map((item, idx, arr) => {
+              const ago = (() => {
+                const diffMs = Date.now() - item.pickedAt;
+                const h = Math.floor(diffMs / 3600000);
+                const d = Math.floor(diffMs / 86400000);
+                return d > 0 ? `${d}d ago` : h > 0 ? `${h}h ago` : "just now";
+              })();
+              return (
+                <div key={`${item.job.id}-${item.eq.id}`} style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: idx < arr.length - 1 ? 10 : 0, marginBottom: idx < arr.length - 1 ? 10 : 0, borderBottom: idx < arr.length - 1 ? "1px solid #252830" : "none" }}>
+                  <span style={{ ...S.badge(item.overdue ? "red" : "amber"), flexShrink: 0 }}>{t(item.overdue ? "dashStillOutOverdue" : "dashStillOutActive")}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.eq.name}</div>
+                    <div style={{ fontSize: 11, color: "#8a8f9d", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.job.name} · {item.pickedBy}</div>
+                  </div>
+                  <span style={{ fontSize: 11, color: item.overdue ? "#f87171" : "#6b7280", flexShrink: 0 }}>{ago}</span>
+                </div>
+              );
+            })
+        }
+      </div>
 
       {/* Recent activity */}
       <div style={S.card}>
@@ -2714,7 +2771,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, photoVerification = true, saveNow }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, photoVerification = true, saveNow, offlineMode }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | report | invoice
@@ -3028,6 +3085,15 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           </button>
         </div>
       </header>
+
+      {offlineMode && (
+        <div style={{ background: "rgba(232,184,75,0.12)", borderBottom: "1px solid rgba(232,184,75,0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 13 }}>⚠️</span>
+          <p style={{ margin: 0, fontSize: 12, color: "#e8b84b", lineHeight: 1.4 }}>
+            <strong>Offline</strong> — cached data only. Checkouts will not save until connection returns.
+          </p>
+        </div>
+      )}
 
       {showReportModal && (
         <ReportModal employee={employee} equipment={equipment} onSubmit={(report) => {
@@ -5692,7 +5758,7 @@ function ThemeSelector({ themeStyle, setThemeStyle, themePalette, setThemePalett
 }
 
 // ─── ADMIN TOP BAR ────────────────────────────────────────────────────────────
-function AdminTopBar({ onLogout, saveErr, companyName, onOpenSettings, notifItems }) {
+function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettings, notifItems }) {
   const t = useT();
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef(null);
@@ -5716,7 +5782,8 @@ function AdminTopBar({ onLogout, saveErr, companyName, onOpenSettings, notifItem
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        {saveErr && <span title="Sync error" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
+        {offlineMode && <span title="Using cached data — reconnecting" style={{ fontSize: 10, color: "#e8b84b", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ OFFLINE</span>}
+        {!offlineMode && saveErr && <span title="Sync error — retrying" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
 
         {/* Notification bell */}
         <div ref={notifRef} style={{ position: "relative" }}>
@@ -6026,8 +6093,13 @@ export default function App() {
   // needsInit: KV returned all-null — could be new account or outage.
   // Admin must explicitly click "Initialize" before auto-save is allowed.
   const [needsInit, setNeedsInit] = useState(false);
-  // loadError: all 3 fetch attempts failed (network/server error).
+  // loadError: all 3 fetch attempts failed AND no localStorage cache available.
   const [loadError, setLoadError] = useState(false);
+  // offlineMode: KV failed but we loaded successfully from localStorage cache.
+  // cloudSynced stays false so no writes go to KV until reconnection succeeds.
+  const [offlineMode, setOfflineMode] = useState(false);
+  // Holds the last savePayload that failed — drained by the online-retry effect.
+  const pendingSaveRef = useRef(null);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
   const [themeStyle, setThemeStyle] = useState(() => { try { return localStorage.getItem("psr_theme_style") || "glassmorphism"; } catch { return "glassmorphism"; } });
   const [themePalette, setThemePalette] = useState(() => { try { return localStorage.getItem("psr_theme_palette") || "black-yellow"; } catch { return "black-yellow"; } });
@@ -6054,38 +6126,45 @@ export default function App() {
     try { localStorage.setItem("psr_theme_style", themeStyle); localStorage.setItem("psr_theme_palette", themePalette); } catch {}
   }, [themeStyle, themePalette]);
 
+  // Stable data-apply function — used by both the initial load and the offline reconnect loop.
+  // setState functions are guaranteed stable so [] deps is correct.
+  const applyData = useCallback((d) => {
+    const kl = kvLoadedRef.current;
+    if (d.equipment) { setEquipment(d.equipment); kl.add("equipment"); }
+    if (d.jobs) { setJobs(d.jobs); kl.add("jobs"); }
+    if (d.checkouts) { setCheckouts(d.checkouts); kl.add("checkouts"); }
+    if (d.employees) { setEmployees(d.employees); kl.add("employees"); }
+    if (d.reports) { setReports(d.reports); kl.add("reports"); }
+    if (d.productionCompanies) { setProductionCompanies(d.productionCompanies); kl.add("productionCompanies"); }
+    if (d.invoices) { setInvoices(d.invoices); kl.add("invoices"); }
+    if (d.companyName != null) { setCompanyName(d.companyName); kl.add("companyName"); }
+    if (d.equipmentRequests) { setEquipmentRequests(d.equipmentRequests); kl.add("equipmentRequests"); }
+    if (d.adminRequests) { setAdminRequests(d.adminRequests); kl.add("adminRequests"); }
+    if (d.adminPin) { setAdminPin(d.adminPin); kl.add("adminPin"); }
+    if (d.lineGroupId) { setLineGroupId(d.lineGroupId); kl.add("lineGroupId"); }
+    if (d.timezone) { setTimezone(d.timezone); kl.add("timezone"); }
+    if (d.timeFormat) { setTimeFormat(d.timeFormat); kl.add("timeFormat"); }
+    if (d.kpiConfig) { setKpiConfig(d.kpiConfig); kl.add("kpiConfig"); }
+    if (d.punishments) { setPunishments(d.punishments); kl.add("punishments"); }
+    if (d.kpiEvents) { setKpiEvents(d.kpiEvents); kl.add("kpiEvents"); }
+    if (d.photoVerification != null) { setPhotoVerification(d.photoVerification); kl.add("photoVerification"); }
+    if (d.navOrder) { setNavOrder(d.navOrder); kl.add("navOrder"); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load all data from cloud on mount — up to 3 attempts with back-off.
+  // On success: write a full-state cache to localStorage (Phase 1 cache write).
+  // On total failure: fall back to localStorage cache so the app stays usable offline.
   // If all fields come back null, we block auto-save and require the admin
   // to explicitly confirm initialization (prevents mistaking a KV outage
   // for a brand-new empty account and overwriting real data).
   useEffect(() => {
-    const applyData = (d) => {
-      const kl = kvLoadedRef.current;
-      if (d.equipment) { setEquipment(d.equipment); kl.add("equipment"); }
-      if (d.jobs) { setJobs(d.jobs); kl.add("jobs"); }
-      if (d.checkouts) { setCheckouts(d.checkouts); kl.add("checkouts"); }
-      if (d.employees) { setEmployees(d.employees); kl.add("employees"); }
-      if (d.reports) { setReports(d.reports); kl.add("reports"); }
-      if (d.productionCompanies) { setProductionCompanies(d.productionCompanies); kl.add("productionCompanies"); }
-      if (d.invoices) { setInvoices(d.invoices); kl.add("invoices"); }
-      if (d.companyName != null) { setCompanyName(d.companyName); kl.add("companyName"); }
-      if (d.equipmentRequests) { setEquipmentRequests(d.equipmentRequests); kl.add("equipmentRequests"); }
-      if (d.adminRequests) { setAdminRequests(d.adminRequests); kl.add("adminRequests"); }
-      if (d.adminPin) { setAdminPin(d.adminPin); kl.add("adminPin"); }
-      if (d.lineGroupId) { setLineGroupId(d.lineGroupId); kl.add("lineGroupId"); }
-      if (d.timezone) { setTimezone(d.timezone); kl.add("timezone"); }
-      if (d.timeFormat) { setTimeFormat(d.timeFormat); kl.add("timeFormat"); }
-      if (d.kpiConfig) { setKpiConfig(d.kpiConfig); kl.add("kpiConfig"); }
-      if (d.punishments) { setPunishments(d.punishments); kl.add("punishments"); }
-      if (d.kpiEvents) { setKpiEvents(d.kpiEvents); kl.add("kpiEvents"); }
-      if (d.photoVerification != null) { setPhotoVerification(d.photoVerification); kl.add("photoVerification"); }
-      if (d.navOrder) { setNavOrder(d.navOrder); kl.add("navOrder"); }
-    };
     (async () => {
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           const d = await api.getData();
           applyData(d);
+          // Phase 1: write fresh KV data to localStorage cache on every successful load
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch {}
           if (kvLoadedRef.current.size === 0) {
             // All fields null — show explicit init screen; do NOT set cloudSynced.
             setNeedsInit(true);
@@ -6098,13 +6177,27 @@ export default function App() {
           if (attempt < 3) {
             await new Promise(r => setTimeout(r, 1200 * attempt));
           } else {
+            // All 3 KV attempts failed — try loading from localStorage cache.
+            try {
+              const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+              if (cached && typeof cached === "object") {
+                applyData(cached);
+                if (kvLoadedRef.current.size > 0) {
+                  // Cache had real data — go to offline mode (cloudSynced stays false)
+                  setOfflineMode(true);
+                  setLoaded(true);
+                  return;
+                }
+              }
+            } catch {}
+            // No cache either — show the hard error screen
             setLoadError(true);
             setLoaded(true);
           }
         }
       }
     })();
-  }, []);
+  }, [applyData]);
 
   // Capture a reference snapshot of all state right after the initial KV load settles.
   // Runs once when both loaded and cloudSynced first become true (before the save effect below).
@@ -6115,6 +6208,24 @@ export default function App() {
     snapTakenRef.current = true;
     postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId };
   }, [loaded, cloudSynced]); // intentionally omits data deps — captures post-load state once
+
+  // Phase 1 reconnect loop: when offlineMode is active, poll every 20s and on the
+  // browser's "online" event. On success, reload the page so KV data is applied cleanly.
+  useEffect(() => {
+    if (!offlineMode) return;
+    const tryReconnect = async () => {
+      try {
+        const d = await api.getData();
+        if (d && typeof d === "object") {
+          try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch {}
+          window.location.reload();
+        }
+      } catch {}
+    };
+    window.addEventListener("online", tryReconnect);
+    const interval = setInterval(tryReconnect, 20000);
+    return () => { window.removeEventListener("online", tryReconnect); clearInterval(interval); };
+  }, [offlineMode]);
 
   // Save to cloud whenever data changes (debounced 800ms).
   // Triple guard: loaded + cloudSynced + field-level safety check.
@@ -6156,11 +6267,45 @@ export default function App() {
       if (lineGroupId !== null && safeSave("lineGroupId", lineGroupId)) savePayload.lineGroupId = lineGroupId;
 
       if (Object.keys(savePayload).length === 0) return;
-      api.putData(savePayload)
-        .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); setSaveErr(false); })
-        .catch(() => setSaveErr(true));
-    }, 800);
+      // Phase 1: build a full-state snapshot for the cache (saved on every success)
+      const fullSnapshot = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId };
+      const onSuccess = () => {
+        setSaveErr(false);
+        pendingSaveRef.current = null;
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(fullSnapshot)); } catch {}
+      };
+      const onFail = () => {
+        setSaveErr(true);
+        // Phase 2: remember the failed payload so the retry effect can drain it
+        pendingSaveRef.current = savePayload;
+      };
+      // Retry once after 3s before showing the error — absorbs transient network blips
+      // and Cloudflare Worker cold starts without alarming the user.
+      const tryPut = () => api.putData(savePayload).then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); });
+      tryPut()
+        .then(onSuccess)
+        .catch(() => new Promise(r => setTimeout(r, 3000)).then(tryPut)
+          .then(onSuccess)
+          .catch(onFail));
+    }, 1500);
   }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, loaded, cloudSynced]);
+
+  // Phase 2: when a save has failed, retry automatically when the browser comes back online
+  // or every 30 seconds. This drains without user action and clears the ⚠ SYNC indicator.
+  useEffect(() => {
+    if (!saveErr) return;
+    const retryPending = () => {
+      const payload = pendingSaveRef.current;
+      if (!payload || !navigator.onLine) return;
+      api.putData(payload)
+        .then(res => { if (!res.ok) throw new Error(); })
+        .then(() => { setSaveErr(false); pendingSaveRef.current = null; })
+        .catch(() => {}); // will retry on next event or interval
+    };
+    window.addEventListener("online", retryPending);
+    const interval = setInterval(retryPending, 30000);
+    return () => { window.removeEventListener("online", retryPending); clearInterval(interval); };
+  }, [saveErr]);
 
   // Immediate, awaitable save for the admin "Save" button — returns {ok} or {ok:false,error}.
   const saveSettingsNow = async () => {
@@ -6329,16 +6474,25 @@ export default function App() {
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} photoVerification={photoVerification} saveNow={saveSettingsNow} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} photoVerification={photoVerification} saveNow={saveSettingsNow} offlineMode={offlineMode} />
       ) : (
         <div id="admin-layout" style={S.app}>
           <AdminTopBar
             onLogout={() => setUser(null)}
             saveErr={saveErr}
+            offlineMode={offlineMode}
             companyName={companyName}
             onOpenSettings={() => setSettingsPanelOpen(true)}
             notifItems={notifItems}
           />
+          {offlineMode && (
+            <div style={{ background: "rgba(232,184,75,0.12)", borderBottom: "1px solid rgba(232,184,75,0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13 }}>⚠️</span>
+              <p style={{ margin: 0, fontSize: 12, color: "#e8b84b", lineHeight: 1.4 }}>
+                <strong>Offline</strong> — showing cached data. Changes will not be saved until connection is restored. Reconnecting automatically…
+              </p>
+            </div>
+          )}
           <main style={{ ...S.main, paddingBottom: 80 }}>
             {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} />}
