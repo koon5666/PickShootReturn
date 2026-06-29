@@ -1,26 +1,9 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
-const INITIAL_EMPLOYEES = [
-  { id: "e1", name: "Somchai", pin: "1111" },
-  { id: "e2", name: "Nong", pin: "2222" },
-  { id: "e3", name: "Arthit", pin: "3333" },
-];
-
 const JOB_STATUSES = ["Pencil", "Confirmed", "Cancelled"];
 const SHOOT_TIMES = ["Day", "Night", "Half Day / Half Night", "Half Night / Half Day"];
 const LOCATIONS = ["Local (Bangkok)", "Out of Town", "Overseas"];
-
-const SAMPLE_EQUIPMENT = [
-  { id: "eq1", name: "ARRI Alexa Mini LF", category: "Camera", total: 1, photo: null, notes: "Main camera body" },
-  { id: "eq2", name: "Steadicam Rig", category: "Stabilizer", total: 1, photo: null, notes: "Full rig with vest & arm" },
-  { id: "eq3", name: "Gold Mount Battery", category: "Power", total: 8, photo: null, notes: "Anton Bauer" },
-  { id: "eq4", name: "V-Mount Battery", category: "Power", total: 4, photo: null, notes: "IDX" },
-  { id: "eq5", name: "Cooke S4/i Prime Set", category: "Lens", total: 1, photo: null, notes: "5 lenses: 18, 25, 32, 50, 75mm" },
-  { id: "eq6", name: "Follow Focus", category: "Accessories", total: 2, photo: null, notes: "Preston MDR4" },
-  { id: "eq7", name: "Monitor - SmallHD 703", category: "Monitor", total: 2, photo: null, notes: "" },
-  { id: "eq8", name: "Matte Box", category: "Accessories", total: 1, photo: null, notes: "MB-T06" },
-];
 
 // ─── CLOUD API ───────────────────────────────────────────────────────────────
 const api = {
