@@ -5660,10 +5660,10 @@ export default function App() {
   useEffect(() => { try { user ? localStorage.setItem("psr_user", JSON.stringify(user)) : localStorage.removeItem("psr_user"); } catch {} }, [user]);
   const [activePage, setActivePage] = useState("dashboard");
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
-  const [equipment, setEquipment] = useState(SAMPLE_EQUIPMENT);
+  const [equipment, setEquipment] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [checkouts, setCheckouts] = useState([]);
-  const [employees, setEmployees] = useState(INITIAL_EMPLOYEES);
+  const [employees, setEmployees] = useState([]);
   const [reports, setReports] = useState([]);
   const [productionCompanies, setProductionCompanies] = useState([]);
   const [invoices, setInvoices] = useState([]);
@@ -5686,6 +5686,13 @@ export default function App() {
   const [themeStyle, setThemeStyle] = useState(() => { try { return localStorage.getItem("psr_theme_style") || "glassmorphism"; } catch { return "glassmorphism"; } });
   const [themePalette, setThemePalette] = useState(() => { try { return localStorage.getItem("psr_theme_palette") || "black-yellow"; } catch { return "black-yellow"; } });
   const saveTimer = useRef(null);
+  // kvLoadedRef tracks which fields actually came back non-null from KV on the initial load.
+  // postLoadSnapRef holds a reference snapshot of state right after load settles.
+  // Together they allow the save effect to skip fields that were never loaded (preventing
+  // initial defaults from overwriting real KV data when a field comes back null).
+  const kvLoadedRef = useRef(new Set());
+  const postLoadSnapRef = useRef(null);
+  const snapTakenRef = useRef(false);
 
   useEffect(() => { try { localStorage.setItem("psr_lang", lang); } catch {} }, [lang]);
 
@@ -5704,38 +5711,78 @@ export default function App() {
   useEffect(() => {
     api.getData()
       .then(d => {
-        if (d.equipment) setEquipment(d.equipment);
-        if (d.jobs) setJobs(d.jobs);
-        if (d.checkouts) setCheckouts(d.checkouts);
-        if (d.employees) setEmployees(d.employees);
-        if (d.reports) setReports(d.reports);
-        if (d.productionCompanies) setProductionCompanies(d.productionCompanies);
-        if (d.invoices) setInvoices(d.invoices);
-        if (d.companyName != null) setCompanyName(d.companyName);
-        if (d.equipmentRequests) setEquipmentRequests(d.equipmentRequests);
-        if (d.adminRequests) setAdminRequests(d.adminRequests);
-        if (d.adminPin) setAdminPin(d.adminPin);
-        if (d.lineGroupId) setLineGroupId(d.lineGroupId);
-        if (d.timezone) setTimezone(d.timezone);
-        if (d.timeFormat) setTimeFormat(d.timeFormat);
-        if (d.kpiConfig) setKpiConfig(d.kpiConfig);
-        if (d.punishments) setPunishments(d.punishments);
-        if (d.kpiEvents) setKpiEvents(d.kpiEvents);
-        if (d.photoVerification != null) setPhotoVerification(d.photoVerification);
+        const kl = kvLoadedRef.current;
+        if (d.equipment) { setEquipment(d.equipment); kl.add("equipment"); }
+        if (d.jobs) { setJobs(d.jobs); kl.add("jobs"); }
+        if (d.checkouts) { setCheckouts(d.checkouts); kl.add("checkouts"); }
+        if (d.employees) { setEmployees(d.employees); kl.add("employees"); }
+        if (d.reports) { setReports(d.reports); kl.add("reports"); }
+        if (d.productionCompanies) { setProductionCompanies(d.productionCompanies); kl.add("productionCompanies"); }
+        if (d.invoices) { setInvoices(d.invoices); kl.add("invoices"); }
+        if (d.companyName != null) { setCompanyName(d.companyName); kl.add("companyName"); }
+        if (d.equipmentRequests) { setEquipmentRequests(d.equipmentRequests); kl.add("equipmentRequests"); }
+        if (d.adminRequests) { setAdminRequests(d.adminRequests); kl.add("adminRequests"); }
+        if (d.adminPin) { setAdminPin(d.adminPin); kl.add("adminPin"); }
+        if (d.lineGroupId) { setLineGroupId(d.lineGroupId); kl.add("lineGroupId"); }
+        if (d.timezone) { setTimezone(d.timezone); kl.add("timezone"); }
+        if (d.timeFormat) { setTimeFormat(d.timeFormat); kl.add("timeFormat"); }
+        if (d.kpiConfig) { setKpiConfig(d.kpiConfig); kl.add("kpiConfig"); }
+        if (d.punishments) { setPunishments(d.punishments); kl.add("punishments"); }
+        if (d.kpiEvents) { setKpiEvents(d.kpiEvents); kl.add("kpiEvents"); }
+        if (d.photoVerification != null) { setPhotoVerification(d.photoVerification); kl.add("photoVerification"); }
         setCloudSynced(true);
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
   }, []);
 
-  // Save to cloud whenever data changes (debounced 800ms)
-  // cloudSynced guards against overwriting KV with initial defaults if the load request fails
+  // Capture a reference snapshot of all state right after the initial KV load settles.
+  // Runs once when both loaded and cloudSynced first become true (before the save effect below).
+  // The snapshot lets the save effect detect user changes via reference inequality.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!loaded || !cloudSynced || snapTakenRef.current) return;
+    snapTakenRef.current = true;
+    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, lineGroupId };
+  }, [loaded, cloudSynced]); // intentionally omits data deps — captures post-load state once
+
+  // Save to cloud whenever data changes (debounced 800ms).
+  // Triple guard: loaded + cloudSynced + field-level safety check.
+  // safeSave(key, val) returns true if the field should be included in the payload:
+  //   - it was loaded from KV (kvLoadedRef), OR
+  //   - it changed from the post-load snapshot (user modified it), OR
+  //   - it's a brand-new account (all KV keys were null → safe to write initial state)
   useEffect(() => {
     if (!loaded || !cloudSynced) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const savePayload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification };
-      if (lineGroupId !== null) savePayload.lineGroupId = lineGroupId;
+      const kl = kvLoadedRef.current;
+      const snap = postLoadSnapRef.current;
+      const newAccount = kl.size === 0;
+      const safeSave = (key, val) => newAccount || kl.has(key) || (snap !== null && val !== snap[key]);
+
+      const savePayload = {};
+      if (safeSave("equipment", equipment)) savePayload.equipment = equipment;
+      if (safeSave("jobs", jobs)) savePayload.jobs = jobs;
+      if (safeSave("checkouts", checkouts)) savePayload.checkouts = checkouts;
+      if (safeSave("employees", employees)) savePayload.employees = employees;
+      if (safeSave("reports", reports)) savePayload.reports = reports;
+      if (safeSave("productionCompanies", productionCompanies)) savePayload.productionCompanies = productionCompanies;
+      if (safeSave("invoices", invoices)) savePayload.invoices = invoices;
+      if (safeSave("companyName", companyName)) savePayload.companyName = companyName;
+      if (safeSave("equipmentRequests", equipmentRequests)) savePayload.equipmentRequests = equipmentRequests;
+      if (safeSave("adminRequests", adminRequests)) savePayload.adminRequests = adminRequests;
+      if (safeSave("adminPin", adminPin)) savePayload.adminPin = adminPin;
+      if (safeSave("timezone", timezone)) savePayload.timezone = timezone;
+      if (safeSave("timeFormat", timeFormat)) savePayload.timeFormat = timeFormat;
+      if (safeSave("kpiConfig", kpiConfig)) savePayload.kpiConfig = kpiConfig;
+      if (safeSave("punishments", punishments)) savePayload.punishments = punishments;
+      if (safeSave("kpiEvents", kpiEvents)) savePayload.kpiEvents = kpiEvents;
+      if (safeSave("photoVerification", photoVerification)) savePayload.photoVerification = photoVerification;
+      // lineGroupId: null means "don't touch KV"; only save if truthy or user cleared it
+      if (lineGroupId !== null && safeSave("lineGroupId", lineGroupId)) savePayload.lineGroupId = lineGroupId;
+
+      if (Object.keys(savePayload).length === 0) return;
       api.putData(savePayload)
         .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); setSaveErr(false); })
         .catch(() => setSaveErr(true));
