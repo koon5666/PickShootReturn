@@ -1350,9 +1350,39 @@ function fmtMoney(v) {
   return n > 0 ? n.toLocaleString() : null;
 }
 
+function calcVatBreakdown(inv) {
+  const rawItems = inv.items?.length ? inv.items : [
+    { description: "Labor Fee", qty: 1, rate: inv.laborFee || 0, vat: true },
+    { description: "Overtime", qty: 1, rate: inv.overtime || 0, vat: true },
+    { description: "Travel Fee", qty: 1, rate: inv.travelFee || 0, vat: true },
+    { description: "Per Diem", qty: 1, rate: inv.perDiem || 0, vat: true },
+  ].filter(it => parseFloat(it.rate) > 0);
+  let subtotal = 0, vatAmount = 0;
+  rawItems.forEach(it => {
+    const qty = parseFloat(it.qty) || 0;
+    const rate = parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0;
+    const line = qty * rate;
+    const hasVat = inv.vatEnabled && it.vat !== false;
+    if (hasVat) {
+      if (inv.vatType === "inclusive") {
+        const exVat = line / 1.07;
+        subtotal += exVat;
+        vatAmount += line - exVat;
+      } else {
+        subtotal += line;
+        vatAmount += line * 0.07;
+      }
+    } else {
+      subtotal += line;
+    }
+  });
+  return { subtotal, vatAmount, total: subtotal + vatAmount };
+}
+
 function calcTotal(inv) {
+  if (inv.vatEnabled) return calcVatBreakdown(inv).total;
   if (inv.items?.length) {
-    return inv.items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat(it.rate) || 0), 0);
+    return inv.items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0), 0);
   }
   // legacy format
   return [inv.laborFee, inv.overtime, inv.travelFee, inv.perDiem]
@@ -1435,12 +1465,14 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   const statusColor = invoice.status === "Paid" ? "#065f46" : "#92400e";
   const statusBg = invoice.status === "Paid" ? "#d1fae5" : "#fef3c7";
 
+  const hasMixedVat = invoice.vatEnabled && items.some(it => it.vat === false) && items.some(it => it.vat !== false);
   const itemRows = items.map(it => {
     const qty = parseFloat(it.qty) || 0;
     const rate = parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0;
     const lineTotal = qty * rate;
+    const noVatMark = (invoice.vatEnabled && hasMixedVat && it.vat === false) ? `<sup style="color:#888">*</sup>` : "";
     return `<tr>
-      <td>${it.description}</td>
+      <td>${esc(it.description)}${noVatMark}</td>
       <td class="num">${qty % 1 === 0 ? qty : qty.toFixed(2)}</td>
       <td class="num">฿${rate.toLocaleString()}</td>
       <td class="num"><strong>฿${lineTotal.toLocaleString()}</strong></td>
@@ -1514,8 +1546,18 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   <table>
     <thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Total</th></tr></thead>
     <tbody>${itemRows}</tbody>
-    <tfoot><tr class="total-row"><td colspan="3">TOTAL AMOUNT</td><td class="num">฿${total.toLocaleString()}</td></tr></tfoot>
+    <tfoot>${(() => {
+      if (!invoice.vatEnabled) return `<tr class="total-row"><td colspan="3">TOTAL AMOUNT</td><td class="num">฿${total.toLocaleString()}</td></tr>`;
+      const { subtotal: sub, vatAmount: vat, total: grand } = calcVatBreakdown(invoice);
+      const fmt2 = n => n.toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const vatLabel = invoice.vatType === "inclusive" ? "VAT 7% (incl.)" : "VAT 7%";
+      const subLabel = invoice.vatType === "inclusive" ? "Subtotal (excl. VAT)" : "Subtotal";
+      return `<tr><td colspan="3" style="font-size:10px;color:#888;font-weight:400;border-top:1px solid #ddd">${subLabel}</td><td class="num" style="font-size:10px;color:#888;border-top:1px solid #ddd">฿${fmt2(sub)}</td></tr>
+      <tr><td colspan="3" style="font-size:10px;color:#888;font-weight:400">${vatLabel}</td><td class="num" style="font-size:10px;color:#888">฿${fmt2(vat)}</td></tr>
+      <tr class="total-row"><td colspan="3">TOTAL AMOUNT (incl. VAT)</td><td class="num">฿${Math.round(grand).toLocaleString()}</td></tr>`;
+    })()}</tfoot>
   </table>
+  ${hasMixedVat ? `<p style="font-size:8.5px;color:#999;margin:2px 0 8px"><sup>*</sup> Non 7% VAT</p>` : ""}
   ${(promptPayQR || idCard || signature) ? `
   <div class="bottom-box">
     ${promptPayQR ? `<div style="text-align:center;flex-shrink:0">
@@ -1554,15 +1596,15 @@ function printInvoice({ invoice, employee, profileInfo, promptPayQR, idCard, sig
 }
 
 const DEFAULT_ITEMS = [
-  { id: "d1", description: "Labor (12hr)", qty: 1, rate: "" },
-  { id: "d2", description: "Overtime", qty: 1, rate: "" },
-  { id: "d3", description: "Travel Day Fee", qty: 1, rate: "" },
+  { id: "d1", description: "Labor (12hr)", qty: 1, rate: "", vat: true },
+  { id: "d2", description: "Overtime", qty: 1, rate: "", vat: true },
+  { id: "d3", description: "Travel Day Fee", qty: 1, rate: "", vat: true },
 ];
 
 function migrateItems(inv) {
-  if (inv?.items) return inv.items;
+  if (inv?.items) return inv.items.map(it => ({ vat: true, ...it }));
   const items = [];
-  const add = (desc, val) => { if (parseFloat(val) > 0) items.push({ id: "m" + desc, description: desc, qty: 1, rate: val }); };
+  const add = (desc, val) => { if (parseFloat(val) > 0) items.push({ id: "m" + desc, description: desc, qty: 1, rate: val, vat: true }); };
   add("Labor (12hr)", inv?.laborFee); add("Overtime", inv?.overtime);
   add("Travel Day Fee", inv?.travelFee); add("Per Diem", inv?.perDiem);
   return items.length ? items : JSON.parse(JSON.stringify(DEFAULT_ITEMS));
@@ -1573,6 +1615,8 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
   const [productionCompany, setProductionCompany] = useState(existingInvoice?.productionCompany || job?.production || "");
   const [showCompanyPicker, setShowCompanyPicker] = useState(false);
   const [companySearch, setCompanySearch] = useState("");
+  const [vatEnabled, setVatEnabled] = useState(existingInvoice?.vatEnabled ?? false);
+  const [vatType, setVatType] = useState(existingInvoice?.vatType || "exclusive");
   const [shootDates] = useState(existingInvoice?.shootDates || job?.dates || []);
   const [position, setPosition] = useState(existingInvoice?.position || "");
   const [status, setStatus] = useState(existingInvoice?.status || "Pending");
@@ -1589,7 +1633,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
   });
 
   const updateItem = (id, field, val) => setItems(p => p.map(it => it.id === id ? { ...it, [field]: val } : it));
-  const addItem = () => setItems(p => [...p, { id: "i" + Date.now(), description: "", qty: 1, rate: "" }]);
+  const addItem = () => setItems(p => [...p, { id: "i" + Date.now(), description: "", qty: 1, rate: "", vat: true }]);
   const removeItem = (id) => setItems(p => p.filter(it => it.id !== id));
 
   // Position list comes from the employee's profile rates; fall back to the static list.
@@ -1633,8 +1677,10 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
     } else {
       const yr = new Date().getFullYear().toString().slice(-2);
       const empPrefix = (employee?.invoicePrefix || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-      const prefix = empPrefix ? `INV-${empPrefix}-${yr}-` : `INV-${yr}-`;
-      const re = empPrefix ? new RegExp(`INV-${empPrefix}-\\d{2}-(\\d+)`) : /INV-\d{2}-(\d+)/;
+      const docPfx = { invoice: "INV", quotation: "QUO", receipt: "RTX" }[docType] || "INV";
+      const prefix = empPrefix ? `${docPfx}-${empPrefix}-${yr}-` : `${docPfx}-${yr}-`;
+      const reStr = empPrefix ? `${docPfx}-${empPrefix}-\\d{2}-(\\d+)` : `${docPfx}-\\d{2}-(\\d+)`;
+      const re = new RegExp(reStr);
       const yearInvs = (allInvoices || []).filter(inv => inv.invoiceNo?.startsWith(prefix));
       let maxSeq = 0;
       yearInvs.forEach(inv => { const m = inv.invoiceNo.match(re); if (m) maxSeq = Math.max(maxSeq, parseInt(m[1])); });
@@ -1650,7 +1696,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
       jobId: job?.id || existingInvoice?.jobId || "",
       createdAt: existingInvoice?.createdAt || now,
       updatedAt: now,
-      jobName, productionCompany, shootDates, position, status, docType, items, callWrap, invoiceHeader, showWatermark,
+      jobName, productionCompany, shootDates, position, status, docType, items, callWrap, invoiceHeader, showWatermark, vatEnabled, vatType,
     });
   };
 
@@ -1660,7 +1706,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
     <Modal title={existingInvoice ? "Edit Document" : "Create Document"} onClose={onClose} wide>
       <div style={S.col}>
         <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
-          {[{ id: "invoice", label: "Invoice" }, { id: "quotation", label: "Quotation" }, { id: "receipt", label: "Receipt" }].map(dt => (
+          {[{ id: "invoice", label: "INV Invoice" }, { id: "quotation", label: "QUO Quotation" }, { id: "receipt", label: "RTX Tax Receipt" }].map(dt => (
             <button key={dt.id} onClick={() => setDocType(dt.id)}
               style={{ ...S.btn(docType === dt.id ? "primary" : "ghost"), padding: "6px 16px", fontSize: 13, flex: 1 }}>
               {dt.label}
@@ -1770,6 +1816,26 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
           );
         })()}
 
+        {/* VAT Settings */}
+        <div style={S.card}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <p style={{ ...S.sectionTitle, margin: 0 }}>VAT</p>
+            <button onClick={() => setVatEnabled(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: vatEnabled ? "rgba(232,184,75,0.06)" : "rgba(255,255,255,0.02)", border: `1px solid ${vatEnabled ? "rgba(232,184,75,0.25)" : "#252830"}`, cursor: "pointer", userSelect: "none" }}>
+              <div style={{ width: 32, height: 18, borderRadius: 9, background: vatEnabled ? "var(--accent,#e8b84b)" : "#444", position: "relative", flexShrink: 0, transition: "background .2s" }}>
+                <div style={{ position: "absolute", top: 2, left: vatEnabled ? 16 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: vatEnabled ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)" }}>7% VAT {vatEnabled ? "ON" : "OFF"}</span>
+            </button>
+          </div>
+          {vatEnabled && (
+            <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+              {[["exclusive", "Excl. (+ 7% on top)"], ["inclusive", "Incl. (7% baked in)"]].map(([k, lbl]) => (
+                <button key={k} style={{ ...S.btn(vatType === k ? "primary" : "ghost"), flex: 1, fontSize: 12, padding: "7px 10px" }} onClick={() => setVatType(k)}>{lbl}</button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Line items */}
         <div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -1780,7 +1846,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
               {invoicePresets.filter(ip => ip.description?.trim()).map(ip => (
                 <button key={ip.id} style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12, border: "1px solid rgba(232,184,75,0.35)", color: "#e8b84b" }}
-                  onClick={() => setItems(p => [...p, { id: "i" + Date.now(), description: ip.description, qty: 1, rate: ip.rate || "" }])}>
+                  onClick={() => setItems(p => [...p, { id: "i" + Date.now(), description: ip.description, qty: 1, rate: ip.rate || "", vat: true }])}>
                   + {ip.description}{ip.rate ? ` ฿${Number(ip.rate).toLocaleString()}` : ""}
                 </button>
               ))}
@@ -1788,17 +1854,18 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
           )}
 
           {/* Header */}
-          <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 60px 80px 32px", gap: 6, marginBottom: 4 }}>
-            {["Description", "Qty", "Rate (฿)", "Total", ""].map((h, i) => (
-              <div key={i} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#666)", textAlign: i >= 2 ? "right" : "left" }}>{h}</div>
+          <div style={{ display: "grid", gridTemplateColumns: vatEnabled ? "1fr 50px 70px 80px 32px 28px" : "1fr 50px 70px 80px 28px", gap: 6, marginBottom: 4 }}>
+            {(vatEnabled ? ["Description", "Qty", "Rate (฿)", "Total", "", "VAT"] : ["Description", "Qty", "Rate (฿)", "Total", ""]).map((h, i) => (
+              <div key={i} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#666)", textAlign: (vatEnabled ? i >= 3 : i >= 2) ? "center" : "left" }}>{h}</div>
             ))}
           </div>
 
           <div style={S.col}>
             {items.map(it => {
               const lineTotal = (parseFloat(it.qty) || 0) * (parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0);
+              const itemVat = it.vat !== false;
               return (
-                <div key={it.id} style={{ display: "grid", gridTemplateColumns: "90px 1fr 60px 80px 32px", gap: 6, alignItems: "center" }}>
+                <div key={it.id} style={{ display: "grid", gridTemplateColumns: vatEnabled ? "1fr 50px 70px 80px 32px 28px" : "1fr 50px 70px 80px 28px", gap: 6, alignItems: "center" }}>
                   <input style={{ ...S.input, fontSize: 12, padding: "7px 10px" }} value={it.description} onChange={e => updateItem(it.id, "description", e.target.value)} placeholder="Labor…" />
                   <input style={{ ...S.input, fontSize: 12, padding: "7px 6px", textAlign: "right" }} type="number" min="0" step="0.5" value={it.qty} onChange={e => updateItem(it.id, "qty", e.target.value)} />
                   <input style={{ ...S.input, fontSize: 12, padding: "7px 8px", textAlign: "right" }} type="number" min="0" value={it.rate} onChange={e => updateItem(it.id, "rate", e.target.value)} placeholder="0" />
@@ -1806,16 +1873,51 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
                     {lineTotal > 0 ? `฿${lineTotal.toLocaleString()}` : "—"}
                   </div>
                   <button style={{ ...S.btn("danger"), padding: "5px 6px", minWidth: 0 }} onClick={() => removeItem(it.id)}><Icon d={icons.x} size={12} /></button>
+                  {vatEnabled && (
+                    <button
+                      onClick={() => updateItem(it.id, "vat", !itemVat)}
+                      title={itemVat ? "VAT applied" : "No VAT"}
+                      style={{ width: 26, height: 26, borderRadius: 5, border: `1px solid ${itemVat ? "rgba(232,184,75,0.35)" : "#333"}`, background: itemVat ? "rgba(232,184,75,0.12)" : "transparent", cursor: "pointer", fontSize: 9, fontWeight: 800, color: itemVat ? "var(--accent,#e8b84b)" : "#555", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {itemVat ? "VAT" : "—"}
+                    </button>
+                  )}
                 </div>
               );
             })}
           </div>
         </div>
 
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, paddingTop: 12, borderTop: "1px solid var(--divider-color,#252830)" }}>
-          <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>Total</span>
-          <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</span>
-        </div>
+        {/* Total / VAT breakdown */}
+        {(() => {
+          const { subtotal: sub, vatAmount: vat, total: grand } = calcVatBreakdown({ items, vatEnabled, vatType });
+          const fmt = n => Math.round(n).toLocaleString();
+          const fmt2 = n => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return (
+            <div style={{ paddingTop: 12, borderTop: "1px solid var(--divider-color,#252830)" }}>
+              {vatEnabled ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>{vatType === "inclusive" ? "Subtotal (excl. VAT)" : "Subtotal"}</span>
+                    <span style={{ fontSize: 14, color: "var(--text,#e8e4dc)" }}>฿{fmt2(sub)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>VAT 7%{vatType === "inclusive" ? " (incl.)" : ""}</span>
+                    <span style={{ fontSize: 14, color: "var(--text,#e8e4dc)" }}>฿{fmt2(vat)}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 8, marginTop: 2 }}>
+                    <span style={{ fontSize: 13, color: "var(--text-muted,#666)", fontWeight: 600 }}>Total (incl. VAT)</span>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{fmt(grand)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
+                  <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>Total</span>
+                  <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{fmt(sub)}</span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={S.btn("ghost")} onClick={onClose}>Cancel</button>
@@ -4652,7 +4754,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 <button style={{ ...S.btn(invSort === "amount" ? "primary" : "ghost"), padding: "5px 12px", fontSize: 11 }} onClick={() => setInvSort("amount")}>Amount ↓</button>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
-                {[["all","All"],["invoice","Invoice"],["quotation","Quotation"],["receipt","Receipt"]].map(([k,lbl]) => (
+                {[["all","All"],["invoice","INV"],["quotation","QUO"],["receipt","RTX"]].map(([k,lbl]) => (
                   <button key={k} style={{ ...S.btn(invDocType === k ? "primary" : "ghost"), padding: "4px 10px", fontSize: 11 }} onClick={() => setInvDocType(k)}>{lbl}</button>
                 ))}
               </div>
@@ -6155,7 +6257,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {activeTab === "invoices" && (
         <>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {[["all", "All"], ["invoice", "Invoices"], ["quotation", "Quotations"], ["receipt", "Receipts"]].map(([key, lbl]) => (
+            {[["all", "All"], ["invoice", "INV"], ["quotation", "QUO"], ["receipt", "RTX"]].map(([key, lbl]) => (
               <button key={key} onClick={() => setDocTypeFilter(key)}
                 style={{ ...S.btn(docTypeFilter === key ? "primary" : "ghost"), padding: "5px 12px", fontSize: 12 }}>{lbl}</button>
             ))}
@@ -6176,7 +6278,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
                           <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 10 }}>{inv.status || "Pending"}</span>
-                          <span style={{ ...S.badge("blue"), fontSize: 10 }}>{{ quotation: "QUO", receipt: "REC" }[inv.docType] || "INV"}</span>
+                          <span style={{ ...S.badge("blue"), fontSize: 10 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
                           <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</p>
                         </div>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{inv.jobName}</p>
@@ -6186,12 +6288,15 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</p>
                         <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{new Date(inv.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
-                        <div style={{ display: "flex", gap: 6, marginTop: 6, justifyContent: "flex-end" }}>
+                        <div style={{ display: "flex", gap: 6, marginTop: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
                           <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>
                             {previewing === inv.id ? "…" : "Preview"}
                           </button>
                           <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px" }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid" } : i))}>
                             {isPaid ? "Mark Pending" : "Mark Paid ✓"}
+                          </button>
+                          <button style={{ ...S.btn("danger"), fontSize: 11, padding: "4px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.filter(i => i.id !== inv.id)); }}>
+                            <Icon d={icons.trash} size={12} />
                           </button>
                         </div>
                       </div>
