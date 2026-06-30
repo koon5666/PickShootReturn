@@ -4086,7 +4086,6 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 {!eqReqCollapsed && (
                   <div style={{ marginTop: 12 }}>
                     <div style={{ display: "flex", gap: 8, marginBottom: myAdminReqs.length > 0 ? 12 : 0 }}>
-                      <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("production-house"); setAdminReqForm({ name: "", address: "" }); setAdminReqMsg(null); }}>+ Production House</button>
                       <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("equipment"); setAdminReqForm({ name: "", category: "", total: "1", notes: "", photo: null }); setAdminReqMsg(null); }}>+ Equipment</button>
                     </div>
                     {myAdminReqs.length === 0 ? (
@@ -4581,6 +4580,28 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 {[["all","All"],["invoice","Invoice"],["quotation","Quotation"],["receipt","Receipt"]].map(([k,lbl]) => (
                   <button key={k} style={{ ...S.btn(invDocType === k ? "primary" : "ghost"), padding: "4px 10px", fontSize: 11 }} onClick={() => setInvDocType(k)}>{lbl}</button>
                 ))}
+              </div>
+
+              {/* Production House request */}
+              <div style={S.card}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <p style={{ ...S.sectionTitle, margin: 0 }}>Production Houses</p>
+                  <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("production-house"); setAdminReqForm({ name: "", address: "" }); setAdminReqMsg(null); }}>+ Request</button>
+                </div>
+                {(() => {
+                  const myProdReqs = (adminRequests || []).filter(r => r.employeeId === employee.id && r.type === "production-house").slice().reverse();
+                  if (myProdReqs.length === 0) return <p style={{ fontSize: 12, color: "#555", marginTop: 8 }}>No requests yet. Add a production company to use in invoices.</p>;
+                  return (
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {myProdReqs.map(req => (
+                        <div key={req.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{req.name}</p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Confirmed jobs to invoice */}
