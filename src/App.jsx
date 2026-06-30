@@ -1842,7 +1842,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
             <p style={{ ...S.sectionTitle, margin: 0 }}>Line Items</p>
             <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={addItem}><Icon d={icons.plus} size={12} /> Add Item</button>
           </div>
-          {invoicePresets.filter(ip => ip.description?.trim()).length > 0 && (
+          {isAdminCreator && invoicePresets.filter(ip => ip.description?.trim()).length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
               {invoicePresets.filter(ip => ip.description?.trim()).map(ip => (
                 <button key={ip.id} style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12, border: "1px solid rgba(232,184,75,0.35)", color: "#e8b84b" }}
