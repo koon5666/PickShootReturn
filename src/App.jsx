@@ -1617,7 +1617,8 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
   const [companySearch, setCompanySearch] = useState("");
   const [vatEnabled, setVatEnabled] = useState(existingInvoice?.vatEnabled ?? false);
   const [vatType, setVatType] = useState(existingInvoice?.vatType || "exclusive");
-  const [shootDates] = useState(existingInvoice?.shootDates || job?.dates || []);
+  const [shootDates, setShootDates] = useState(existingInvoice?.shootDates || job?.dates || []);
+  const [linkedInvId, setLinkedInvId] = useState(existingInvoice?.linkedInvId || "");
   const [position, setPosition] = useState(existingInvoice?.position || "");
   const [status, setStatus] = useState(existingInvoice?.status || "Pending");
   const [docType, setDocType] = useState(existingInvoice?.docType || "invoice");
@@ -1635,6 +1636,8 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
   const updateItem = (id, field, val) => setItems(p => p.map(it => it.id === id ? { ...it, [field]: val } : it));
   const addItem = () => setItems(p => [...p, { id: "i" + Date.now(), description: "", qty: 1, rate: "", vat: true }]);
   const removeItem = (id) => setItems(p => p.filter(it => it.id !== id));
+  const addShootDate = (d) => { setShootDates(p => p.includes(d) ? p : [...p, d].sort()); setCallWrap(p => ({ ...p, [d]: p[d] || { call: "", wrap: "" } })); };
+  const removeShootDate = (d) => setShootDates(p => p.filter(x => x !== d));
 
   // Position list comes from the employee's profile rates; fall back to the static list.
   const positionNames = positions.length ? [...new Set(positions.map(p => p.name).filter(Boolean))] : POSITIONS;
@@ -1675,16 +1678,24 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
       invNo = existingInvoice.invoiceNo;
       revisions = (existingInvoice.revisions || 0) + 1;
     } else {
-      const yr = new Date().getFullYear().toString().slice(-2);
-      const empPrefix = (employee?.invoicePrefix || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-      const docPfx = { invoice: "INV", quotation: "QUO", receipt: "RTX" }[docType] || "INV";
-      const prefix = empPrefix ? `${docPfx}-${empPrefix}-${yr}-` : `${docPfx}-${yr}-`;
-      const reStr = empPrefix ? `${docPfx}-${empPrefix}-\\d{2}-(\\d+)` : `${docPfx}-\\d{2}-(\\d+)`;
-      const re = new RegExp(reStr);
-      const yearInvs = (allInvoices || []).filter(inv => inv.invoiceNo?.startsWith(prefix));
-      let maxSeq = 0;
-      yearInvs.forEach(inv => { const m = inv.invoiceNo.match(re); if (m) maxSeq = Math.max(maxSeq, parseInt(m[1])); });
-      invNo = `${prefix}${String(maxSeq + 1).padStart(4, "0")}`;
+      const genSeq = (pfx) => {
+        const yr = new Date().getFullYear().toString().slice(-2);
+        const empPrefix = (employee?.invoicePrefix || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+        const prefix = empPrefix ? `${pfx}-${empPrefix}-${yr}-` : `${pfx}-${yr}-`;
+        const reStr = empPrefix ? `${pfx}-${empPrefix}-\\d{2}-(\\d+)` : `${pfx}-\\d{2}-(\\d+)`;
+        const re = new RegExp(reStr);
+        const matches = (allInvoices || []).filter(inv => inv.invoiceNo?.startsWith(prefix));
+        let maxSeq = 0;
+        matches.forEach(inv => { const m = inv.invoiceNo.match(re); if (m) maxSeq = Math.max(maxSeq, parseInt(m[1])); });
+        return `${prefix}${String(maxSeq + 1).padStart(4, "0")}`;
+      };
+      if (docType === "receipt" && linkedInvId) {
+        const linkedInv = (allInvoices || []).find(i => i.id === linkedInvId);
+        invNo = linkedInv ? (linkedInv.invoiceNo || "").replace(/^INV-/, "RTX-") : genSeq("RTX");
+      } else {
+        const docPfx = { invoice: "INV", quotation: "QUO", receipt: "RTX" }[docType] || "INV";
+        invNo = genSeq(docPfx);
+      }
       revisions = 0;
     }
     onSave({
@@ -1697,6 +1708,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
       createdAt: existingInvoice?.createdAt || now,
       updatedAt: now,
       jobName, productionCompany, shootDates, position, status, docType, items, callWrap, invoiceHeader, showWatermark, vatEnabled, vatType,
+      ...(linkedInvId ? { linkedInvId } : {}),
     });
   };
 
@@ -1738,7 +1750,36 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
                 {productionCompany && <button style={{ ...S.btn("ghost"), padding: "6px 8px" }} onClick={() => setProductionCompany("")}><Icon d={icons.x} size={12} /></button>}
               </div>
             </div>
-            {dateStr && <p style={{ fontSize: 12, color: "var(--text-muted,#666)", margin: 0 }}>Dates: {dateStr}</p>}
+            {/* Shoot dates editor */}
+            <div>
+              <label style={S.label}>Shoot Dates</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                {shootDates.map(d => (
+                  <div key={d} style={{ display: "flex", alignItems: "center", gap: 3, background: "rgba(232,184,75,0.08)", border: "1px solid rgba(232,184,75,0.2)", borderRadius: 5, padding: "4px 8px" }}>
+                    <span style={{ fontSize: 12, color: "var(--text,#e8e4dc)" }}>{new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
+                    <button onClick={() => removeShootDate(d)} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", padding: "0 0 0 6px", fontSize: 15, lineHeight: 1 }}>×</button>
+                  </div>
+                ))}
+                <input type="date" style={{ ...S.input, fontSize: 12, padding: "4px 8px", width: "auto", minWidth: 0 }}
+                  onChange={e => { if (e.target.value) { addShootDate(e.target.value); e.target.value = ""; } }} />
+              </div>
+            </div>
+            {/* RTX: link to existing INV */}
+            {docType === "receipt" && !existingInvoice && (
+              <div>
+                <label style={S.label}>Link to Invoice <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(RTX inherits same number)</span></label>
+                <select style={S.select} value={linkedInvId} onChange={e => setLinkedInvId(e.target.value)}>
+                  <option value="">None — use independent RTX sequence</option>
+                  {(allInvoices || []).filter(i => (i.docType === "invoice" || !i.docType) && i.employeeId === employee.id)
+                    .sort((a, b) => b.updatedAt - a.updatedAt)
+                    .map(i => <option key={i.id} value={i.id}>{fmtInvoiceNo(i)} — {i.jobName}</option>)}
+                </select>
+                {linkedInvId && (() => {
+                  const li = (allInvoices || []).find(i => i.id === linkedInvId);
+                  return li ? <p style={{ fontSize: 11, color: "var(--accent,#e8b84b)", margin: "5px 0 0" }}>RTX will use: {(li.invoiceNo || "").replace(/^INV-/, "RTX-")}</p> : null;
+                })()}
+              </div>
+            )}
           </div>
         </div>
 
@@ -6083,7 +6124,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   const [previewing, setPreviewing] = useState(null);
 
   // ── Admin profile (for My Invoice tab) ──────────────────────────────────────
-  const [adminProfileInfo, setAdminProfileInfo] = useState({ firstName: "", lastName: "", phone: "", email: "", legalAddress: "", bankName: "", bankAccount: "", accountName: "", invoicePrefix: "" });
+  const [adminProfileInfo, setAdminProfileInfo] = useState({ firstName: "", lastName: "", phone: "", email: "", legalAddress: "", bankName: "", bankAccount: "", accountName: "", invoicePrefix: "", showCompanyName: true });
   const [adminPositions, setAdminPositions] = useState([]);
   const [adminPromptPayQR, setAdminPromptPayQR] = useState(null);
   const [adminSignature, setAdminSignature] = useState(null);
@@ -6121,7 +6162,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   useEffect(() => {
     api.getProfile("admin").then(d => {
       if (d) {
-        setAdminProfileInfo({ firstName: d.firstName || "", lastName: d.lastName || "", phone: d.phone || "", email: d.email || "", legalAddress: d.legalAddress || "", bankName: d.bankName || "", bankAccount: d.bankAccount || "", accountName: d.accountName || "", invoicePrefix: d.invoicePrefix || "" });
+        setAdminProfileInfo({ firstName: d.firstName || "", lastName: d.lastName || "", phone: d.phone || "", email: d.email || "", legalAddress: d.legalAddress || "", bankName: d.bankName || "", bankAccount: d.bankAccount || "", accountName: d.accountName || "", invoicePrefix: d.invoicePrefix || "", showCompanyName: d.showCompanyName !== false });
         if (d.promptPayQR) setAdminPromptPayQR(d.promptPayQR);
         if (d.signature) setAdminSignature(d.signature);
         if (Array.isArray(d.positions)) setAdminPositions(d.positions);
@@ -6421,6 +6462,15 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                   value={adminProfileInfo.invoicePrefix}
                   onChange={e => setAdminProfileInfo(p => ({ ...p, invoicePrefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))} />
               </div>
+              <button onClick={() => setAdminProfileInfo(p => ({ ...p, showCompanyName: !p.showCompanyName }))} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: adminProfileInfo.showCompanyName ? "rgba(232,184,75,0.05)" : "rgba(255,255,255,0.02)", border: `1px solid ${adminProfileInfo.showCompanyName ? "rgba(232,184,75,0.25)" : "#252830"}`, cursor: "pointer", userSelect: "none", textAlign: "left" }}>
+                <div style={{ width: 36, height: 20, borderRadius: 10, background: adminProfileInfo.showCompanyName ? "var(--accent,#e8b84b)" : "#444", position: "relative", flexShrink: 0, transition: "background .2s" }}>
+                  <div style={{ position: "absolute", top: 2, left: adminProfileInfo.showCompanyName ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+                </div>
+                <div>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: adminProfileInfo.showCompanyName ? "var(--accent,#e8b84b)" : "var(--text,#e8e4dc)" }}>Company name on invoice {adminProfileInfo.showCompanyName ? "ON" : "OFF"}</p>
+                  <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", marginTop: 2 }}>{adminProfileInfo.showCompanyName ? `"${companyName || "Pick Shoot Return"}" shown at top of document` : "Company name hidden from document header"}</p>
+                </div>
+              </button>
               <div>
                 <label style={S.label}>{t("signatureSection")}</label>
                 <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 8px" }}>{t("signatureHint")}</p>
@@ -6648,7 +6698,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
           employee={{ ...adminEmployee, invoicePrefix: adminProfileInfo.invoicePrefix }}
           positions={adminPositions}
           allInvoices={invoices}
-          companyName={companyName}
+          companyName={adminProfileInfo.showCompanyName !== false ? companyName : ""}
           invoicePresets={invoicePresets}
           productionCompanies={productionCompanies}
           jobs={jobs}
