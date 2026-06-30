@@ -6194,7 +6194,7 @@ function makeDocNo(docType, allInvoices, invoicePrefix) {
 }
 
 // ─── INVOICE PAGE ─────────────────────────────────────────────────────────────
-function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees, companyName, user, invoicePresets, jobs, adminRequests }) {
+function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees, companyName, user, invoicePresets, jobs, setJobs, adminRequests }) {
   const t = useT();
   const [activeTab, setActiveTab] = useState("myinvoice");
   const [companySortKey, setCompanySortKey] = useState("az");
@@ -6335,6 +6335,15 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       return changed ? cur : prev;
     });
   }, [jobs, adminProfileLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── QUO Confirm / Decline ────────────────────────────────────────────────────
+  const handleConfirmQuo = (inv) => {
+    if (inv.jobId) setJobs(prev => prev.map(j => j.id === inv.jobId ? { ...j, status: "Confirmed" } : j));
+    setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: "Approved", updatedAt: Date.now() } : i));
+  };
+  const handleDeclineQuo = (inv) => {
+    setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: "Declined", updatedAt: Date.now() } : i));
+  };
 
   // ── Mark Paid handler: toggles status + auto-creates RTX for admin INVs ─────
   const handleAdminMarkPaid = (inv, isPaid) => {
@@ -6539,7 +6548,11 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                             <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
                             <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                               <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
-                              <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Pending" : "Paid ✓"}</button>
+                              {inv.docType === "quotation" && (inv.status === "Pending" || !inv.status) && <>
+                                <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleConfirmQuo(inv)}>Confirm</button>
+                                <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
+                              </>}
+                              {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Pending" : "Paid ✓"}</button>}
                               <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.filter(i => i.id !== inv.id)); }}><Icon d={icons.trash} size={11} /></button>
                             </div>
                           </div>
@@ -6895,7 +6908,11 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                           <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => previewAdminInvoice(inv, false)}>Preview</button>
                           <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => previewAdminInvoice(inv, true)}>Print</button>
                           <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
-                          <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Mark Pending" : "Mark Paid ✓"}</button>
+                          {inv.docType === "quotation" && (inv.status === "Pending" || !inv.status) && <>
+                            <button style={{ ...S.btn("success"), fontSize: 11, padding: "4px 8px" }} onClick={() => handleConfirmQuo(inv)}>Confirm</button>
+                            <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
+                          </>}
+                          {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Mark Pending" : "Mark Paid ✓"}</button>}
                           <button style={{ ...S.btn("danger"), fontSize: 11, padding: "4px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.filter(i => i.id !== inv.id)); }}><Icon d={icons.trash} size={12} /></button>
                         </div>
                       </div>
@@ -7342,6 +7359,146 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
   );
 }
 
+// ─── ADMIN SIDEBAR NAV (desktop) ──────────────────────────────────────────────
+function AdminSidebarNav({ activePage, setActivePage, unresolvedCount, navOrder, companyName, onOpenSettings, onLogout, saveErr, offlineMode, notifItems }) {
+  const t = useT();
+  const navItems = [
+    { key: "dashboard", label: t("navDashboard"), icon: icons.film },
+    { key: "equipment", label: t("navEquipment"), icon: icons.camera },
+    { key: "jobs", label: t("navJobs"), icon: icons.calendar },
+    { key: "invoice", label: t("navInvoice"), icon: icons.invoice },
+    { key: "team", label: t("navTeam"), icon: icons.user },
+    { key: "checkout", label: t("navCheckout"), icon: icons.package },
+  ];
+  const orderedItems = navOrder ? navOrder.map(k => navItems.find(n => n.key === k)).filter(Boolean) : navItems;
+  const notifCount = (notifItems || []).reduce((s, n) => s + n.count, 0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef(null);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const h = (e) => { if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false); };
+    document.addEventListener("mousedown", h);
+    document.addEventListener("touchstart", h);
+    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("touchstart", h); };
+  }, [notifOpen]);
+
+  return (
+    <nav style={{
+      position: "fixed", top: 0, left: 0, bottom: 0, width: 240,
+      background: "var(--nav-bg,var(--topbar-bg,#161920))",
+      borderRight: "var(--nav-border,var(--topbar-border,1px solid #252830))",
+      display: "flex", flexDirection: "column",
+      zIndex: 100, overflowY: "auto", overflowX: "hidden",
+    }}>
+      {/* Logo */}
+      <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid var(--divider-color,#252830)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        <img src="/logo.png" alt="logo" style={{ width: 32, height: 32, objectFit: "contain", borderRadius: 6 }} onError={e => { e.target.style.display = "none"; }} />
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.04em", color: "var(--accent,#e8b84b)", lineHeight: 1.2 }}>{companyName || "GEAR DESK"}</div>
+          <div style={{ fontSize: 9, color: "var(--text-muted,#666)", letterSpacing: "0.12em", textTransform: "uppercase", marginTop: 1 }}>Pick Shoot Return</div>
+        </div>
+      </div>
+
+      {/* Offline/save-err indicator */}
+      {(offlineMode || saveErr) && (
+        <div style={{ padding: "6px 14px", background: offlineMode ? "rgba(232,184,75,0.1)" : "rgba(239,68,68,0.08)", borderBottom: "1px solid var(--divider-color,#252830)" }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: offlineMode ? "#e8b84b" : "#f87171", letterSpacing: "0.04em" }}>
+            {offlineMode ? "⚠ OFFLINE" : "⚠ SYNC ERROR"}
+          </span>
+        </div>
+      )}
+
+      {/* Nav items */}
+      <div style={{ flex: 1, paddingTop: 8, paddingBottom: 8 }}>
+        {orderedItems.map(n => {
+          const active = activePage === n.key;
+          return (
+            <button
+              key={n.key}
+              onClick={() => setActivePage(n.key)}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", gap: 12,
+                padding: "11px 20px", border: "none", cursor: "pointer",
+                background: active ? "rgba(232,184,75,0.08)" : "transparent",
+                borderLeft: active ? "3px solid var(--accent,#e8b84b)" : "3px solid transparent",
+                color: active ? "var(--accent,#e8b84b)" : "var(--text-muted,#8a8f9d)",
+                fontSize: 13, fontWeight: active ? 700 : 500, textAlign: "left",
+                transition: "all 0.12s", boxSizing: "border-box",
+              }}
+            >
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <Icon d={n.icon} size={18} color={active ? "var(--accent,#e8b84b)" : "var(--text-muted,#8a8f9d)"} />
+                {n.key === "reports" && unresolvedCount > 0 && (
+                  <div style={{ position: "absolute", top: -4, right: -6, background: "#ef4444", color: "#fff", fontSize: 9, fontWeight: 800, borderRadius: 8, padding: "1px 4px", minWidth: 14, textAlign: "center", lineHeight: "14px" }}>{unresolvedCount}</div>
+                )}
+              </div>
+              <span>{n.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Bottom actions */}
+      <div style={{ borderTop: "1px solid var(--divider-color,#252830)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+        {/* Notifications */}
+        <div ref={notifRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setNotifOpen(o => !o)}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px", border: "none", cursor: "pointer", background: notifOpen ? "rgba(232,184,75,0.08)" : "transparent", borderRadius: 8, color: notifCount > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)", fontSize: 13, fontWeight: 500, textAlign: "left" }}
+          >
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <Icon d={icons.bell} size={18} color={notifCount > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)"} />
+              {notifCount > 0 && <div style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", border: "1.5px solid var(--nav-bg,#161920)" }} />}
+            </div>
+            <span>Notifications {notifCount > 0 && <span style={{ background: "#ef4444", color: "#fff", fontSize: 10, fontWeight: 800, borderRadius: 10, padding: "1px 5px" }}>{notifCount}</span>}</span>
+          </button>
+          {notifOpen && (
+            <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, right: 0, background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.6)", zIndex: 300, overflow: "hidden" }}>
+              <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--divider-color,#252830)" }}>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>Notifications</p>
+              </div>
+              {notifCount === 0 ? (
+                <div style={{ padding: "16px 14px", textAlign: "center" }}>
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted,#666)" }}>All caught up!</p>
+                </div>
+              ) : (
+                <div>
+                  {(notifItems || []).map((item, i) => (
+                    <div key={i} onClick={() => { item.onClick(); setNotifOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", borderBottom: i < notifItems.length - 1 ? "1px solid var(--divider-color,#252830)" : "none" }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 7, background: `${item.color}1a`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <Icon d={item.icon} size={13} color={item.color} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{item.label}</p>
+                        <p style={{ margin: "1px 0 0", fontSize: 10, color: item.color }}>{item.count} need attention</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={onOpenSettings}
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px", border: "none", cursor: "pointer", background: "transparent", borderRadius: 8, color: "var(--text-muted,#8a8f9d)", fontSize: 13, fontWeight: 500, textAlign: "left" }}
+        >
+          <Icon d={icons.gear} size={18} color="var(--text-muted,#8a8f9d)" />
+          <span>Settings</span>
+        </button>
+        <button
+          onClick={onLogout}
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px", border: "none", cursor: "pointer", background: "transparent", borderRadius: 8, color: "var(--text-muted,#8a8f9d)", fontSize: 13, fontWeight: 500, textAlign: "left" }}
+        >
+          <Icon d={icons.logout} size={18} color="var(--text-muted,#8a8f9d)" />
+          <span>Log out</span>
+        </button>
+      </div>
+    </nav>
+  );
+}
+
 // ─── ADMIN BOTTOM NAV ─────────────────────────────────────────────────────────
 function AdminBottomNav({ activePage, setActivePage, unresolvedCount, navOrder }) {
   const t = useT();
@@ -7446,6 +7603,7 @@ export default function App() {
   const [themePalette, setThemePalette] = useState(() => { try { return localStorage.getItem("psr_theme_palette") || "black-yellow"; } catch { return "black-yellow"; } });
   const [navOrder, setNavOrder] = useState(null);
   const [invoicePresets, setInvoicePresets] = useState([]);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const saveTimer = useRef(null);
   // kvLoadedRef tracks which fields actually came back non-null from KV on the initial load.
   // postLoadSnapRef holds a reference snapshot of state right after load settles.
@@ -7454,6 +7612,12 @@ export default function App() {
   const kvLoadedRef = useRef(new Set());
   const postLoadSnapRef = useRef(null);
   const snapTakenRef = useRef(false);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => { try { localStorage.setItem("psr_lang", lang); } catch {} }, [lang]);
 
@@ -7864,15 +8028,30 @@ export default function App() {
         <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} invoicePresets={invoicePresets} />
       ) : (
         <div id="admin-layout" style={S.app}>
-          <AdminTopBar
-            onLogout={() => setUser(null)}
-            saveErr={saveErr}
-            offlineMode={offlineMode}
-            companyName={companyName}
-            onOpenSettings={() => setSettingsPanelOpen(true)}
-            notifItems={notifItems}
-          />
-          {offlineMode && (
+          {isMobile ? (
+            <AdminTopBar
+              onLogout={() => setUser(null)}
+              saveErr={saveErr}
+              offlineMode={offlineMode}
+              companyName={companyName}
+              onOpenSettings={() => setSettingsPanelOpen(true)}
+              notifItems={notifItems}
+            />
+          ) : (
+            <AdminSidebarNav
+              activePage={activePage}
+              setActivePage={setActivePage}
+              unresolvedCount={unresolvedCount}
+              navOrder={navOrder}
+              companyName={companyName}
+              onOpenSettings={() => setSettingsPanelOpen(true)}
+              onLogout={() => setUser(null)}
+              saveErr={saveErr}
+              offlineMode={offlineMode}
+              notifItems={notifItems}
+            />
+          )}
+          {offlineMode && isMobile && (
             <div style={{ background: "rgba(232,184,75,0.12)", borderBottom: "1px solid rgba(232,184,75,0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 13 }}>⚠️</span>
               <p style={{ margin: 0, fontSize: 12, color: "#e8b84b", lineHeight: 1.4 }}>
@@ -7880,15 +8059,23 @@ export default function App() {
               </p>
             </div>
           )}
-          <main style={{ ...S.main, paddingBottom: 80 }}>
+          <main style={{ ...S.main, paddingBottom: isMobile ? 80 : 20, marginLeft: isMobile ? 0 : 240, minHeight: isMobile ? "calc(100vh - 54px)" : "100vh" }}>
+            {!isMobile && offlineMode && (
+              <div style={{ background: "rgba(232,184,75,0.12)", border: "1px solid rgba(232,184,75,0.25)", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                <span style={{ fontSize: 13 }}>⚠️</span>
+                <p style={{ margin: 0, fontSize: 12, color: "#e8b84b", lineHeight: 1.4 }}>
+                  <strong>Offline</strong> — showing cached data. Changes will not be saved until connection is restored.
+                </p>
+              </div>
+            )}
             {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} />}
-            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} jobs={jobs} adminRequests={adminRequests} />}
+            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} jobs={jobs} setJobs={setJobs} adminRequests={adminRequests} />}
             {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} />}
             {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} />}
           </main>
-          <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} navOrder={navOrder} />
+          {isMobile && <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} navOrder={navOrder} />}
           {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} onClose={() => setSettingsPanelOpen(false)} />}
         </div>
       )}
