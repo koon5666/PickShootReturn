@@ -1568,9 +1568,11 @@ function migrateItems(inv) {
   return items.length ? items : JSON.parse(JSON.stringify(DEFAULT_ITEMS));
 }
 
-function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], onSave, onClose, allInvoices, companyName = "", invoicePresets = [], invoicePrefix = "" }) {
+function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], onSave, onClose, allInvoices, companyName = "", invoicePresets = [], invoicePrefix = "", productionCompanies = [], jobs = [], adminRequests = [] }) {
   const [jobName, setJobName] = useState(existingInvoice?.jobName || job?.name || "");
   const [productionCompany, setProductionCompany] = useState(existingInvoice?.productionCompany || job?.production || "");
+  const [showCompanyPicker, setShowCompanyPicker] = useState(false);
+  const [companySearch, setCompanySearch] = useState("");
   const [shootDates] = useState(existingInvoice?.shootDates || job?.dates || []);
   const [position, setPosition] = useState(existingInvoice?.position || "");
   const [status, setStatus] = useState(existingInvoice?.status || "Pending");
@@ -1654,7 +1656,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
 
   const dateStr = shootDates.map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ");
 
-  return (
+  return (<>
     <Modal title={existingInvoice ? "Edit Document" : "Create Document"} onClose={onClose} wide>
       <div style={S.col}>
         <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
@@ -1681,7 +1683,15 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
               </button>
             )}
             <div><label style={S.label}>Job Name</label><input style={S.input} value={jobName} onChange={e => setJobName(e.target.value)} /></div>
-            <div><label style={S.label}>Production Company</label><input style={S.input} value={productionCompany} onChange={e => setProductionCompany(e.target.value)} /></div>
+            <div>
+              <label style={S.label}>Production Company</label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ ...S.input, flex: 1, display: "flex", alignItems: "center", cursor: "pointer", minHeight: 38 }} onClick={() => { setCompanySearch(""); setShowCompanyPicker(true); }}>
+                  {productionCompany ? <span style={{ color: "var(--text,#e8e4dc)", fontSize: 14 }}>{productionCompany}</span> : <span style={{ color: "#444", fontSize: 13 }}>Tap to select…</span>}
+                </div>
+                {productionCompany && <button style={{ ...S.btn("ghost"), padding: "6px 8px" }} onClick={() => setProductionCompany("")}><Icon d={icons.x} size={12} /></button>}
+              </div>
+            </div>
             {dateStr && <p style={{ fontSize: 12, color: "var(--text-muted,#666)", margin: 0 }}>Dates: {dateStr}</p>}
           </div>
         </div>
@@ -1813,6 +1823,71 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
         </div>
       </div>
     </Modal>
+    {showCompanyPicker && (() => {
+      const mergedCompanies = (() => {
+        const map = new Map();
+        (productionCompanies || []).forEach(c => {
+          const n = c.name?.trim(); if (!n) return;
+          map.set(n.toLowerCase(), { name: n, tag: null });
+        });
+        (jobs || []).forEach(j => {
+          const n = j.production?.trim(); if (!n) return;
+          const key = n.toLowerCase();
+          if (!map.has(key)) map.set(key, { name: n, tag: "from booking" });
+        });
+        (adminRequests || []).filter(r => r.type === "production-house" && r.status === "approved").forEach(r => {
+          const n = r.name?.trim(); if (!n) return;
+          const key = n.toLowerCase();
+          const tag = `${r.employeeName || "Teammate"} added`;
+          if (!map.has(key)) map.set(key, { name: n, tag });
+          else if (map.get(key).tag === "from booking") map.get(key).tag = tag;
+        });
+        return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, ["th", "en"], { sensitivity: "base" }));
+      })();
+      const q = companySearch.trim().toLowerCase();
+      const filtered = mergedCompanies.filter(c => !q || c.name.toLowerCase().includes(q));
+      const customEntry = companySearch.trim() && !mergedCompanies.some(c => c.name.toLowerCase() === companySearch.trim().toLowerCase());
+      return (
+        <Modal title="Production Company" onClose={() => setShowCompanyPicker(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            <div style={{ padding: "0 0 12px" }}>
+              <input
+                autoFocus
+                style={{ ...S.input, width: "100%", boxSizing: "border-box" }}
+                placeholder="Search or type custom name…"
+                value={companySearch}
+                onChange={e => setCompanySearch(e.target.value)}
+              />
+            </div>
+            <div style={{ maxHeight: "55vh", overflowY: "auto", margin: "0 -20px" }}>
+              {filtered.length === 0 && !customEntry && (
+                <p style={{ color: "#555", fontSize: 13, textAlign: "center", padding: "20px 0" }}>No companies found.</p>
+              )}
+              {filtered.map(co => (
+                <div
+                  key={co.name}
+                  onClick={() => { setProductionCompany(co.name); setShowCompanyPicker(false); }}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 20px", borderBottom: "1px solid var(--divider-color,#1e2030)", cursor: "pointer", background: co.name === productionCompany ? "rgba(232,184,75,0.07)" : "transparent" }}
+                >
+                  <span style={{ fontSize: 14, color: "var(--text,#e8e4dc)", fontWeight: co.name === productionCompany ? 700 : 400 }}>{co.name}</span>
+                  {co.tag && <span style={{ fontSize: 10, color: "#666", background: "#1a1e27", border: "1px solid #2a2e3a", borderRadius: 4, padding: "2px 6px", flexShrink: 0, marginLeft: 10 }}>{co.tag}</span>}
+                </div>
+              ))}
+              {customEntry && (
+                <div
+                  onClick={() => { setProductionCompany(companySearch.trim()); setShowCompanyPicker(false); }}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 20px", borderBottom: "1px solid var(--divider-color,#1e2030)", cursor: "pointer" }}
+                >
+                  <Icon d={icons.plus} size={14} color="#e8b84b" />
+                  <span style={{ fontSize: 14, color: "#e8b84b" }}>Use "{companySearch.trim()}"</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </Modal>
+      );
+    })()}
+  </>
   );
 }
 
@@ -4741,6 +4816,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   allInvoices={invoices}
                   companyName={companyName}
                   invoicePresets={invoicePresets}
+                  productionCompanies={productionCompanies}
+                  jobs={jobs}
+                  adminRequests={adminRequests}
                 />
               )}
             </div>
@@ -5894,7 +5972,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
 }
 
 // ─── INVOICE PAGE ─────────────────────────────────────────────────────────────
-function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees, companyName, user, invoicePresets }) {
+function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees, companyName, user, invoicePresets, jobs, adminRequests }) {
   const t = useT();
   const [activeTab, setActiveTab] = useState("companies");
   const [modal, setModal] = useState(false);
@@ -6467,6 +6545,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
           allInvoices={invoices}
           companyName={companyName}
           invoicePresets={invoicePresets}
+          productionCompanies={productionCompanies}
+          jobs={jobs}
+          adminRequests={adminRequests}
           onSave={inv => {
             setInvoices(p => adminEditInvoice ? p.map(i => i.id === inv.id ? inv : i) : [...p, inv]);
             setAdminCreateModal(false);
@@ -7412,7 +7493,7 @@ export default function App() {
             {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} />}
-            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} />}
+            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} jobs={jobs} adminRequests={adminRequests} />}
             {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} />}
             {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} />}
           </main>
