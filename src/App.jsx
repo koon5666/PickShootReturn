@@ -1672,6 +1672,10 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
   const total = items.reduce((s, it) => s + (parseFloat(it.qty) || 0) * (parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0), 0);
 
   const save = () => {
+    if (docType === "receipt" && !existingInvoice && !linkedInvId) {
+      window.alert("Please select a Paid invoice to link this Tax Receipt to.");
+      return;
+    }
     const now = Date.now();
     let invNo, revisions;
     if (existingInvoice) {
@@ -1764,22 +1768,31 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
                   onChange={e => { if (e.target.value) { addShootDate(e.target.value); e.target.value = ""; } }} />
               </div>
             </div>
-            {/* RTX: link to existing INV */}
-            {docType === "receipt" && !existingInvoice && (
-              <div>
-                <label style={S.label}>Link to Invoice <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(RTX inherits same number)</span></label>
-                <select style={S.select} value={linkedInvId} onChange={e => setLinkedInvId(e.target.value)}>
-                  <option value="">None — use independent RTX sequence</option>
-                  {(allInvoices || []).filter(i => (i.docType === "invoice" || !i.docType) && i.employeeId === employee.id)
-                    .sort((a, b) => b.updatedAt - a.updatedAt)
-                    .map(i => <option key={i.id} value={i.id}>{fmtInvoiceNo(i)} — {i.jobName}</option>)}
-                </select>
-                {linkedInvId && (() => {
-                  const li = (allInvoices || []).find(i => i.id === linkedInvId);
-                  return li ? <p style={{ fontSize: 11, color: "var(--accent,#e8b84b)", margin: "5px 0 0" }}>RTX will use: {(li.invoiceNo || "").replace(/^INV-/, "RTX-")}</p> : null;
-                })()}
-              </div>
-            )}
+            {/* RTX: link to paid INV only */}
+            {docType === "receipt" && !existingInvoice && (() => {
+              const paidInvs = (allInvoices || []).filter(i => (i.docType === "invoice" || !i.docType) && i.employeeId === employee.id && i.status === "Paid").sort((a, b) => b.updatedAt - a.updatedAt);
+              return (
+                <div>
+                  <label style={S.label}>Linked Invoice <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(RTX only issues for a Paid invoice)</span></label>
+                  {paidInvs.length === 0 ? (
+                    <div style={{ ...S.card, background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", padding: "10px 14px" }}>
+                      <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>No paid invoices yet. Mark an INV as Paid before issuing a Tax Receipt.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <select style={S.select} value={linkedInvId} onChange={e => setLinkedInvId(e.target.value)}>
+                        <option value="">Select paid invoice…</option>
+                        {paidInvs.map(i => <option key={i.id} value={i.id}>{fmtInvoiceNo(i)} — {i.jobName}</option>)}
+                      </select>
+                      {linkedInvId && (() => {
+                        const li = paidInvs.find(i => i.id === linkedInvId);
+                        return li ? <p style={{ fontSize: 11, color: "var(--accent,#e8b84b)", margin: "5px 0 0" }}>RTX will use: {(li.invoiceNo || "").replace(/^INV-/, "RTX-")}</p> : null;
+                      })()}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
 
