@@ -7150,6 +7150,60 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
   const [barcodeResults, setBarcodeResults] = useState({});
   const vMode = verificationConfig?.mode || "photo";
 
+  // History view state
+  const [view, setView] = useState("active"); // "active" | "history"
+  const [historyFilter, setHistoryFilter] = useState("month"); // "month" | "year" | "custom"
+  const nowDate = new Date();
+  const [historyYear, setHistoryYear] = useState(nowDate.getFullYear());
+  const [historyMonth, setHistoryMonth] = useState(nowDate.getMonth()); // 0-indexed
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+
+  const earliestTs = checkouts.length > 0 ? Math.min(...checkouts.map(c => c.ts)) : Date.now();
+  const earliestYear = new Date(earliestTs).getFullYear();
+  const yearOptions = Array.from({ length: nowDate.getFullYear() - earliestYear + 1 }, (_, i) => earliestYear + i).reverse();
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+  const filteredHistory = checkouts.filter(ev => {
+    const d = new Date(ev.ts);
+    if (historyFilter === "year") return d.getFullYear() === historyYear;
+    if (historyFilter === "month") return d.getFullYear() === historyYear && d.getMonth() === historyMonth;
+    if (historyFilter === "custom") {
+      if (customFrom && d < new Date(customFrom + "T00:00:00")) return false;
+      if (customTo && d > new Date(customTo + "T23:59:59")) return false;
+      return true;
+    }
+    return true;
+  }).sort((a, b) => b.ts - a.ts);
+
+  const exportCsv = () => {
+    const label = historyFilter === "year" ? `${historyYear}` : historyFilter === "month" ? `${historyYear}-${String(historyMonth+1).padStart(2,"0")}` : "custom";
+    const rows = [
+      ["Date","Time","Job Name","Production Company","Employee","Equipment","Type","Qty"],
+      ...filteredHistory.map(ev => {
+        const job = jobs.find(j => j.id === ev.jobId);
+        const eq = equipment.find(e => e.id === ev.eqId);
+        const d = new Date(ev.ts);
+        return [
+          d.toLocaleDateString("en-CA"),
+          d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+          ev.jobName || job?.name || "",
+          job?.production || "",
+          ev.employeeName || "",
+          eq?.name || ev.eqId || "",
+          isPickEvt(ev.type) ? "Pick" : isReturnEvt(ev.type) ? "Return" : ev.type,
+          ev.qty || 1,
+        ];
+      }),
+    ];
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `checkout-${label}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const getState = (job) => {
     const mode = job.checkoutMode || "span";
     const jc = checkouts.filter(c => c.jobId === job.id);
@@ -7329,32 +7383,134 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
 
   return (
     <div style={{ padding: "20px 16px 100px" }}>
-      <p style={{ ...S.sectionTitle, fontSize: 18, marginBottom: 4 }}>{t("adminCheckoutTitle")}</p>
-      <p style={{ fontSize: 12, color: "var(--text-muted,#666)", marginBottom: 20 }}>{t("adminCheckoutDesc")}</p>
-      {confirmedJobs.length === 0 ? (
-        <p style={{ color: "#666", textAlign: "center", padding: 32 }}>{t("adminNoConfirmedJobs")}</p>
-      ) : confirmedJobs.map(job => {
-        const { pickedIds, returnedIds, allPicked, allReturned } = getState(job);
-        const outCount = pickedIds.size - returnedIds.size;
-        return (
-          <div key={job.id} style={{ ...S.card, marginBottom: 12, cursor: "pointer" }} onClick={() => selectJob(job)}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{job.name}</p>
-                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>
-                  {(job.assignedEquipment || []).length} {t("jobAssignedEq").toLowerCase()} · {(job.dates || []).join(", ")}
-                </p>
+      {/* Tab switcher */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        {[["active", "Active Jobs"], ["history", "History"]].map(([key, label]) => (
+          <button key={key} onClick={() => setView(key)} style={{ ...S.btn(view === key ? "primary" : "ghost"), padding: "7px 18px", fontSize: 13 }}>{label}</button>
+        ))}
+        {view === "history" && (
+          <button onClick={exportCsv} style={{ ...S.btn("ghost"), padding: "7px 14px", fontSize: 13, marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+            <Icon d={icons.invoice} size={14} />Export CSV
+          </button>
+        )}
+      </div>
+
+      {view === "active" ? (
+        <>
+          <p style={{ fontSize: 12, color: "var(--text-muted,#666)", marginBottom: 16 }}>{t("adminCheckoutDesc")}</p>
+          {confirmedJobs.length === 0 ? (
+            <p style={{ color: "#666", textAlign: "center", padding: 32 }}>{t("adminNoConfirmedJobs")}</p>
+          ) : confirmedJobs.map(job => {
+            const { pickedIds, returnedIds, allPicked, allReturned } = getState(job);
+            const outCount = pickedIds.size - returnedIds.size;
+            const dateRange = (job.dates || []).length > 0
+              ? ((job.dates[0] === job.dates[job.dates.length - 1]) ? job.dates[0] : `${job.dates[0]} – ${job.dates[job.dates.length - 1]}`)
+              : "—";
+            return (
+              <div key={job.id} style={{ ...S.card, marginBottom: 12, cursor: "pointer" }} onClick={() => selectJob(job)}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{job.name}</p>
+                    {job.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#e8b84b)", fontWeight: 600 }}>{job.production}</p>}
+                    <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>
+                      {(job.assignedEquipment || []).length} items · {dateRange}
+                    </p>
+                  </div>
+                  {allReturned
+                    ? <span style={S.badge("green")}>All returned</span>
+                    : outCount > 0
+                      ? <span style={S.badge("amber")}>{outCount} out</span>
+                      : <span style={S.badge("gray")}>Pick up</span>
+                  }
+                </div>
               </div>
-              {allReturned
-                ? <span style={S.badge("green")}>✓</span>
-                : outCount > 0
-                  ? <span style={S.badge("amber")}>{outCount} {t("dashEqOutToday").replace("Equipment ", "").toLowerCase()}</span>
-                  : <span style={S.badge("gray")}>{t("adminPickLabel")}</span>
-              }
+            );
+          })}
+        </>
+      ) : (
+        <>
+          {/* History filter row */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16, alignItems: "center" }}>
+            {[["month","Month"], ["year","Year"], ["custom","Custom"]].map(([k, lbl]) => (
+              <button key={k} onClick={() => setHistoryFilter(k)} style={{ ...S.btn(historyFilter === k ? "primary" : "ghost"), padding: "5px 12px", fontSize: 12 }}>{lbl}</button>
+            ))}
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              {historyFilter === "month" && (
+                <>
+                  <select value={historyYear} onChange={e => setHistoryYear(+e.target.value)} style={{ ...S.select, width: "auto", padding: "5px 10px", fontSize: 12 }}>
+                    {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <select value={historyMonth} onChange={e => setHistoryMonth(+e.target.value)} style={{ ...S.select, width: "auto", padding: "5px 10px", fontSize: 12 }}>
+                    {MONTHS.map((m, i) => {
+                      const disabled = (historyYear === nowDate.getFullYear() && i > nowDate.getMonth()) || (historyYear === earliestYear && i < new Date(earliestTs).getMonth());
+                      return <option key={i} value={i} disabled={disabled}>{m}</option>;
+                    })}
+                  </select>
+                </>
+              )}
+              {historyFilter === "year" && (
+                <select value={historyYear} onChange={e => setHistoryYear(+e.target.value)} style={{ ...S.select, width: "auto", padding: "5px 10px", fontSize: 12 }}>
+                  {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              )}
+              {historyFilter === "custom" && (
+                <>
+                  <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ ...S.input, width: "auto", padding: "5px 10px", fontSize: 12 }} />
+                  <span style={{ color: "var(--text-muted,#666)", fontSize: 12 }}>–</span>
+                  <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ ...S.input, width: "auto", padding: "5px 10px", fontSize: 12 }} />
+                </>
+              )}
             </div>
+            <span style={{ fontSize: 11, color: "var(--text-muted,#666)", marginLeft: "auto" }}>{filteredHistory.length} events</span>
           </div>
-        );
-      })}
+
+          {filteredHistory.length === 0 ? (
+            <p style={{ color: "#666", textAlign: "center", padding: 32 }}>No checkout events in this period.</p>
+          ) : (() => {
+            // Group by job for this period
+            const groupMap = {};
+            filteredHistory.forEach(ev => {
+              const key = ev.jobId || ("_" + ev.jobName);
+              if (!groupMap[key]) {
+                const job = jobs.find(j => j.id === ev.jobId);
+                groupMap[key] = { jobId: ev.jobId, jobName: ev.jobName || job?.name || "—", production: job?.production || "", dates: job?.dates || [], events: [] };
+              }
+              groupMap[key].events.push(ev);
+            });
+            const groups = Object.values(groupMap).sort((a, b) => Math.max(...b.events.map(e => e.ts)) - Math.max(...a.events.map(e => e.ts)));
+            return groups.map(grp => (
+              <div key={grp.jobId || grp.jobName} style={{ ...S.card, marginBottom: 14 }}>
+                <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--divider-color,#252830)" }}>
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{grp.jobName}</p>
+                  {grp.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#e8b84b)", fontWeight: 600 }}>{grp.production}</p>}
+                  {grp.dates.length > 0 && (
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>
+                      {grp.dates[0] === grp.dates[grp.dates.length-1] ? grp.dates[0] : `${grp.dates[0]} – ${grp.dates[grp.dates.length-1]}`}
+                    </p>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {grp.events.map(ev => {
+                    const eq = equipment.find(e => e.id === ev.eqId);
+                    const d = new Date(ev.ts);
+                    const isPick = isPickEvt(ev.type);
+                    return (
+                      <div key={ev.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }}>
+                        <div style={{ width: 3, height: 28, borderRadius: 2, flexShrink: 0, background: isPick ? "#e8b84b" : "#34d399" }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{eq?.name || ev.eqId}</p>
+                          <p style={{ margin: "1px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{ev.employeeName} · {d.toLocaleDateString("en-GB", { day:"numeric", month:"short", year:"numeric" })} {d.toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" })}</p>
+                        </div>
+                        <span style={{ ...S.badge(isPick ? "amber" : "green"), flexShrink: 0 }}>{isPick ? "Pick" : "Return"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ));
+          })()}
+        </>
+      )}
     </div>
   );
 }
