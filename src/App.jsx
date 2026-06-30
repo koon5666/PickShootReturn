@@ -7339,50 +7339,30 @@ export default function App() {
   return (
     <LangCtx.Provider value={lang}>
       {!loaded ? (
-        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 28 }}>
-          <img src="/logo.png" alt="Pick Shoot Return" style={{ width: "min(72vw, 340px)", height: "auto", animation: "psrPulse 1.6s ease-in-out infinite" }} />
-          {/* Walking camera operator */}
-          <div style={{ width: "min(72vw, 300px)", position: "relative", paddingBottom: 20 }}>
-            {/* Track line */}
-            <div style={{ position: "absolute", bottom: 20, left: 0, right: 0, height: 1, background: "#1e2230" }} />
-            {/* Figure — slides along track */}
-            <div style={{ position: "absolute", bottom: 20, left: `${loadProgress}%`, transform: "translateX(-50%)", transition: "left 0.15s linear" }}>
-              {/* Bob up/down as it walks */}
-              <div style={{ animation: "psrBob 0.44s ease-in-out infinite" }}>
-                <svg viewBox="0 0 42 44" width="28" height="30" overflow="visible">
-                  {/* Head */}
-                  <circle cx="13" cy="6" r="5.5" fill="#e8b84b" />
-                  {/* Body */}
-                  <rect x="10" y="12" width="6" height="11" rx="2" fill="#e8b84b" />
-                  {/* Camera arm */}
-                  <rect x="16" y="14" width="9" height="2.5" rx="1.25" fill="#e8b84b" />
-                  {/* Camera body */}
-                  <rect x="23" y="10" width="13" height="8" rx="2" fill="#e8b84b" />
-                  {/* Viewfinder */}
-                  <rect x="26" y="7.5" width="5" height="3.5" rx="1" fill="#e8b84b" />
-                  {/* Lens outer */}
-                  <circle cx="36" cy="14" r="3.2" fill="#0f1117" />
-                  {/* Lens inner */}
-                  <circle cx="36" cy="14" r="1.6" fill="#1a2535" />
-                  {/* Left leg */}
-                  <rect x="9" y="23" width="4" height="15" rx="2" fill="#e8b84b"
-                    style={{ transformBox: "fill-box", transformOrigin: "50% 0%", animation: "psrLegF 0.44s ease-in-out infinite alternate" }} />
-                  {/* Right leg */}
-                  <rect x="14" y="23" width="4" height="15" rx="2" fill="#e8b84b"
-                    style={{ transformBox: "fill-box", transformOrigin: "50% 0%", animation: "psrLegB 0.44s ease-in-out infinite alternate" }} />
-                </svg>
-              </div>
+        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 32 }}>
+          {/* Logo spins in following the circular-arrow direction of the mark */}
+          <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ position: "absolute", width: 260, height: 260, borderRadius: "50%", background: "radial-gradient(circle, rgba(232,184,75,0.10) 0%, transparent 68%)", animation: "psrGlow 2.4s ease-in-out infinite alternate" }} />
+            <img src="/logo.png" alt="Pick Shoot Return" style={{ width: "min(72vw, 320px)", height: "auto", position: "relative", zIndex: 1, animation: "psrSpinIn 0.85s cubic-bezier(0.34,1.56,0.64,1) forwards" }} />
+          </div>
+          {/* Thin progress bar */}
+          <div style={{ width: "min(72vw, 300px)", display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ height: 2, background: "#141720", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${loadProgress}%`, background: "linear-gradient(90deg, #a06820, #e8b84b)", borderRadius: 2, transition: "width 0.15s ease-out", boxShadow: "0 0 8px #e8b84b55" }} />
             </div>
-            {/* Percentage */}
-            <div style={{ paddingTop: 4 }}>
-              <p style={{ margin: 0, fontSize: 10, color: "#333", textAlign: "center", letterSpacing: "0.12em", fontFamily: "monospace" }}>{Math.round(loadProgress)}%</p>
-            </div>
+            <p style={{ margin: 0, textAlign: "right", fontSize: 10, color: "#383c48", letterSpacing: "0.10em", fontFamily: "monospace" }}>{Math.round(loadProgress)}%</p>
           </div>
           <style>{`
-            @keyframes psrPulse { 0%,100%{opacity:.55} 50%{opacity:1} }
-            @keyframes psrLegF  { from{transform:rotate(-22deg)} to{transform:rotate(22deg)} }
-            @keyframes psrLegB  { from{transform:rotate(22deg)}  to{transform:rotate(-22deg)} }
-            @keyframes psrBob   { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+            @keyframes psrSpinIn {
+              0%   { transform: scale(0.45) rotate(-168deg); opacity: 0; filter: blur(8px); }
+              65%  { transform: scale(1.07) rotate(7deg);   opacity: 1; filter: blur(0); }
+              82%  { transform: scale(0.97) rotate(-2deg); }
+              100% { transform: scale(1)    rotate(0deg);   opacity: 1; }
+            }
+            @keyframes psrGlow {
+              from { opacity: 0.6; transform: scale(0.88); }
+              to   { opacity: 1;   transform: scale(1.12); }
+            }
           `}</style>
         </div>
       ) : loadError ? (
