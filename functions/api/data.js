@@ -10,7 +10,7 @@ const FIELDS = [
   "equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies",
   "invoices", "companyName", "equipmentRequests", "adminRequests", "adminPin",
   "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents",
-  "photoVerification", "navOrder",
+  "photoVerification", "navOrder", "verificationConfig", "invoicePresets",
 ];
 
 export async function onRequestOptions() {
