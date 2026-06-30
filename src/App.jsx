@@ -7218,7 +7218,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
     return { pickedIds, returnedIds, allPicked, allReturned };
   };
 
-  const confirmedJobs = (jobs || []).filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0);
+  const confirmedJobs = (jobs || []).filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0 && (j.dates || []).includes(todayStr));
 
   const selectJob = (job) => {
     const { allPicked } = getState(job);
