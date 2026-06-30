@@ -6966,6 +6966,7 @@ export default function App() {
   // offlineMode: KV failed but we loaded successfully from localStorage cache.
   // cloudSynced stays false so no writes go to KV until reconnection succeeds.
   const [offlineMode, setOfflineMode] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
   // Holds the last savePayload that failed — drained by the online-retry effect.
   const pendingSaveRef = useRef(null);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
@@ -7027,6 +7028,18 @@ export default function App() {
     }
     if (d.invoicePresets != null) { setInvoicePresets(d.invoicePresets); kl.add("invoicePresets"); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Animate load progress bar — ramps to ~88% while fetching, snaps to 100 on completion.
+  useEffect(() => {
+    if (loaded) { setLoadProgress(100); return; }
+    const iv = setInterval(() => {
+      setLoadProgress(p => {
+        if (p >= 88) return p;
+        return Math.min(88, p + (p < 45 ? 5 : p < 72 ? 2 : 0.6));
+      });
+    }, 100);
+    return () => clearInterval(iv);
+  }, [loaded]);
 
   // Load all data from cloud on mount — up to 3 attempts with back-off.
   // On success: write a full-state cache to localStorage (Phase 1 cache write).
@@ -7326,9 +7339,45 @@ export default function App() {
   return (
     <LangCtx.Provider value={lang}>
       {!loaded ? (
-        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 22 }}>
+        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 28 }}>
           <img src="/logo.png" alt="Pick Shoot Return" style={{ width: "min(72vw, 340px)", height: "auto", animation: "psrPulse 1.6s ease-in-out infinite" }} />
-          <p style={{ color: "#666", fontSize: 13, letterSpacing: "0.12em" }}>{LANG[lang]?.loading || "LOADING…"}</p>
+          {/* Film strip loading bar */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7, width: "min(72vw, 320px)" }}>
+            {(() => {
+              const FRAMES = 32;
+              const filled = Math.round(loadProgress / 100 * FRAMES);
+              return (
+                <>
+                  {/* Top sprocket holes */}
+                  <div style={{ display: "flex", gap: 2, width: "100%", justifyContent: "space-between", paddingInline: 4 }}>
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <div key={i} style={{ width: 6, height: 3, borderRadius: 1, background: "#1e2230" }} />
+                    ))}
+                  </div>
+                  {/* Frame segments */}
+                  <div style={{ display: "flex", gap: 2, width: "100%" }}>
+                    {Array.from({ length: FRAMES }, (_, i) => (
+                      <div key={i} style={{
+                        flex: 1,
+                        height: 5,
+                        borderRadius: 1,
+                        background: i < filled ? (i < filled - 2 ? "#e8b84b" : "#f5ce74") : "#1a1e27",
+                        transition: "background 0.15s",
+                        boxShadow: i < filled && i >= filled - 2 ? "0 0 4px #e8b84b88" : "none",
+                      }} />
+                    ))}
+                  </div>
+                  {/* Bottom sprocket holes */}
+                  <div style={{ display: "flex", gap: 2, width: "100%", justifyContent: "space-between", paddingInline: 4 }}>
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <div key={i} style={{ width: 6, height: 3, borderRadius: 1, background: "#1e2230" }} />
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
+            <p style={{ margin: 0, fontSize: 10, color: "#444", letterSpacing: "0.14em", fontFamily: "monospace" }}>{Math.round(loadProgress)}%</p>
+          </div>
           <style>{"@keyframes psrPulse{0%,100%{opacity:.55}50%{opacity:1}}"}</style>
         </div>
       ) : loadError ? (
