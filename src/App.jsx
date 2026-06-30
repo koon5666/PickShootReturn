@@ -1485,7 +1485,8 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   const html = `<!DOCTYPE html><html><head><title>${invoice.invoiceNo}</title><meta charset="utf-8"><meta name="format-detection" content="telephone=no,email=no,address=no,date=no"><style>
     @page{size:A4 portrait;margin:0}
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;font-size:10.5px;background:#fff;padding:10mm}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;color:#111;font-size:10.5px;background:#fff}
+    .page{position:relative;width:210mm;min-height:297mm;padding:10mm;overflow:hidden}
     .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
     .divider{border-top:2px solid #111;margin-bottom:10px}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:8px}
@@ -1502,9 +1503,10 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
     .sig-col{flex-shrink:0;display:flex;flex-direction:column;align-items:center}
     .sig-img{width:160px;height:auto;max-height:80px;opacity:.95}
     @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-  </style></head><body style="position:relative">
-  ${watermarkLogo && watermarkLogoPos ? `<img src="${watermarkLogo}" style="position:fixed;left:${watermarkLogoPos.x}mm;top:${watermarkLogoPos.y}mm;width:${watermarkLogoPos.width || 120}mm;opacity:${watermarkLogoPos.opacity ?? 0.08};pointer-events:none;z-index:0" />` : ""}
-  ${headerLogo && headerLogoPos ? `<img src="${headerLogo}" style="position:fixed;left:${headerLogoPos.x}mm;top:${headerLogoPos.y}mm;width:${headerLogoPos.width || 40}mm;opacity:${headerLogoPos.opacity ?? 1};pointer-events:none;z-index:0" />` : ""}
+  </style></head><body>
+  <div class="page">
+  ${watermarkLogo && watermarkLogoPos ? `<img src="${watermarkLogo}" style="position:absolute;left:${watermarkLogoPos.x}mm;top:${watermarkLogoPos.y}mm;width:${watermarkLogoPos.width || 120}mm;opacity:${watermarkLogoPos.opacity ?? 0.08};pointer-events:none;z-index:0" />` : ""}
+  ${headerLogo && headerLogoPos ? `<img src="${headerLogo}" style="position:absolute;left:${headerLogoPos.x}mm;top:${headerLogoPos.y}mm;width:${headerLogoPos.width || 40}mm;opacity:${headerLogoPos.opacity ?? 1};pointer-events:none;z-index:0" />` : ""}
   <div style="position:relative;z-index:1">
   <div class="hdr">
     <div>
@@ -1584,7 +1586,8 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
     </div>` : ""}
   </div>` : ""}
   </div>
-  ${(isAdminInvoice ? invoice.showWatermark : true) ? `<img src="${LOGO_B64}" style="position:fixed;bottom:15mm;right:10mm;width:31.5mm;opacity:0.12;pointer-events:none;z-index:0" />` : ""}
+  ${(isAdminInvoice ? invoice.showWatermark : true) ? `<img src="${LOGO_B64}" style="position:absolute;bottom:15mm;right:10mm;width:31.5mm;opacity:0.12;pointer-events:none;z-index:0" />` : ""}
+  </div>
   ${autoPrint ? `<script>window.onload=()=>{setTimeout(()=>{window.print();window.onafterprint=()=>window.close();},600);}<\/script>` : ""}
   </body></html>`;
   return html;
