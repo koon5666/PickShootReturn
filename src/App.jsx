@@ -982,6 +982,9 @@ function LangPill({ setLang }) {
 }
 
 // ─── AVAILABILITY CALCULATOR ─────────────────────────────────────────────────
+const isPickEvt = (type) => type === "pick" || type === "checkout" || type === "barcode_pick";
+const isReturnEvt = (type) => type === "return" || type === "barcode_return";
+
 function calcAvailable(equipment, jobs, checkouts, targetDate) {
   const date = targetDate || today();
   // Find confirmed jobs active on this date
@@ -1323,7 +1326,7 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
             <div style={S.col}>
               {getHistory(histTarget.id).map((c, i) => (
                 <div key={i} style={{ ...S.card, background: "#0f1117", display: "flex", gap: 16, alignItems: "flex-start" }}>
-                  <span style={{ ...S.badge(c.type === "pick" || c.type === "checkout" ? "amber" : "green"), flexShrink: 0 }}>{c.type === "pick" || c.type === "checkout" ? "PICK" : "RETURN"}</span>
+                  <span style={{ ...S.badge(isPickEvt(c.type) ? "amber" : "green"), flexShrink: 0 }}>{isPickEvt(c.type) ? "PICK" : "RETURN"}</span>
                   <div style={{ flex: 1 }}>
                     <p style={{ margin: 0, fontWeight: 600, fontSize: 13 }}>{c.jobName}</p>
                     <p style={{ margin: "3px 0 0", fontSize: 12, color: "#666" }}>{formatDateTime(c.ts)} · {c.employeeName} · Qty: {c.qty}</p>
@@ -1684,7 +1687,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
     } else {
       const genSeq = (pfx) => {
         const yr = new Date().getFullYear().toString().slice(-2);
-        const empPrefix = (employee?.invoicePrefix || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+        const empPrefix = (invoicePrefix || employee?.invoicePrefix || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
         const prefix = empPrefix ? `${pfx}-${empPrefix}-${yr}-` : `${pfx}-${yr}-`;
         const reStr = empPrefix ? `${pfx}-${empPrefix}-\\d{2}-(\\d+)` : `${pfx}-\\d{2}-(\\d+)`;
         const re = new RegExp(reStr);
@@ -2244,6 +2247,8 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
   // checkoutRoles: { barcode: "anyone"|[id,...], photo: "anyone"|[id,...] }
   const [assignRoles, setAssignRoles] = useState({ barcode: "anyone", photo: "anyone" });
 
+  const [statusTab, setStatusTab] = useState("Pencil");
+
   const openAdd = () => { setEditTarget(null); setModal("form"); };
   const openEdit = (job) => { setEditTarget(job); setModal("form"); };
   const del = (id) => { if (window.confirm(t("jobDeleteConfirm"))) setJobs(p => p.filter(j => j.id !== id)); };
@@ -2281,14 +2286,16 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
   const getCheckoutSummary = (job) => {
     const jobCheckouts = checkouts.filter(c => c.jobId === job.id);
     const outCount = (job.assignedEquipment || []).length;
-    const picked = new Set(jobCheckouts.filter(c => c.type === "pick" || c.type === "checkout").map(c => c.eqId)).size;
-    const returned = new Set(jobCheckouts.filter(c => c.type === "return").map(c => c.eqId)).size;
+    const picked = new Set(jobCheckouts.filter(c => isPickEvt(c.type)).map(c => c.eqId)).size;
+    const returned = new Set(jobCheckouts.filter(c => isReturnEvt(c.type)).map(c => c.eqId)).size;
     return { outCount, picked, returned };
   };
 
+  const tabJobs = statusTab === "all" ? jobs : jobs.filter(j => j.status === statusTab);
+
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div>
           <h1 style={S.pageTitle}>{t("jobBookings")}</h1>
           <p style={S.pageSubtitle}>{jobs.filter(j => j.status === "Confirmed").length} {t("dashConfirmedLabel")} · {jobs.filter(j => j.status === "Pencil").length} {t("dashPencilLabel")}</p>
@@ -2296,10 +2303,24 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
         <button style={S.btn("primary")} onClick={openAdd}><Icon d={icons.plus} size={15} /> {t("jobNewJob")}</button>
       </div>
 
+      {/* Status tabs */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        {[["Pencil", "gray"], ["Confirmed", "green"], ["Cancelled", "red"], ["all", null]].map(([key, color]) => {
+          const count = key === "all" ? jobs.length : jobs.filter(j => j.status === key).length;
+          const isActive = statusTab === key;
+          return (
+            <button key={key} onClick={() => setStatusTab(key)}
+              style={{ ...S.btn(isActive ? "primary" : "ghost"), padding: "7px 14px", fontSize: 12 }}>
+              {key === "all" ? `All (${count})` : `${key} (${count})`}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Job list */}
       <div style={S.col}>
-        {jobs.length === 0 && <p style={{ color: "#666", fontSize: 13 }}>{t("jobNoJobs")}</p>}
-        {jobs.sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1).map(job => {
+        {tabJobs.length === 0 && <p style={{ color: "#666", fontSize: 13 }}>{t("jobNoJobs")}</p>}
+        {tabJobs.sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1).map(job => {
           const { outCount, picked, returned } = getCheckoutSummary(job);
           const todayDates = job.dates.filter(d => d >= today());
           return (
@@ -2793,14 +2814,14 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
     const results = [];
     jobs.forEach(job => {
       const jobCheckouts = checkouts.filter(c => c.jobId === job.id);
-      const pickedIds = new Set(jobCheckouts.filter(c => c.type === "pick" || c.type === "checkout").map(c => c.eqId));
-      const returnedIds = new Set(jobCheckouts.filter(c => c.type === "return").map(c => c.eqId));
+      const pickedIds = new Set(jobCheckouts.filter(c => isPickEvt(c.type)).map(c => c.eqId));
+      const returnedIds = new Set(jobCheckouts.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
       const outIds = [...pickedIds].filter(id => !returnedIds.has(id));
       const lastJobDate = job.dates.length ? job.dates[job.dates.length - 1] : null;
       const overdue = lastJobDate ? lastJobDate < todayStr : false;
       outIds.forEach(eqId => {
         const eq = equipment.find(e => e.id === eqId);
-        const pickEvent = jobCheckouts.filter(c => (c.type === "pick" || c.type === "checkout") && c.eqId === eqId).sort((a, b) => b.ts - a.ts)[0];
+        const pickEvent = jobCheckouts.filter(c => (isPickEvt(c.type)) && c.eqId === eqId).sort((a, b) => b.ts - a.ts)[0];
         if (eq) results.push({ job, eq, pickedBy: pickEvent?.employeeName || "—", pickedAt: pickEvent?.ts || 0, overdue });
       });
     });
@@ -2808,6 +2829,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   })();
 
   const [expandedStat, setExpandedStat] = useState(null);
+  const [eqOutJob, setEqOutJob] = useState(null);
   const [dashJobModal, setDashJobModal] = useState(null);
   const [dashReqModal, setDashReqModal] = useState(null);
   const [expandedActivityKeys, setExpandedActivityKeys] = useState(new Set());
@@ -2920,52 +2942,84 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
 
       {/* Equipment status — compact chips */}
       {(() => {
-        const out = avList.filter(e => e.taken > 0);
+        const outJobs = jobs.filter(j => j.status === "Confirmed" && j.dates.includes(todayStr) && (j.assignedEquipment || []).length > 0);
+        const totalOut = avList.filter(e => e.taken > 0).length;
         return (
           <div style={S.card}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: out.length ? 10 : 0, gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: outJobs.length ? 10 : 0, gap: 8 }}>
               <p style={{ ...S.sectionTitle, margin: 0 }}>{t("dashEqOutToday")}</p>
-              <span style={{ fontSize: 11, color: "#8a8f9d", flexShrink: 0 }}>{out.length} of {equipment.length} out</span>
+              <span style={{ fontSize: 11, color: "#8a8f9d", flexShrink: 0 }}>{totalOut} of {equipment.length} out</span>
             </div>
-            {out.length === 0
+            {outJobs.length === 0
               ? <p style={{ color: "#34d399", fontSize: 13, margin: 0 }}>{t("dashAllAvail")}</p>
-              : <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {out.map(eq => (
-                    <span key={eq.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 16, background: "#0f1117", border: `1px solid ${eq.available === 0 ? "rgba(248,113,113,0.45)" : "#2e3340"}`, fontSize: 12, maxWidth: "100%" }}>
-                      <span style={{ fontWeight: 600, color: "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>{eq.name}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: eq.available === 0 ? "#f87171" : "#e8b84b", flexShrink: 0 }}>{eq.taken}/{eq.total}</span>
-                    </span>
-                  ))}
+              : <div style={S.col}>
+                  {outJobs.map(job => {
+                    const eqCount = (job.assignedEquipment || []).length;
+                    return (
+                      <button key={job.id} onClick={() => setEqOutJob(job)}
+                        style={{ ...S.card, background: "#0f1117", border: "1px solid #252830", cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", margin: 0 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.name}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.production || "—"}</p>
+                        </div>
+                        <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{eqCount} item{eqCount !== 1 ? "s" : ""}</span>
+                      </button>
+                    );
+                  })}
                 </div>}
           </div>
         );
       })()}
 
+      {eqOutJob && (
+        <Modal title={eqOutJob.name} onClose={() => setEqOutJob(null)}>
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "#8a8f9d" }}>{eqOutJob.production || "—"}</p>
+          <div style={S.col}>
+            {(eqOutJob.assignedEquipment || []).map(ae => {
+              const eq = equipment.find(e => e.id === ae.eqId);
+              if (!eq) return null;
+              const avItem = avList.find(e => e.id === ae.eqId);
+              const allOut = avItem ? avItem.available === 0 : false;
+              return (
+                <div key={ae.eqId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #252830" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: "#e8e4dc" }}>{eq.name}</p>
+                    {eq.category && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{eq.category}</p>}
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: allOut ? "#f87171" : "#e8b84b", flexShrink: 0 }}>×{ae.qty}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
+
       {/* Still Out */}
-      <div style={{ ...S.card, border: stillOutItems.some(i => i.overdue) ? "1px solid rgba(248,113,113,0.35)" : "1px solid #252830" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stillOutItems.length ? 10 : 0 }}>
-          <p style={{ ...S.sectionTitle, margin: 0 }}>{t("dashStillOut")}</p>
+      <div style={{ ...S.card, border: stillOutItems.some(i => i.overdue) ? "1px solid rgba(248,113,113,0.35)" : "1px solid #252830", padding: "10px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stillOutItems.length ? 8 : 0 }}>
+          <p style={{ ...S.sectionTitle, margin: 0, fontSize: 12 }}>{t("dashStillOut")}</p>
           {stillOutItems.length > 0 && (
             <span style={{ fontSize: 11, color: "#8a8f9d" }}>{stillOutItems.length} item{stillOutItems.length !== 1 ? "s" : ""}</span>
           )}
         </div>
         {stillOutItems.length === 0
-          ? <p style={{ color: "#34d399", fontSize: 13, margin: 0 }}>{t("dashStillOutEmpty")}</p>
+          ? <p style={{ color: "#34d399", fontSize: 12, margin: 0 }}>{t("dashStillOutEmpty")}</p>
           : stillOutItems.map((item, idx, arr) => {
               const ago = (() => {
                 const diffMs = Date.now() - item.pickedAt;
                 const h = Math.floor(diffMs / 3600000);
                 const d = Math.floor(diffMs / 86400000);
-                return d > 0 ? `${d}d ago` : h > 0 ? `${h}h ago` : "just now";
+                return d > 0 ? `${d}d` : h > 0 ? `${h}h` : "now";
               })();
+              const color = item.overdue ? "#f87171" : "#e8b84b";
               return (
-                <div key={`${item.job.id}-${item.eq.id}`} style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: idx < arr.length - 1 ? 10 : 0, marginBottom: idx < arr.length - 1 ? 10 : 0, borderBottom: idx < arr.length - 1 ? "1px solid #252830" : "none" }}>
-                  <span style={{ ...S.badge(item.overdue ? "red" : "amber"), flexShrink: 0 }}>{t(item.overdue ? "dashStillOutOverdue" : "dashStillOutActive")}</span>
+                <div key={`${item.job.id}-${item.eq.id}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none" }}>
+                  <div style={{ width: 3, alignSelf: "stretch", borderRadius: 2, background: color, flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.eq.name}</div>
-                    <div style={{ fontSize: 11, color: "#8a8f9d", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.job.name} · {item.pickedBy}</div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#e8e4dc" }}>{item.eq.name}</span>
+                    <span style={{ fontSize: 11, color: "#8a8f9d", marginLeft: 6 }}>{item.job.name} · {item.pickedBy}</span>
                   </div>
-                  <span style={{ fontSize: 11, color: item.overdue ? "#f87171" : "#6b7280", flexShrink: 0 }}>{ago}</span>
+                  <span style={{ fontSize: 11, color, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{ago}</span>
                 </div>
               );
             })
@@ -2997,7 +3051,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid #252830" }}>
                   {sortedItems.map((c, ci) => {
                     const eq = equipment.find(e => e.id === c.eqId);
-                    const cIsPick = c.type === "pick" || c.type === "checkout";
+                    const cIsPick = isPickEvt(c.type);
                     return (
                       <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: ci < sortedItems.length - 1 ? "1px solid #1e2230" : "none" }}>
                         <span style={S.badge(cIsPick ? "amber" : "green")}>{cIsPick ? t("pickEvt") : t("returnEvt")}</span>
@@ -3126,8 +3180,8 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
               {req.status === "approved" && (() => {
                 const reqCheckouts = checkouts.filter(c => c.requestId === req.id);
                 if (reqCheckouts.length === 0) return null;
-                const pickedIds = new Set(reqCheckouts.filter(c => c.type === "pick" || c.type === "checkout").map(c => c.eqId));
-                const returnedIds = new Set(reqCheckouts.filter(c => c.type === "return").map(c => c.eqId));
+                const pickedIds = new Set(reqCheckouts.filter(c => isPickEvt(c.type)).map(c => c.eqId));
+                const returnedIds = new Set(reqCheckouts.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
                 return (
                   <div style={{ borderTop: "1px solid #252830", paddingTop: 12 }}>
                     <p style={{ ...S.label, marginBottom: 8 }}>{t("dashCheckoutStatus")}</p>
@@ -3464,8 +3518,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       ? jobCheckouts.filter(c => new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(c.ts)) === todayStr)
       : jobCheckouts;
     const assignedIds = (job.assignedEquipment || []).map(ae => ae.eqId);
-    const pickedIds = new Set(relevant.filter(c => c.type === "pick" || c.type === "checkout").map(c => c.eqId));
-    const returnedIds = new Set(relevant.filter(c => c.type === "return").map(c => c.eqId));
+    const pickedIds = new Set(relevant.filter(c => isPickEvt(c.type)).map(c => c.eqId));
+    const returnedIds = new Set(relevant.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
     const allPicked = assignedIds.every(id => pickedIds.has(id));
     const allReturned = assignedIds.every(id => returnedIds.has(id));
     return { allPicked, allReturned, pickedIds, returnedIds };
@@ -3494,7 +3548,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     const isDailyMode = (selectedJob.checkoutMode || "span") === "daily";
     const pickupCo = [...checkouts].reverse().find(c => {
       if (c.jobId !== selectedJob.id || c.eqId !== ae.eqId) return false;
-      if (c.type !== "pick" && c.type !== "checkout") return false;
+      if (!isPickEvt(c.type)) return false;
       if (isDailyMode && new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(c.ts)) !== todayStr) return false;
       return true;
     });
@@ -4674,7 +4728,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 if (mine.length === 0) return <p style={{ fontSize: 13, color: "#666" }}>{t("noActivity")}</p>;
                 const groups = {};
                 mine.forEach(c => {
-                  const kind = (c.type === "pick" || c.type === "checkout") ? "pick" : "return";
+                  const kind = (isPickEvt(c.type)) ? "pick" : "return";
                   const key = `${c.jobId || c.jobName || "x"}|${kind}`;
                   if (!groups[key]) groups[key] = { key, jobName: c.jobName || "—", kind, items: [], latest: 0 };
                   groups[key].items.push(c);
@@ -4966,6 +5020,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   job={invoiceModal.job}
                   existingInvoice={invoiceModal.existing}
                   employee={{ ...employee, invoicePrefix: profileInfo.invoicePrefix }}
+                  invoicePrefix={profileInfo.invoicePrefix}
                   positions={positions}
                   onSave={saveInvoice}
                   onClose={() => setInvoiceModal(null)}
@@ -6127,10 +6182,22 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
   );
 }
 
+function makeDocNo(docType, allInvoices, invoicePrefix) {
+  const yr = new Date().getFullYear().toString().slice(-2);
+  const pfx = (invoicePrefix || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  const dp = { invoice: "INV", quotation: "QUO", receipt: "RTX" }[docType] || "INV";
+  const prefix = pfx ? `${dp}-${pfx}-${yr}-` : `${dp}-${yr}-`;
+  const re = new RegExp(pfx ? `${dp}-${pfx}-\\d{2}-(\\d+)` : `${dp}-\\d{2}-(\\d+)`);
+  let max = 0;
+  (allInvoices || []).forEach(i => { const m = i.invoiceNo?.match(re); if (m) max = Math.max(max, parseInt(m[1])); });
+  return `${prefix}${String(max + 1).padStart(4, "0")}`;
+}
+
 // ─── INVOICE PAGE ─────────────────────────────────────────────────────────────
 function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees, companyName, user, invoicePresets, jobs, adminRequests }) {
   const t = useT();
-  const [activeTab, setActiveTab] = useState("companies");
+  const [activeTab, setActiveTab] = useState("myinvoice");
+  const [companySortKey, setCompanySortKey] = useState("az");
   const [modal, setModal] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", address: "" });
@@ -6216,6 +6283,84 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   const adminEmployee = { id: "admin", name: [adminProfileInfo.firstName, adminProfileInfo.lastName].filter(Boolean).join(" ").trim() || companyName || "Admin", role: "admin" };
   const myInvoices = invoices.filter(inv => inv.employeeId === "admin");
 
+  // ── Job-based lifecycle: auto-create QUO on new job, INV on Confirmed ────────
+  useEffect(() => {
+    if (!adminProfileLoaded) return;
+    const invPrefix = adminProfileInfo.invoicePrefix;
+    const adminName = adminEmployee.name;
+    const showCo = adminProfileInfo.showCompanyName !== false;
+    setInvoices(prev => {
+      let cur = [...prev];
+      let changed = false;
+      (jobs || []).filter(j => j.status !== "Cancelled").forEach(job => {
+        const hasQuo = cur.some(i => i.jobId === job.id && i.docType === "quotation" && i.employeeId === "admin");
+        if (!hasQuo) {
+          const now = Date.now() + cur.length;
+          const defItems = adminPositions.length > 0
+            ? [{ id: `al-${job.id}`, description: `${adminPositions[0].name} (${adminPositions[0].hoursPerDay || 12}hr)`, qty: (job.dates || []).length || 1, rate: String(adminPositions[0].dayRate || ""), vat: true }]
+            : DEFAULT_ITEMS.map(it => ({ ...it, id: `${it.id}-${job.id}` }));
+          cur = [...cur, {
+            id: `auto-quo-${job.id}`, invoiceNo: makeDocNo("quotation", cur, invPrefix),
+            revisions: 0, employeeId: "admin", employeeName: adminName,
+            jobId: job.id, jobName: job.name || "", productionCompany: job.production || "",
+            shootDates: job.dates || [], position: adminPositions[0]?.name || "",
+            status: "Pending", docType: "quotation", items: defItems, callWrap: {},
+            invoiceHeader: showCo ? companyName : "", showWatermark: false,
+            vatEnabled: false, vatType: "exclusive", createdAt: now, updatedAt: now, auto: true,
+          }];
+          changed = true;
+        }
+        if (job.status === "Confirmed") {
+          const hasInv = cur.some(i => i.jobId === job.id && (i.docType === "invoice" || !i.docType) && i.employeeId === "admin");
+          if (!hasInv) {
+            const quo = cur.find(i => i.jobId === job.id && i.docType === "quotation" && i.employeeId === "admin");
+            const now = Date.now() + cur.length + 1;
+            cur = [...cur, {
+              id: `auto-inv-${job.id}`, invoiceNo: makeDocNo("invoice", cur, invPrefix),
+              revisions: 0, employeeId: "admin", employeeName: adminName,
+              jobId: job.id, jobName: job.name || "", productionCompany: quo?.productionCompany || job.production || "",
+              shootDates: quo?.shootDates || job.dates || [], position: quo?.position || adminPositions[0]?.name || "",
+              status: "Pending", docType: "invoice", linkedQuoId: quo?.id || null,
+              items: quo ? quo.items.map(it => ({ ...it })) : DEFAULT_ITEMS.map(it => ({ ...it, id: `${it.id}-${job.id}-inv` })),
+              callWrap: quo?.callWrap || {},
+              invoiceHeader: quo?.invoiceHeader ?? (showCo ? companyName : ""),
+              showWatermark: quo?.showWatermark || false,
+              vatEnabled: quo?.vatEnabled || false, vatType: quo?.vatType || "exclusive",
+              createdAt: now, updatedAt: now, auto: true,
+            }];
+            changed = true;
+          }
+        }
+      });
+      return changed ? cur : prev;
+    });
+  }, [jobs, adminProfileLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Mark Paid handler: toggles status + auto-creates RTX for admin INVs ─────
+  const handleAdminMarkPaid = (inv, isPaid) => {
+    setInvoices(prev => {
+      const updated = prev.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid", updatedAt: Date.now() } : i);
+      if (!isPaid && (inv.docType === "invoice" || !inv.docType) && inv.employeeId === "admin") {
+        const hasRtx = prev.some(i => i.linkedInvId === inv.id && i.docType === "receipt");
+        if (!hasRtx) {
+          const now = Date.now();
+          return [...updated, {
+            id: `auto-rtx-${inv.id}`, invoiceNo: (inv.invoiceNo || "").replace(/^INV-/, "RTX-"),
+            revisions: 0, employeeId: "admin", employeeName: inv.employeeName,
+            jobId: inv.jobId || "", jobName: inv.jobName || "", productionCompany: inv.productionCompany || "",
+            shootDates: inv.shootDates || [], position: inv.position || "",
+            status: "Paid", docType: "receipt",
+            items: (inv.items || []).map(it => ({ ...it })), callWrap: inv.callWrap || {},
+            invoiceHeader: inv.invoiceHeader || "", showWatermark: inv.showWatermark || false,
+            vatEnabled: inv.vatEnabled || false, vatType: inv.vatType || "exclusive",
+            linkedInvId: inv.id, createdAt: now, updatedAt: now, auto: true,
+          }];
+        }
+      }
+      return updated;
+    });
+  };
+
   const previewAdminInvoice = async (inv, doPrint = true) => {
     const win = window.open("", "_blank");
     if (win) win.document.write('<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:14px">Loading…</body></html>');
@@ -6273,7 +6418,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
-        {[["companies", "🏢 Companies"], ["invoices", `📄 All Invoices${invoices.length ? " (" + invoices.length + ")" : ""}`], ["myinvoice", `📋 My Invoice${myInvoices.length ? " (" + myInvoices.length + ")" : ""}`]].map(([key, lbl]) => (
+        {[["myinvoice", `📋 My Invoice${myInvoices.length ? " (" + myInvoices.length + ")" : ""}`], ["invoices", `📄 All Invoices${invoices.length ? " (" + invoices.length + ")" : ""}`], ["companies", "🏢 Companies"]].map(([key, lbl]) => (
           <button key={key} style={{ ...S.btn(activeTab === key ? "primary" : "ghost"), fontSize: 12, padding: "7px 14px" }} onClick={() => setActiveTab(key)}>{lbl}</button>
         ))}
       </div>
@@ -6281,6 +6426,12 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {/* Companies tab */}
       {activeTab === "companies" && (
         <>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
+            {[["az", "A–Z"], ["frequency", "Frequency"], ["due-hi", "Due ↓"], ["due-lo", "Due ↑"], ["paid-hi", "Paid ↓"], ["paid-lo", "Paid ↑"]].map(([key, lbl]) => (
+              <button key={key} onClick={() => setCompanySortKey(key)}
+                style={{ ...S.btn(companySortKey === key ? "primary" : "ghost"), padding: "5px 12px", fontSize: 12 }}>{lbl}</button>
+            ))}
+          </div>
           {productionCompanies.length === 0 ? (
             <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
               <Icon d={icons.building} size={36} color="var(--text-muted,#444)" />
@@ -6289,22 +6440,49 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             </div>
           ) : (
             <div style={S.col}>
-              {productionCompanies.map(co => (
-                <div key={co.id} style={{ ...S.card, display: "flex", alignItems: "flex-start", gap: 14 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
-                    <Icon d={icons.building} size={16} color="var(--accent,#e8b84b)" />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--text,#e8e4dc)" }}>{co.name}</p>
-                    {co.address ? <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#666)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{co.address}</p>
-                      : <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#444)", fontStyle: "italic" }}>No billing address</p>}
-                  </div>
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                    <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => open(co)}><Icon d={icons.edit} size={13} /></button>
-                    <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => del(co.id)}><Icon d={icons.trash} size={13} /></button>
-                  </div>
-                </div>
-              ))}
+              {(() => {
+                const coStats = (co) => {
+                  const coInvs = invoices.filter(i => (i.productionCompany || "").toLowerCase() === (co.name || "").toLowerCase());
+                  const paid = coInvs.filter(i => i.status === "Paid").reduce((s, i) => s + calcTotal(i), 0);
+                  const due = coInvs.filter(i => i.status !== "Paid").reduce((s, i) => s + calcTotal(i), 0);
+                  return { count: coInvs.length, paid, due };
+                };
+                const sorted = [...productionCompanies].sort((a, b) => {
+                  if (companySortKey === "az") return (a.name || "").localeCompare(b.name || "", ["th", "en"]);
+                  if (companySortKey === "frequency") return coStats(b).count - coStats(a).count;
+                  if (companySortKey === "due-hi") return coStats(b).due - coStats(a).due;
+                  if (companySortKey === "due-lo") return coStats(a).due - coStats(b).due;
+                  if (companySortKey === "paid-hi") return coStats(b).paid - coStats(a).paid;
+                  if (companySortKey === "paid-lo") return coStats(a).paid - coStats(b).paid;
+                  return 0;
+                });
+                return sorted.map(co => {
+                  const { count, paid, due } = coStats(co);
+                  return (
+                    <div key={co.id} style={{ ...S.card, display: "flex", alignItems: "flex-start", gap: 14 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
+                        <Icon d={icons.building} size={16} color="var(--accent,#e8b84b)" />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--text,#e8e4dc)" }}>{co.name}</p>
+                        {co.address ? <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#666)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{co.address}</p>
+                          : <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#444)", fontStyle: "italic" }}>No billing address</p>}
+                        {count > 0 && (
+                          <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+                            <span style={{ fontSize: 11, color: "#8a8f9d" }}>{count} doc{count !== 1 ? "s" : ""}</span>
+                            {paid > 0 && <span style={{ fontSize: 11, color: "#34d399" }}>฿{paid.toLocaleString()} paid</span>}
+                            {due > 0 && <span style={{ fontSize: 11, color: "#e8b84b" }}>฿{due.toLocaleString()} due</span>}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => open(co)}><Icon d={icons.edit} size={13} /></button>
+                        <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => del(co.id)}><Icon d={icons.trash} size={13} /></button>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           )}
         </>
@@ -6319,50 +6497,60 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 style={{ ...S.btn(docTypeFilter === key ? "primary" : "ghost"), padding: "5px 12px", fontSize: 12 }}>{lbl}</button>
             ))}
           </div>
-          {invoices.filter(inv => docTypeFilter === "all" || (inv.docType || "invoice") === docTypeFilter).length === 0 ? (
-            <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
-              <Icon d={icons.invoice} size={36} color="var(--text-muted,#444)" />
-              <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No documents found.</p>
-            </div>
-          ) : (
-            <div style={S.col}>
-              {[...invoices].filter(inv => docTypeFilter === "all" || (inv.docType || "invoice") === docTypeFilter).sort((a, b) => b.updatedAt - a.updatedAt).map(inv => {
-                const total = calcTotal(inv);
-                const isPaid = (inv.status || "Pending") === "Paid";
-                return (
-                  <div key={inv.id} style={{ ...S.card, border: isPaid ? "1px solid rgba(52,211,153,0.25)" : "var(--card-border,1px solid #252830)" }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
-                          <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 10 }}>{inv.status || "Pending"}</span>
-                          <span style={{ ...S.badge("blue"), fontSize: 10 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
-                          <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</p>
-                        </div>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{inv.jobName}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.employeeName} · {inv.position || "—"}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.productionCompany}</p>
+          {(() => {
+            const filtered = [...invoices].filter(inv => docTypeFilter === "all" || (inv.docType || "invoice") === docTypeFilter);
+            if (filtered.length === 0) return (
+              <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
+                <Icon d={icons.invoice} size={36} color="var(--text-muted,#444)" />
+                <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No documents found.</p>
+              </div>
+            );
+            // Group by job
+            const groupMap = {};
+            filtered.forEach(inv => {
+              const key = inv.jobId || (inv.jobName + "|" + inv.employeeId) || "ungrouped";
+              if (!groupMap[key]) groupMap[key] = { key, jobName: inv.jobName || "—", productionCompany: inv.productionCompany || "", docs: [] };
+              groupMap[key].docs.push(inv);
+            });
+            const docOrder = { quotation: 0, invoice: 1, receipt: 2 };
+            const groups = Object.values(groupMap)
+              .sort((a, b) => Math.max(...b.docs.map(d => d.updatedAt)) - Math.max(...a.docs.map(d => d.updatedAt)))
+              .map(g => ({ ...g, docs: [...g.docs].sort((a, b) => (docOrder[a.docType || "invoice"] ?? 1) - (docOrder[b.docType || "invoice"] ?? 1)) }));
+            return (
+              <div style={S.col}>
+                {groups.map(group => {
+                  const empNames = [...new Set(group.docs.map(d => d.employeeName).filter(Boolean))].join(", ");
+                  return (
+                    <div key={group.key} style={S.card}>
+                      <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #252830" }}>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.jobName}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#8a8f9d)" }}>{empNames}{group.productionCompany ? ` · ${group.productionCompany}` : ""}</p>
                       </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</p>
-                        <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{new Date(inv.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
-                        <div style={{ display: "flex", gap: 6, marginTop: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                          <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>
-                            {previewing === inv.id ? "…" : "Preview"}
-                          </button>
-                          <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px" }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid" } : i))}>
-                            {isPaid ? "Mark Pending" : "Mark Paid ✓"}
-                          </button>
-                          <button style={{ ...S.btn("danger"), fontSize: 11, padding: "4px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.filter(i => i.id !== inv.id)); }}>
-                            <Icon d={icons.trash} size={12} />
-                          </button>
-                        </div>
-                      </div>
+                      {group.docs.map((inv, idx, arr) => {
+                        const total = calcTotal(inv);
+                        const isPaid = (inv.status || "Pending") === "Paid";
+                        return (
+                          <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 5, flex: 1, minWidth: 0 }}>
+                              <span style={{ ...S.badge("blue"), fontSize: 9, flexShrink: 0 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
+                              <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 9, flexShrink: 0 }}>{inv.status || "Pending"}</span>
+                              <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtInvoiceNo(inv)}</span>
+                            </div>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
+                            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                              <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
+                              <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Pending" : "Paid ✓"}</button>
+                              <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.filter(i => i.id !== inv.id)); }}><Icon d={icons.trash} size={11} /></button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            );
+          })()}
         </>
       )}
 
@@ -6691,8 +6879,10 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                   <div key={inv.id} style={{ ...S.card, border: isPaid ? "1px solid rgba(52,211,153,0.25)" : "var(--card-border,1px solid #252830)" }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}>
                           <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 10 }}>{inv.status || "Pending"}</span>
+                          <span style={{ ...S.badge("blue"), fontSize: 10 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
+                          {inv.auto && <span style={{ fontSize: 9, color: "#888", background: "#1e2230", borderRadius: 4, padding: "1px 5px", letterSpacing: ".04em" }}>AUTO</span>}
                           <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</span>
                         </div>
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{inv.jobName}</p>
@@ -6705,7 +6895,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                           <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => previewAdminInvoice(inv, false)}>Preview</button>
                           <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => previewAdminInvoice(inv, true)}>Print</button>
                           <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
-                          <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px" }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid" } : i))}>{isPaid ? "Mark Pending" : "Mark Paid ✓"}</button>
+                          <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Mark Pending" : "Mark Paid ✓"}</button>
                           <button style={{ ...S.btn("danger"), fontSize: 11, padding: "4px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.filter(i => i.id !== inv.id)); }}><Icon d={icons.trash} size={12} /></button>
                         </div>
                       </div>
@@ -6741,6 +6931,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
         <InvoiceCreateModal
           existingInvoice={adminEditInvoice}
           employee={{ ...adminEmployee, invoicePrefix: adminProfileInfo.invoicePrefix }}
+          invoicePrefix={adminProfileInfo.invoicePrefix}
           positions={adminPositions}
           allInvoices={invoices}
           companyName={adminProfileInfo.showCompanyName !== false ? companyName : ""}
@@ -6948,8 +7139,8 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
     const relevant = mode === "daily"
       ? jc.filter(c => new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(c.ts)) === todayStr)
       : jc;
-    const pickedIds = new Set(relevant.filter(c => c.type === "pick" || c.type === "checkout").map(c => c.eqId));
-    const returnedIds = new Set(relevant.filter(c => c.type === "return").map(c => c.eqId));
+    const pickedIds = new Set(relevant.filter(c => isPickEvt(c.type)).map(c => c.eqId));
+    const returnedIds = new Set(relevant.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
     const assigned = (job.assignedEquipment || []);
     const allPicked = assigned.length > 0 && assigned.every(ae => pickedIds.has(ae.eqId));
     const allReturned = assigned.length > 0 && assigned.every(ae => returnedIds.has(ae.eqId));
