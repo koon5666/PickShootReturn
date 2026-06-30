@@ -1736,17 +1736,6 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
           <p style={S.sectionTitle}>Job Info</p>
           <div style={S.col}>
             <div><label style={S.label}>Invoice Header <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(displayed at top of invoice)</span></label><input style={S.input} value={invoiceHeader} onChange={e => setInvoiceHeader(e.target.value)} placeholder={companyName || "Your name or company"} /></div>
-            {isAdminCreator && (
-              <button onClick={() => setShowWatermark(v => !v)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: showWatermark ? "rgba(232,184,75,0.05)" : "rgba(255,255,255,0.03)", border: `1px solid ${showWatermark ? "rgba(232,184,75,0.25)" : "#252830"}`, cursor: "pointer", userSelect: "none", textAlign: "left" }}>
-                <div style={{ width: 36, height: 20, borderRadius: 10, background: showWatermark ? "var(--accent,#e8b84b)" : "#444", position: "relative", flexShrink: 0, transition: "background .2s" }}>
-                  <div style={{ position: "absolute", top: 2, left: showWatermark ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
-                </div>
-                <div>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: showWatermark ? "var(--accent,#e8b84b)" : "var(--text,#e8e4dc)" }}>Pick Shoot Return watermark {showWatermark ? "ON" : "OFF"}</p>
-                  <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", marginTop: 2 }}>{showWatermark ? "Faint logo shown at lower-right of invoice" : "No watermark on this invoice"}</p>
-                </div>
-              </button>
-            )}
             <div><label style={S.label}>Job Name</label><input style={S.input} value={jobName} onChange={e => setJobName(e.target.value)} /></div>
             <div>
               <label style={S.label}>Production Company</label>
