@@ -7152,12 +7152,13 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
 
   // History view state
   const [view, setView] = useState("active"); // "active" | "history"
-  const [historyFilter, setHistoryFilter] = useState("month"); // "month" | "year" | "custom"
+  const [historyFilter, setHistoryFilter] = useState("year"); // "month" | "year" | "custom"
   const nowDate = new Date();
   const [historyYear, setHistoryYear] = useState(nowDate.getFullYear());
   const [historyMonth, setHistoryMonth] = useState(nowDate.getMonth()); // 0-indexed
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+  const [historyDetailJob, setHistoryDetailJob] = useState(null); // { key, jobName, production, dates, events }
 
   const earliestTs = checkouts.length > 0 ? Math.min(...checkouts.map(c => c.ts)) : Date.now();
   const earliestYear = new Date(earliestTs).getFullYear();
@@ -7381,6 +7382,65 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
     );
   }
 
+  if (historyDetailJob) {
+    const jobEvents = filteredHistory.filter(ev => (ev.jobId || ("_" + ev.jobName)) === historyDetailJob.key).sort((a, b) => b.ts - a.ts);
+    const exportJobCsv = () => {
+      const label = historyFilter === "year" ? `${historyYear}` : historyFilter === "month" ? `${historyYear}-${String(historyMonth+1).padStart(2,"0")}` : "custom";
+      const rows = [
+        ["Date","Time","Job Name","Production Company","Employee","Equipment","Type","Qty"],
+        ...jobEvents.map(ev => {
+          const eq = equipment.find(e => e.id === ev.eqId);
+          const d = new Date(ev.ts);
+          return [d.toLocaleDateString("en-CA"), d.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}), historyDetailJob.jobName, historyDetailJob.production, ev.employeeName||"", eq?.name||ev.eqId||"", isPickEvt(ev.type)?"Pick":isReturnEvt(ev.type)?"Return":ev.type, ev.qty||1];
+        }),
+      ];
+      const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv],{type:"text/csv"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href=url; a.download=`checkout-${historyDetailJob.jobName.replace(/\s+/g,"-")}-${label}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    };
+    return (
+      <div style={{ padding: "20px 16px 100px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <button style={S.btn("ghost")} onClick={() => setHistoryDetailJob(null)}><Icon d={icons.arrow_left} size={16} /> Back</button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "var(--text,#e8e4dc)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{historyDetailJob.jobName}</p>
+            {historyDetailJob.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#e8b84b)", fontWeight: 600 }}>{historyDetailJob.production}</p>}
+            {historyDetailJob.dates.length > 0 && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{historyDetailJob.dates[0]}{historyDetailJob.dates[0] !== historyDetailJob.dates[historyDetailJob.dates.length-1] ? ` – ${historyDetailJob.dates[historyDetailJob.dates.length-1]}` : ""}</p>}
+          </div>
+          <button onClick={exportJobCsv} style={{ ...S.btn("ghost"), padding: "6px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+            <Icon d={icons.invoice} size={13} />CSV
+          </button>
+        </div>
+        {jobEvents.length === 0 ? (
+          <p style={{ color: "#666", textAlign: "center", padding: 32 }}>No events in this period.</p>
+        ) : jobEvents.map(ev => {
+          const eq = equipment.find(e => e.id === ev.eqId);
+          const d = new Date(ev.ts);
+          const isPick = isPickEvt(ev.type);
+          return (
+            <div key={ev.id} style={{ ...S.card, display: "flex", alignItems: "center", gap: 12, marginBottom: 8, padding: "12px 14px" }}>
+              <div style={{ width: 3, alignSelf: "stretch", minHeight: 32, borderRadius: 2, flexShrink: 0, background: isPick ? "#e8b84b" : "#34d399" }} />
+              {eq?.photo ? (
+                <img src={eq.photo} alt="" style={{ width: 36, height: 36, borderRadius: 7, objectFit: "cover", flexShrink: 0 }} />
+              ) : (
+                <div style={{ width: 36, height: 36, borderRadius: 7, background: "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Icon d={icons.camera} size={15} color="#555" />
+                </div>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{eq?.name || ev.eqId}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{ev.employeeName} · {d.toLocaleDateString("en-GB",{day:"numeric",month:"short"})} {d.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</p>
+              </div>
+              <span style={{ ...S.badge(isPick ? "amber" : "green"), flexShrink: 0 }}>{isPick ? "Pick" : "Return"}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: "20px 16px 100px" }}>
       {/* Tab switcher */}
@@ -7467,47 +7527,37 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
           {filteredHistory.length === 0 ? (
             <p style={{ color: "#666", textAlign: "center", padding: 32 }}>No checkout events in this period.</p>
           ) : (() => {
-            // Group by job for this period
             const groupMap = {};
             filteredHistory.forEach(ev => {
               const key = ev.jobId || ("_" + ev.jobName);
               if (!groupMap[key]) {
                 const job = jobs.find(j => j.id === ev.jobId);
-                groupMap[key] = { jobId: ev.jobId, jobName: ev.jobName || job?.name || "—", production: job?.production || "", dates: job?.dates || [], events: [] };
+                groupMap[key] = { key, jobId: ev.jobId, jobName: ev.jobName || job?.name || "—", production: job?.production || "", dates: job?.dates || [], events: [] };
               }
               groupMap[key].events.push(ev);
             });
             const groups = Object.values(groupMap).sort((a, b) => Math.max(...b.events.map(e => e.ts)) - Math.max(...a.events.map(e => e.ts)));
-            return groups.map(grp => (
-              <div key={grp.jobId || grp.jobName} style={{ ...S.card, marginBottom: 14 }}>
-                <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--divider-color,#252830)" }}>
-                  <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{grp.jobName}</p>
-                  {grp.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#e8b84b)", fontWeight: 600 }}>{grp.production}</p>}
-                  {grp.dates.length > 0 && (
-                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>
-                      {grp.dates[0] === grp.dates[grp.dates.length-1] ? grp.dates[0] : `${grp.dates[0]} – ${grp.dates[grp.dates.length-1]}`}
-                    </p>
-                  )}
+            return groups.map(grp => {
+              const pickCount = grp.events.filter(e => isPickEvt(e.type)).length;
+              const returnCount = grp.events.filter(e => isReturnEvt(e.type)).length;
+              const dateRange = grp.dates.length > 0 ? (grp.dates[0] === grp.dates[grp.dates.length-1] ? grp.dates[0] : `${grp.dates[0]} – ${grp.dates[grp.dates.length-1]}`) : "";
+              return (
+                <div key={grp.key} style={{ ...S.card, marginBottom: 10, cursor: "pointer" }} onClick={() => setHistoryDetailJob(grp)}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{grp.jobName}</p>
+                      {grp.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#e8b84b)", fontWeight: 600 }}>{grp.production}</p>}
+                      {dateRange && <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{dateRange}</p>}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                      <span style={S.badge("amber")}>{pickCount} pick</span>
+                      <span style={S.badge("green")}>{returnCount} return</span>
+                    </div>
+                    <Icon d={icons.arrow_left} size={14} color="var(--text-muted,#555)" strokeW={2} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />
+                  </div>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {grp.events.map(ev => {
-                    const eq = equipment.find(e => e.id === ev.eqId);
-                    const d = new Date(ev.ts);
-                    const isPick = isPickEvt(ev.type);
-                    return (
-                      <div key={ev.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }}>
-                        <div style={{ width: 3, height: 28, borderRadius: 2, flexShrink: 0, background: isPick ? "#e8b84b" : "#34d399" }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{eq?.name || ev.eqId}</p>
-                          <p style={{ margin: "1px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{ev.employeeName} · {d.toLocaleDateString("en-GB", { day:"numeric", month:"short", year:"numeric" })} {d.toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" })}</p>
-                        </div>
-                        <span style={{ ...S.badge(isPick ? "amber" : "green"), flexShrink: 0 }}>{isPick ? "Pick" : "Return"}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ));
+              );
+            });
           })()}
         </>
       )}
