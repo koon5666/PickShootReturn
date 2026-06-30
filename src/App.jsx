@@ -5046,9 +5046,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       }}>
         {[
           { key: "today", label: t("tabToday"), icon: icons.calendar },
-          { key: "profile", label: t("tabProfile"), icon: icons.user },
-          { key: "gear", label: "Gear", icon: icons.camera },
           { key: "invoice", label: t("tabInvoice"), icon: icons.invoice },
+          { key: "gear", label: "Gear", icon: icons.camera },
+          { key: "profile", label: t("tabProfile"), icon: icons.user },
         ].map(tItem => {
           const active = tab === tItem.key;
           return (
