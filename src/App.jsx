@@ -7341,44 +7341,49 @@ export default function App() {
       {!loaded ? (
         <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 28 }}>
           <img src="/logo.png" alt="Pick Shoot Return" style={{ width: "min(72vw, 340px)", height: "auto", animation: "psrPulse 1.6s ease-in-out infinite" }} />
-          {/* Film strip loading bar */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7, width: "min(72vw, 320px)" }}>
-            {(() => {
-              const FRAMES = 32;
-              const filled = Math.round(loadProgress / 100 * FRAMES);
-              return (
-                <>
-                  {/* Top sprocket holes */}
-                  <div style={{ display: "flex", gap: 2, width: "100%", justifyContent: "space-between", paddingInline: 4 }}>
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <div key={i} style={{ width: 6, height: 3, borderRadius: 1, background: "#1e2230" }} />
-                    ))}
-                  </div>
-                  {/* Frame segments */}
-                  <div style={{ display: "flex", gap: 2, width: "100%" }}>
-                    {Array.from({ length: FRAMES }, (_, i) => (
-                      <div key={i} style={{
-                        flex: 1,
-                        height: 5,
-                        borderRadius: 1,
-                        background: i < filled ? (i < filled - 2 ? "#e8b84b" : "#f5ce74") : "#1a1e27",
-                        transition: "background 0.15s",
-                        boxShadow: i < filled && i >= filled - 2 ? "0 0 4px #e8b84b88" : "none",
-                      }} />
-                    ))}
-                  </div>
-                  {/* Bottom sprocket holes */}
-                  <div style={{ display: "flex", gap: 2, width: "100%", justifyContent: "space-between", paddingInline: 4 }}>
-                    {Array.from({ length: 12 }, (_, i) => (
-                      <div key={i} style={{ width: 6, height: 3, borderRadius: 1, background: "#1e2230" }} />
-                    ))}
-                  </div>
-                </>
-              );
-            })()}
-            <p style={{ margin: 0, fontSize: 10, color: "#444", letterSpacing: "0.14em", fontFamily: "monospace" }}>{Math.round(loadProgress)}%</p>
+          {/* Walking camera operator */}
+          <div style={{ width: "min(72vw, 300px)", position: "relative", paddingBottom: 20 }}>
+            {/* Track line */}
+            <div style={{ position: "absolute", bottom: 20, left: 0, right: 0, height: 1, background: "#1e2230" }} />
+            {/* Figure — slides along track */}
+            <div style={{ position: "absolute", bottom: 20, left: `${loadProgress}%`, transform: "translateX(-50%)", transition: "left 0.15s linear" }}>
+              {/* Bob up/down as it walks */}
+              <div style={{ animation: "psrBob 0.44s ease-in-out infinite" }}>
+                <svg viewBox="0 0 42 44" width="28" height="30" overflow="visible">
+                  {/* Head */}
+                  <circle cx="13" cy="6" r="5.5" fill="#e8b84b" />
+                  {/* Body */}
+                  <rect x="10" y="12" width="6" height="11" rx="2" fill="#e8b84b" />
+                  {/* Camera arm */}
+                  <rect x="16" y="14" width="9" height="2.5" rx="1.25" fill="#e8b84b" />
+                  {/* Camera body */}
+                  <rect x="23" y="10" width="13" height="8" rx="2" fill="#e8b84b" />
+                  {/* Viewfinder */}
+                  <rect x="26" y="7.5" width="5" height="3.5" rx="1" fill="#e8b84b" />
+                  {/* Lens outer */}
+                  <circle cx="36" cy="14" r="3.2" fill="#0f1117" />
+                  {/* Lens inner */}
+                  <circle cx="36" cy="14" r="1.6" fill="#1a2535" />
+                  {/* Left leg */}
+                  <rect x="9" y="23" width="4" height="15" rx="2" fill="#e8b84b"
+                    style={{ transformBox: "fill-box", transformOrigin: "50% 0%", animation: "psrLegF 0.44s ease-in-out infinite alternate" }} />
+                  {/* Right leg */}
+                  <rect x="14" y="23" width="4" height="15" rx="2" fill="#e8b84b"
+                    style={{ transformBox: "fill-box", transformOrigin: "50% 0%", animation: "psrLegB 0.44s ease-in-out infinite alternate" }} />
+                </svg>
+              </div>
+            </div>
+            {/* Percentage */}
+            <div style={{ paddingTop: 4 }}>
+              <p style={{ margin: 0, fontSize: 10, color: "#333", textAlign: "center", letterSpacing: "0.12em", fontFamily: "monospace" }}>{Math.round(loadProgress)}%</p>
+            </div>
           </div>
-          <style>{"@keyframes psrPulse{0%,100%{opacity:.55}50%{opacity:1}}"}</style>
+          <style>{`
+            @keyframes psrPulse { 0%,100%{opacity:.55} 50%{opacity:1} }
+            @keyframes psrLegF  { from{transform:rotate(-22deg)} to{transform:rotate(22deg)} }
+            @keyframes psrLegB  { from{transform:rotate(22deg)}  to{transform:rotate(-22deg)} }
+            @keyframes psrBob   { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+          `}</style>
         </div>
       ) : loadError ? (
         <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
