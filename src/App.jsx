@@ -5898,6 +5898,23 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   const [adminEditInvoice, setAdminEditInvoice] = useState(null);
   const [docTypeFilter, setDocTypeFilter] = useState("all");
   const adminPromptPayRef = useRef(null);
+  const a4Ref = useRef(null);
+  const dragging = useRef(null);
+  const startLogoDrag = (e, setPos, currentPos) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragging.current = { setPos, startClientX: e.clientX, startClientY: e.clientY, startPosX: currentPos.x, startPosY: currentPos.y };
+  };
+  const moveLogoDrag = (e) => {
+    if (!dragging.current) return;
+    const rect = a4Ref.current?.getBoundingClientRect();
+    if (!rect) return;
+    const { setPos, startClientX, startClientY, startPosX, startPosY } = dragging.current;
+    const dx = (e.clientX - startClientX) * (210 / rect.width);
+    const dy = (e.clientY - startClientY) * (297 / rect.height);
+    setPos(p => ({ ...p, x: Math.max(0, Math.round((startPosX + dx) * 10) / 10), y: Math.max(0, Math.round((startPosY + dy) * 10) / 10) }));
+  };
+  const endLogoDrag = () => { dragging.current = null; };
   const adminSigRef = useRef(null);
 
   useEffect(() => {
@@ -6213,16 +6230,103 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             </div>
           </div>
 
-          {/* Logo uploads */}
+          {/* A4 Live Preview */}
+          <div style={{ ...S.card, marginTop: 12 }}>
+            <p style={{ ...S.sectionTitle, margin: "0 0 4px" }}>A4 Preview</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 10px" }}>Drag logos directly on the page. <span style={{ color: "#e8b84b" }}>H</span> = Header · <span style={{ color: "#818cf8" }}>W</span> = Watermark</p>
+            <div style={{ display: "flex", justifyContent: "center", background: "#0f1117", borderRadius: 6, padding: "14px 10px" }}>
+              <div
+                ref={a4Ref}
+                style={{
+                  position: "relative",
+                  width: "100%",
+                  maxWidth: 220,
+                  aspectRatio: "210 / 297",
+                  background: "#fff",
+                  boxShadow: "0 4px 24px rgba(0,0,0,0.7)",
+                  borderRadius: 2,
+                  overflow: "hidden",
+                  userSelect: "none",
+                  flexShrink: 0,
+                }}
+              >
+                {/* Simulated page chrome */}
+                <div style={{ position: "absolute", top: "7%", left: "8%", right: "8%", height: 2, background: "#e0e0e0", borderRadius: 1 }} />
+                {[17, 22, 27, 32, 37, 42, 47, 52, 57, 62, 67, 72].map(pct => (
+                  <div key={pct} style={{ position: "absolute", top: `${pct}%`, left: "8%", right: pct % 10 === 7 ? "35%" : "8%", height: 2, background: "#f0f0f0", borderRadius: 1 }} />
+                ))}
+                <div style={{ position: "absolute", bottom: "6%", left: "8%", right: "8%", height: 1, background: "#e0e0e0" }} />
+
+                {!headerLogo && !watermarkLogo && (
+                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <p style={{ color: "#bbb", fontSize: 10, textAlign: "center", padding: "0 16px", lineHeight: 1.5 }}>Upload logos below<br />to preview here</p>
+                  </div>
+                )}
+
+                {/* Watermark (z-index 1) */}
+                {watermarkLogo && (
+                  <>
+                    <img
+                      src={watermarkLogo}
+                      draggable={false}
+                      onPointerDown={e => startLogoDrag(e, setWatermarkLogoPos, watermarkLogoPos)}
+                      onPointerMove={moveLogoDrag}
+                      onPointerUp={endLogoDrag}
+                      onPointerCancel={endLogoDrag}
+                      style={{
+                        position: "absolute",
+                        left: `${(watermarkLogoPos.x / 210 * 100).toFixed(2)}%`,
+                        top: `${(watermarkLogoPos.y / 297 * 100).toFixed(2)}%`,
+                        width: `${(watermarkLogoPos.width / 210 * 100).toFixed(2)}%`,
+                        opacity: watermarkLogoPos.opacity,
+                        cursor: "move",
+                        userSelect: "none",
+                        touchAction: "none",
+                        zIndex: 1,
+                      }}
+                    />
+                    <div style={{ position: "absolute", left: `${(watermarkLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(watermarkLogoPos.y / 297 * 100).toFixed(2)}%`, background: "rgba(129,140,248,0.9)", color: "#fff", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 2, pointerEvents: "none", zIndex: 10, lineHeight: 1.4 }}>W</div>
+                  </>
+                )}
+
+                {/* Header logo (z-index 2) */}
+                {headerLogo && (
+                  <>
+                    <img
+                      src={headerLogo}
+                      draggable={false}
+                      onPointerDown={e => startLogoDrag(e, setHeaderLogoPos, headerLogoPos)}
+                      onPointerMove={moveLogoDrag}
+                      onPointerUp={endLogoDrag}
+                      onPointerCancel={endLogoDrag}
+                      style={{
+                        position: "absolute",
+                        left: `${(headerLogoPos.x / 210 * 100).toFixed(2)}%`,
+                        top: `${(headerLogoPos.y / 297 * 100).toFixed(2)}%`,
+                        width: `${(headerLogoPos.width / 210 * 100).toFixed(2)}%`,
+                        opacity: headerLogoPos.opacity,
+                        cursor: "move",
+                        userSelect: "none",
+                        touchAction: "none",
+                        zIndex: 2,
+                      }}
+                    />
+                    <div style={{ position: "absolute", left: `${(headerLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(headerLogoPos.y / 297 * 100).toFixed(2)}%`, background: "rgba(232,184,75,0.9)", color: "#000", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 2, pointerEvents: "none", zIndex: 10, lineHeight: 1.4 }}>H</div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Per-logo controls */}
           {[
-            { label: "Header Logo", logo: headerLogo, setLogo: setHeaderLogo, pos: headerLogoPos, setPos: setHeaderLogoPos, ref: headerLogoRef, hint: "Placed at X/Y offset from A4 top-left. Graphic layer under text." },
-            { label: "Watermark Logo", logo: watermarkLogo, setLogo: setWatermarkLogo, pos: watermarkLogoPos, setPos: setWatermarkLogoPos, ref: watermarkLogoRef, hint: "Large background graphic behind invoice body. Graphic layer under text." },
-          ].map(({ label, logo, setLogo, pos, setPos, ref, hint }) => {
+            { label: "Header Logo", logo: headerLogo, setLogo: setHeaderLogo, pos: headerLogoPos, setPos: setHeaderLogoPos, ref: headerLogoRef },
+            { label: "Watermark Logo", logo: watermarkLogo, setLogo: setWatermarkLogo, pos: watermarkLogoPos, setPos: setWatermarkLogoPos, ref: watermarkLogoRef },
+          ].map(({ label, logo, setLogo, pos, setPos, ref }) => {
             const jog = (axis, amt) => setPos(p => ({ ...p, [axis]: Math.round((p[axis] + amt) * 10) / 10 }));
             return (
               <div key={label} style={{ ...S.card, marginTop: 12 }}>
-                <p style={{ ...S.sectionTitle, margin: "0 0 4px" }}>{label}</p>
-                <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 10px" }}>{hint}</p>
+                <p style={{ ...S.sectionTitle, margin: "0 0 10px" }}>{label}</p>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
                   {logo && <img src={logo} alt="" style={{ height: 48, maxWidth: 120, objectFit: "contain", borderRadius: 4, border: "1px solid #252830", background: "#fff", padding: 2 }} />}
                   <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; compressImage(f, { maxDim: 800, quality: 0.85 }).then(d => d && setLogo(d)); }} />
@@ -6231,33 +6335,29 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 </div>
                 {logo && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {/* X position */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 60 }}>X: {pos.x}mm</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>X: {pos.x}mm</span>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", -10)}>−10</button>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", -1)}>−1</button>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", 1)}>+1</button>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", 10)}>+10</button>
                     </div>
-                    {/* Y position */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 60 }}>Y: {pos.y}mm</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>Y: {pos.y}mm</span>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", -10)}>−10</button>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", -1)}>−1</button>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", 1)}>+1</button>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", 10)}>+10</button>
                     </div>
-                    {/* Width */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 60 }}>W: {pos.width}mm</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>W: {pos.width}mm</span>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", -10)}>−10</button>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", -1)}>−1</button>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", 1)}>+1</button>
                       <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", 10)}>+10</button>
                     </div>
-                    {/* Opacity */}
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 60 }}>Opacity: {Math.round(pos.opacity * 100)}%</span>
+                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>Opacity: {Math.round(pos.opacity * 100)}%</span>
                       <input type="range" min="0" max="100" value={Math.round(pos.opacity * 100)} onChange={e => setPos(p => ({ ...p, opacity: parseInt(e.target.value) / 100 }))} style={{ flex: 1 }} />
                     </div>
                   </div>
