@@ -1770,7 +1770,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
             </div>
             {/* RTX: link to paid INV only */}
             {docType === "receipt" && !existingInvoice && (() => {
-              const paidInvs = (allInvoices || []).filter(i => (i.docType === "invoice" || !i.docType) && i.employeeId === employee.id && i.status === "Paid").sort((a, b) => b.updatedAt - a.updatedAt);
+              const paidInvs = (allInvoices || []).filter(i => (i.docType === "invoice" || !i.docType) && (isAdminCreator || i.employeeId === employee.id) && i.status === "Paid").sort((a, b) => b.updatedAt - a.updatedAt);
               return (
                 <div>
                   <label style={S.label}>Linked Invoice <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(RTX only issues for a Paid invoice)</span></label>
@@ -1782,7 +1782,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
                     <>
                       <select style={S.select} value={linkedInvId} onChange={e => setLinkedInvId(e.target.value)}>
                         <option value="">Select paid invoice…</option>
-                        {paidInvs.map(i => <option key={i.id} value={i.id}>{fmtInvoiceNo(i)} — {i.jobName}</option>)}
+                        {paidInvs.map(i => <option key={i.id} value={i.id}>{fmtInvoiceNo(i)} — {i.jobName}{isAdminCreator && i.employeeName ? ` (${i.employeeName})` : ""}</option>)}
                       </select>
                       {linkedInvId && (() => {
                         const li = paidInvs.find(i => i.id === linkedInvId);
