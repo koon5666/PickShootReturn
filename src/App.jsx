@@ -3144,7 +3144,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
   const todayStr = today();
   const availableJobs = jobs.filter(j => j.status === "Confirmed" && j.dates.includes(todayStr) && (j.assignedEquipment || []).length > 0);
-  const myReports = reports.filter(r => r.reportedBy?.id === employee.id);
+  const myReports = [...(reports || [])].sort((a, b) => b.ts - a.ts);
 
   // ── Verification mode helpers ────────────────────────────────────────────────
   const vMode = verificationConfig?.mode || "photo";
@@ -3955,6 +3955,28 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             <div style={S.col}>
               <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>Gear</h1>
 
+              {/* Equipment list section */}
+              {(equipment || []).length > 0 && (
+                <div style={S.card}>
+                  <p style={{ ...S.sectionTitle, margin: "0 0 10px" }}>Equipment Library</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {(equipment || []).map(eq => (
+                      <div key={eq.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        {eq.photo
+                          ? <img src={eq.photo} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
+                          : <div style={{ width: 40, height: 40, borderRadius: 6, background: "#252830", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon d={icons.camera} size={16} color="#555" /></div>
+                        }
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#e8e4dc" }}>{eq.name}</p>
+                          {eq.category && <p style={{ margin: 0, fontSize: 11, color: "#666" }}>{eq.category}</p>}
+                        </div>
+                        <span style={{ fontSize: 11, color: "#888", flexShrink: 0 }}>×{eq.total}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Reports section */}
               <div style={{ ...S.card }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
@@ -3965,11 +3987,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 </div>
                 {myReports.length === 0 ? (
                   <p style={{ fontSize: 13, color: "#555" }}>{t("reportNone")}</p>
-                ) : [...myReports].sort((a, b) => b.ts - a.ts).map(r => (
+                ) : myReports.map(r => (
                   <div key={r.id} style={{ ...S.card, border: r.status === "open" ? "1px solid rgba(239,68,68,0.25)" : "1px solid #252830", marginBottom: 8 }}>
                     <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                       {{ open: <span style={S.badge("red")}>{t("reportStatusOpen")}</span>, solved: <span style={S.badge("green")}>{t("reportStatusSolved")}</span>, discarded: <span style={S.badge("gray")}>{t("reportStatusDiscarded")}</span> }[r.status]}
                       {r.eqName && <span style={S.tag}>{r.eqName}</span>}
+                      {r.reportedBy?.name && <span style={{ fontSize: 11, color: "#888" }}>by {r.reportedBy.name}</span>}
                     </div>
                     <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{r.description}</p>
                     <p style={{ margin: "4px 0 0", fontSize: 11, color: "#666" }}>{formatDateTime(r.ts)}</p>
