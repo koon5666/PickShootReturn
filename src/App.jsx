@@ -6151,6 +6151,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   const [adminSaveStatus, setAdminSaveStatus] = useState(null);
   const [adminCreateModal, setAdminCreateModal] = useState(false);
   const [adminEditInvoice, setAdminEditInvoice] = useState(null);
+  const [adminMyInfoOpen, setAdminMyInfoOpen] = useState(false);
+  const [adminPosOpen, setAdminPosOpen] = useState(false);
+  const [adminDocOpen, setAdminDocOpen] = useState(false);
   const [docTypeFilter, setDocTypeFilter] = useState("all");
   const adminPromptPayRef = useRef(null);
   const a4Ref = useRef(null);
@@ -6366,58 +6369,74 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {/* My Invoice tab */}
       {activeTab === "myinvoice" && (
         <div style={S.col}>
-          {/* Profile card */}
-          <div style={S.card}>
-            <p style={S.sectionTitle}>My Info</p>
-            <div style={S.col}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div><label style={S.label}>First Name</label><input style={S.input} value={adminProfileInfo.firstName} onChange={e => setAdminProfileInfo(p => ({ ...p, firstName: e.target.value }))} /></div>
-                <div><label style={S.label}>Last Name</label><input style={S.input} value={adminProfileInfo.lastName} onChange={e => setAdminProfileInfo(p => ({ ...p, lastName: e.target.value }))} /></div>
+          {/* ── 3 compact dialog-trigger rows ── */}
+          {[
+            { key: "info", label: "My Info", sub: [adminProfileInfo.firstName, adminProfileInfo.lastName].filter(Boolean).join(" ") || adminProfileInfo.email || "Tap to fill in", open: () => setAdminMyInfoOpen(true) },
+            { key: "pos",  label: "Positions & Day Rate", sub: adminPositions.length ? adminPositions.map(p => p.name).filter(Boolean).join(", ") : "No positions — add to enable auto-fill", open: () => setAdminPosOpen(true) },
+            { key: "doc",  label: "Document", sub: [adminPromptPayQR ? "PromptPay ✓" : null, adminProfileInfo.bankName || null, headerLogo ? "Header logo ✓" : null, watermarkLogo ? "Watermark ✓" : null].filter(Boolean).join(" · ") || "PromptPay, bank, logos & prefix", open: () => setAdminDocOpen(true) },
+          ].map(({ key, label, sub, open }) => (
+            <button key={key} onClick={open} style={{ ...S.card, display: "flex", alignItems: "center", justifyContent: "space-between", textAlign: "left", cursor: "pointer", width: "100%", background: "var(--card-bg,#1a1e27)", border: "var(--card-border,1px solid #252830)" }}>
+              <div>
+                <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: "var(--text,#e8e4dc)" }}>{label}</p>
+                <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{sub}</p>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div><label style={S.label}>Phone</label><input style={S.input} type="tel" value={adminProfileInfo.phone} onChange={e => setAdminProfileInfo(p => ({ ...p, phone: e.target.value }))} /></div>
-                <div><label style={S.label}>Email</label><input style={S.input} type="email" value={adminProfileInfo.email} onChange={e => setAdminProfileInfo(p => ({ ...p, email: e.target.value }))} /></div>
-              </div>
-              <div><label style={S.label}>{t("legalAddress")}</label><textarea style={{ ...S.input, height: 72, resize: "vertical", lineHeight: 1.5 }} value={adminProfileInfo.legalAddress} onChange={e => setAdminProfileInfo(p => ({ ...p, legalAddress: e.target.value }))} /></div>
-            </div>
-          </div>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ opacity: 0.35, flexShrink: 0 }}><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+          ))}
 
-          {/* Positions card */}
-          <div style={S.card}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-              <p style={{ ...S.sectionTitle, margin: 0 }}>{t("positionsTitle")}</p>
-              {adminPositions.length < 5 && <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12 }} onClick={addAdminPosition}><Icon d={icons.plus} size={12} /> {t("addRoleBtn")}</button>}
-            </div>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 14px", lineHeight: 1.6 }}>{t("positionsDesc")}</p>
-            {adminPositions.length === 0 && <p style={{ fontSize: 13, color: "#666", margin: 0 }}>{t("positionsEmpty")}</p>}
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {adminPositions.map((pos, i) => {
-                const rph = (parseFloat(pos.dayRate) || 0) / (parseFloat(pos.hoursPerDay) || 12);
-                return (
-                  <div key={pos.id} style={{ border: "1px solid #2e3340", borderRadius: 10, padding: 14, background: "rgba(255,255,255,0.02)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                      <span style={S.badge("amber")}>{t("roleLabel")} {i + 1}</span>
-                      <div style={{ flex: 1 }} />
-                      <button style={{ ...S.btn("danger"), padding: "5px 8px" }} onClick={() => removeAdminPosition(pos.id)}><Icon d={icons.trash} size={13} /></button>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div><label style={S.label}>{t("positionName")}</label><input style={S.input} value={pos.name} placeholder="e.g. Camera Operator" onChange={e => updateAdminPosition(pos.id, { name: e.target.value })} /></div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                        <div><label style={S.label}>{t("dayRateLabel")}</label><input style={S.input} type="number" min="0" inputMode="decimal" value={pos.dayRate} placeholder="4500" onChange={e => updateAdminPosition(pos.id, { dayRate: e.target.value })} /></div>
-                        <div><label style={S.label}>{t("hoursPerDayLabel")}</label><input style={S.input} type="number" min="1" inputMode="decimal" value={pos.hoursPerDay} placeholder="12" onChange={e => updateAdminPosition(pos.id, { hoursPerDay: e.target.value })} /></div>
-                      </div>
-                      {parseFloat(pos.dayRate) > 0 && parseFloat(pos.hoursPerDay) > 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>{t("hourlyRate")}: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}{t("perHr")}</p>}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        <label style={{ ...S.label, margin: 0 }}>{t("otLabel").replace("{h}", parseFloat(pos.hoursPerDay) || 12)}</label>
-                        <div style={{ flex: 1 }} />
-                        <button onClick={() => updateAdminPosition(pos.id, { variableOT: !pos.variableOT })} style={{ ...S.btn(pos.variableOT ? "primary" : "ghost"), padding: "5px 10px", fontSize: 12 }}>{pos.variableOT ? t("variableOT") : t("flatOT")}</button>
-                      </div>
-                      {!pos.variableOT ? (
-                        <div><label style={S.label}>{t("otMultiplierLabel")}</label><input style={{ ...S.input, maxWidth: 140 }} type="number" min="1" step="0.25" inputMode="decimal" value={pos.otMultiplier} placeholder="1.5" onChange={e => updateAdminPosition(pos.id, { otMultiplier: e.target.value })} /></div>
-                      ) : (
-                        <div>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                            <label style={{ ...S.label, margin: 0 }}>{t("otTiersLabel")}</label>
+          {/* My Info modal */}
+          {adminMyInfoOpen && (
+            <Modal title="My Info" onClose={() => setAdminMyInfoOpen(false)}>
+              <div style={S.col}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div><label style={S.label}>First Name</label><input style={S.input} value={adminProfileInfo.firstName} onChange={e => setAdminProfileInfo(p => ({ ...p, firstName: e.target.value }))} /></div>
+                  <div><label style={S.label}>Last Name</label><input style={S.input} value={adminProfileInfo.lastName} onChange={e => setAdminProfileInfo(p => ({ ...p, lastName: e.target.value }))} /></div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div><label style={S.label}>Phone</label><input style={S.input} type="tel" value={adminProfileInfo.phone} onChange={e => setAdminProfileInfo(p => ({ ...p, phone: e.target.value }))} /></div>
+                  <div><label style={S.label}>Email</label><input style={S.input} type="email" value={adminProfileInfo.email} onChange={e => setAdminProfileInfo(p => ({ ...p, email: e.target.value }))} /></div>
+                </div>
+                <div><label style={S.label}>{t("legalAddress")}</label><textarea style={{ ...S.input, height: 72, resize: "vertical", lineHeight: 1.5 }} value={adminProfileInfo.legalAddress} onChange={e => setAdminProfileInfo(p => ({ ...p, legalAddress: e.target.value }))} /></div>
+                <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile on the main screen.</p>
+              </div>
+            </Modal>
+          )}
+
+          {/* Positions & Day Rate modal */}
+          {adminPosOpen && (
+            <Modal title={t("positionsTitle")} onClose={() => setAdminPosOpen(false)}>
+              <div style={S.col}>
+                <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>{t("positionsDesc")}</p>
+                {adminPositions.length < 5 && <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12, alignSelf: "flex-start" }} onClick={addAdminPosition}><Icon d={icons.plus} size={12} /> {t("addRoleBtn")}</button>}
+                {adminPositions.length === 0 && <p style={{ fontSize: 13, color: "#666", margin: 0 }}>{t("positionsEmpty")}</p>}
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  {adminPositions.map((pos, i) => {
+                    const rph = (parseFloat(pos.dayRate) || 0) / (parseFloat(pos.hoursPerDay) || 12);
+                    return (
+                      <div key={pos.id} style={{ border: "1px solid #2e3340", borderRadius: 10, padding: 14, background: "rgba(255,255,255,0.02)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                          <span style={S.badge("amber")}>{t("roleLabel")} {i + 1}</span>
+                          <div style={{ flex: 1 }} />
+                          <button style={{ ...S.btn("danger"), padding: "5px 8px" }} onClick={() => removeAdminPosition(pos.id)}><Icon d={icons.trash} size={13} /></button>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          <div><label style={S.label}>{t("positionName")}</label><input style={S.input} value={pos.name} placeholder="e.g. Camera Operator" onChange={e => updateAdminPosition(pos.id, { name: e.target.value })} /></div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            <div><label style={S.label}>{t("dayRateLabel")}</label><input style={S.input} type="number" min="0" inputMode="decimal" value={pos.dayRate} placeholder="4500" onChange={e => updateAdminPosition(pos.id, { dayRate: e.target.value })} /></div>
+                            <div><label style={S.label}>{t("hoursPerDayLabel")}</label><input style={S.input} type="number" min="1" inputMode="decimal" value={pos.hoursPerDay} placeholder="12" onChange={e => updateAdminPosition(pos.id, { hoursPerDay: e.target.value })} /></div>
+                          </div>
+                          {parseFloat(pos.dayRate) > 0 && parseFloat(pos.hoursPerDay) > 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>{t("hourlyRate")}: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}{t("perHr")}</p>}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <label style={{ ...S.label, margin: 0 }}>{t("otLabel").replace("{h}", parseFloat(pos.hoursPerDay) || 12)}</label>
+                            <div style={{ flex: 1 }} />
+                            <button onClick={() => updateAdminPosition(pos.id, { variableOT: !pos.variableOT })} style={{ ...S.btn(pos.variableOT ? "primary" : "ghost"), padding: "5px 10px", fontSize: 12 }}>{pos.variableOT ? t("variableOT") : t("flatOT")}</button>
+                          </div>
+                          {!pos.variableOT ? (
+                            <div><label style={S.label}>{t("otMultiplierLabel")}</label><input style={{ ...S.input, maxWidth: 140 }} type="number" min="1" step="0.25" inputMode="decimal" value={pos.otMultiplier} placeholder="1.5" onChange={e => updateAdminPosition(pos.id, { otMultiplier: e.target.value })} /></div>
+                          ) : (
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                                <label style={{ ...S.label, margin: 0 }}>{t("otTiersLabel")}</label>
                             <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => addAdminTier(pos.id)}><Icon d={icons.plus} size={11} /> {t("addTierBtn")}</button>
                           </div>
                           {(pos.otTiers || []).map((tr, ti) => {
@@ -6445,8 +6464,15 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 );
               })}
             </div>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile on the main screen.</p>
           </div>
+        </Modal>
+          )}
 
+          {/* Document modal (PromptPay, bank, logos) */}
+          {adminDocOpen && (
+            <Modal title="Document" onClose={() => setAdminDocOpen(false)}>
+          <div style={S.col}>
           {/* Documents card */}
           <div style={S.card}>
             <p style={S.sectionTitle}>{t("documents")}</p>
@@ -6633,6 +6659,11 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             );
           })}
 
+          <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile on the main screen.</p>
+          </div>
+        </Modal>
+          )}
+
           {/* Save profile button */}
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
             {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
@@ -6675,6 +6706,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                           <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => previewAdminInvoice(inv, true)}>Print</button>
                           <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
                           <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px" }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid" } : i))}>{isPaid ? "Mark Pending" : "Mark Paid ✓"}</button>
+                          <button style={{ ...S.btn("danger"), fontSize: 11, padding: "4px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.filter(i => i.id !== inv.id)); }}><Icon d={icons.trash} size={12} /></button>
                         </div>
                       </div>
                     </div>
