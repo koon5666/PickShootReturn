@@ -1002,6 +1002,45 @@ function calcAvailable(equipment, jobs, checkouts, targetDate) {
 }
 
 // ─── EQUIPMENT PAGE ───────────────────────────────────────────────────────────
+function printQRForItems(items, autoprint = true) {
+  const rows = items.map(eq => `
+    <div class="label">
+      <div class="qr" id="qr_${eq.id}"></div>
+      <div class="info">
+        <div class="name">${eq.name.replace(/</g,"&lt;")}</div>
+        <div class="cat">${(eq.category||"").replace(/</g,"&lt;")}${eq.total > 1 ? ` · ×${eq.total}` : ""}</div>
+        <div class="code">psr_eq:${eq.id}</div>
+      </div>
+    </div>`).join("");
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR Labels</title>
+<style>
+  body{margin:0;padding:10mm;font-family:sans-serif;background:#fff;color:#000}
+  .grid{display:flex;flex-wrap:wrap;gap:6mm}
+  .label{width:55mm;border:1px solid #ccc;border-radius:3mm;padding:4mm;display:flex;align-items:center;gap:3mm;page-break-inside:avoid}
+  .qr{width:24mm;height:24mm;flex-shrink:0}
+  .qr canvas,.qr img{width:100%;height:100%}
+  .info{flex:1;min-width:0;overflow:hidden}
+  .name{font-weight:700;font-size:10pt;line-height:1.2;word-break:break-word}
+  .cat{font-size:8pt;color:#555;margin-top:2px}
+  .code{font-size:6pt;color:#aaa;margin-top:3px;word-break:break-all}
+  @media print{body{padding:5mm}@page{size:A4;margin:10mm}}
+</style></head><body>
+<h2 style="margin:0 0 6mm;font-size:13pt">QR Labels (${items.length} item${items.length!==1?"s":""})</h2>
+<div class="grid">${rows}</div>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
+<script>
+  document.querySelectorAll(".label").forEach(function(el){
+    var id=el.querySelector(".qr").id.replace("qr_","");
+    new QRCode(el.querySelector(".qr"),{text:"psr_eq:"+id,width:90,height:90,correctLevel:QRCode.CorrectLevel.M});
+  });
+  ${autoprint ? "setTimeout(function(){window.print();},800);" : ""}
+<\/script></body></html>`;
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 const EQ_SORT_OPTIONS = [
   { key: "name_az", label: "Name A→Z" },
   { key: "name_za", label: "Name Z→A" },
@@ -1099,45 +1138,6 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
   setTimeout(function(){window.print();},800);
 <\/script>
 </body></html>`;
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  };
-
-  const printQRForItems = (items, autoprint = true) => {
-    const rows = items.map(eq => `
-      <div class="label">
-        <div class="qr" id="qr_${eq.id}"></div>
-        <div class="info">
-          <div class="name">${eq.name.replace(/</g,"&lt;")}</div>
-          <div class="cat">${(eq.category||"").replace(/</g,"&lt;")}${eq.total > 1 ? ` · ×${eq.total}` : ""}</div>
-          <div class="code">psr_eq:${eq.id}</div>
-        </div>
-      </div>`).join("");
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR Labels</title>
-<style>
-  body{margin:0;padding:10mm;font-family:sans-serif;background:#fff;color:#000}
-  .grid{display:flex;flex-wrap:wrap;gap:6mm}
-  .label{width:55mm;border:1px solid #ccc;border-radius:3mm;padding:4mm;display:flex;align-items:center;gap:3mm;page-break-inside:avoid}
-  .qr{width:24mm;height:24mm;flex-shrink:0}
-  .qr canvas,.qr img{width:100%;height:100%}
-  .info{flex:1;min-width:0;overflow:hidden}
-  .name{font-weight:700;font-size:10pt;line-height:1.2;word-break:break-word}
-  .cat{font-size:8pt;color:#555;margin-top:2px}
-  .code{font-size:6pt;color:#aaa;margin-top:3px;word-break:break-all}
-  @media print{body{padding:5mm}@page{size:A4;margin:10mm}}
-</style></head><body>
-<h2 style="margin:0 0 6mm;font-size:13pt">QR Labels (${items.length} item${items.length!==1?"s":""})</h2>
-<div class="grid">${rows}</div>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
-<script>
-  document.querySelectorAll(".label").forEach(function(el){
-    var id=el.querySelector(".qr").id.replace("qr_","");
-    new QRCode(el.querySelector(".qr"),{text:"psr_eq:"+id,width:90,height:90,correctLevel:QRCode.CorrectLevel.M});
-  });
-  ${autoprint ? "setTimeout(function(){window.print();},800);" : ""}
-<\/script></body></html>`;
     const blob = new Blob([html], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank");
@@ -3130,6 +3130,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [adminReqForm, setAdminReqForm] = useState({});
   const [adminReqMsg, setAdminReqMsg] = useState(null);
   const adminReqPhotoRef = useRef(null);
+  const [eqSortBy, setEqSortBy] = useState("name_az");
+  const [eqFilterCat, setEqFilterCat] = useState(null);
+  const [eqReqCollapsed, setEqReqCollapsed] = useState(true);
   const [revFrom, setRevFrom] = useState("");
   const [revTo, setRevTo] = useState("");
   const profileFileRef = useRef(null);
@@ -3951,31 +3954,98 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {/* GEAR TAB */}
         {tab === "gear" && (() => {
           const myAdminReqs = (adminRequests || []).filter(r => r.employeeId === employee.id);
+          const eqAvailList = calcAvailable(equipment || [], jobs || [], checkouts || [], today());
+          const eqCategories = [...new Set((equipment || []).map(e => e.category).filter(Boolean))].sort();
+          const eqFiltered = eqFilterCat ? eqAvailList.filter(e => e.category === eqFilterCat) : eqAvailList;
+          const eqSorted = [...eqFiltered].sort((a, b) => {
+            switch (eqSortBy) {
+              case "name_az": return a.name.localeCompare(b.name);
+              case "name_za": return b.name.localeCompare(a.name);
+              case "cat":     return (a.category || "").localeCompare(b.category || "") || a.name.localeCompare(b.name);
+              case "qty_lo":  return a.total - b.total || a.name.localeCompare(b.name);
+              case "qty_hi":  return b.total - a.total || a.name.localeCompare(b.name);
+              case "latest": {
+                const aTs = Math.max(0, ...(checkouts||[]).filter(c => c.eqId === a.id).map(c => c.ts));
+                const bTs = Math.max(0, ...(checkouts||[]).filter(c => c.eqId === b.id).map(c => c.ts));
+                return bTs - aTs;
+              }
+              case "most": {
+                const aC = (checkouts||[]).filter(c => c.eqId === a.id).length;
+                const bC = (checkouts||[]).filter(c => c.eqId === b.id).length;
+                return bC - aC || a.name.localeCompare(b.name);
+              }
+              default: return 0;
+            }
+          });
+          const renderEqGrid = (items) => (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(145px, 1fr))", gap: 10 }}>
+              {items.map(eq => (
+                <div key={eq.id} style={{ ...S.card, padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                  <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", overflow: "hidden", background: "#0f1117", flexShrink: 0 }}>
+                    {eq.photo
+                      ? <img src={eq.photo} alt={eq.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                      : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon d={icons.camera} size={32} color="#252830" /></div>
+                    }
+                    <div style={{ position: "absolute", top: 5, left: 5 }}>
+                      {eq.available === 0
+                        ? <span style={{ ...S.badge("red"), fontSize: 10 }}>Unavail.</span>
+                        : eq.available < eq.total
+                          ? <span style={{ ...S.badge("amber"), fontSize: 10 }}>{eq.available}/{eq.total}</span>
+                          : <span style={{ ...S.badge("green"), fontSize: 10 }}>{eq.available}/{eq.total}</span>
+                      }
+                    </div>
+                  </div>
+                  <div style={{ padding: "8px 10px 8px", flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
+                    {eq.category && <span style={S.tag}>{eq.category}</span>}
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: 12, lineHeight: 1.3, color: "#e8e4dc" }}>{eq.name}</p>
+                    {eq.notes && <p style={{ margin: 0, fontSize: 10, color: "#555", lineHeight: 1.3 }}>{eq.notes}</p>}
+                    <div style={{ marginTop: "auto", paddingTop: 6, display: "flex", justifyContent: "flex-end" }}>
+                      <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} title="View QR" onClick={() => printQRForItems([eq], false)}>
+                        <Icon d={icons.qr || icons.camera} size={12} /> QR
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
           return (
             <div style={S.col}>
               <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>Gear</h1>
 
-              {/* Equipment list section */}
-              {(equipment || []).length > 0 && (
-                <div style={S.card}>
-                  <p style={{ ...S.sectionTitle, margin: "0 0 10px" }}>Equipment Library</p>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {(equipment || []).map(eq => (
-                      <div key={eq.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        {eq.photo
-                          ? <img src={eq.photo} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
-                          : <div style={{ width: 40, height: 40, borderRadius: 6, background: "#252830", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon d={icons.camera} size={16} color="#555" /></div>
-                        }
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#e8e4dc" }}>{eq.name}</p>
-                          {eq.category && <p style={{ margin: 0, fontSize: 11, color: "#666" }}>{eq.category}</p>}
-                        </div>
-                        <span style={{ fontSize: 11, color: "#888", flexShrink: 0 }}>×{eq.total}</span>
-                      </div>
+              {/* Equipment Library */}
+              <div>
+                <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Equipment Library · {eqAvailList.length} items</p>
+                {/* Category filter */}
+                {eqCategories.length > 0 && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                    <button onClick={() => setEqFilterCat(null)} style={{ ...S.badge(eqFilterCat === null ? "amber" : "gray"), cursor: "pointer", border: "none", padding: "4px 10px" }}>All</button>
+                    {eqCategories.map(c => (
+                      <button key={c} onClick={() => setEqFilterCat(eqFilterCat === c ? null : c)} style={{ ...S.badge(eqFilterCat === c ? "amber" : "gray"), cursor: "pointer", border: "none", padding: "4px 10px" }}>{c}</button>
                     ))}
                   </div>
+                )}
+                {/* Sort bar */}
+                <div style={{ display: "flex", gap: 5, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
+                  {EQ_SORT_OPTIONS.map(s => (
+                    <button key={s.key} onClick={() => setEqSortBy(s.key)} style={{ ...S.btn(eqSortBy === s.key ? "primary" : "ghost"), padding: "5px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>{s.label}</button>
+                  ))}
                 </div>
-              )}
+                {/* Grid — grouped by category when cat sort */}
+                {eqSortBy === "cat"
+                  ? eqCategories.filter(cat => !eqFilterCat || cat === eqFilterCat).map(cat => {
+                      const items = eqSorted.filter(e => e.category === cat);
+                      if (!items.length) return null;
+                      return (
+                        <div key={cat} style={{ marginBottom: 16 }}>
+                          <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{cat}</p>
+                          {renderEqGrid(items)}
+                        </div>
+                      );
+                    })
+                  : renderEqGrid(eqSorted)
+                }
+              </div>
 
               {/* Reports section */}
               <div style={{ ...S.card }}>
@@ -4005,26 +4075,33 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 ))}
               </div>
 
-              {/* Equipment Requests section */}
+              {/* Equipment Requests section — collapsed by default */}
               <div style={S.card}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: myAdminReqs.length > 0 ? 12 : 0 }}>
-                  <p style={{ ...S.sectionTitle, margin: 0 }}>Equipment Requests</p>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("production-house"); setAdminReqForm({ name: "", address: "" }); setAdminReqMsg(null); }}>+ Production House</button>
-                    <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("equipment"); setAdminReqForm({ name: "", category: "", total: "1", notes: "", photo: null }); setAdminReqMsg(null); }}>+ Equipment</button>
-                  </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }} onClick={() => setEqReqCollapsed(v => !v)}>
+                  <p style={{ ...S.sectionTitle, margin: 0, cursor: "pointer" }}>
+                    Equipment Requests {myAdminReqs.length > 0 && <span style={S.badge("amber")}>{myAdminReqs.length}</span>}
+                  </p>
+                  <span style={{ color: "#666", fontSize: 16, cursor: "pointer" }}>{eqReqCollapsed ? "▸" : "▾"}</span>
                 </div>
-                {myAdminReqs.length === 0 ? (
-                  <p style={{ fontSize: 13, color: "#555", marginTop: 10 }}>No requests yet.</p>
-                ) : myAdminReqs.slice().reverse().map((req, i, arr) => (
-                  <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
-                    <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{req.name}</p>
-                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.type === "production-house" ? "Production House" : "Equipment"}{req.status === "approved" ? " — Added to system" : ""}</p>
+                {!eqReqCollapsed && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ display: "flex", gap: 8, marginBottom: myAdminReqs.length > 0 ? 12 : 0 }}>
+                      <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("production-house"); setAdminReqForm({ name: "", address: "" }); setAdminReqMsg(null); }}>+ Production House</button>
+                      <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("equipment"); setAdminReqForm({ name: "", category: "", total: "1", notes: "", photo: null }); setAdminReqMsg(null); }}>+ Equipment</button>
                     </div>
+                    {myAdminReqs.length === 0 ? (
+                      <p style={{ fontSize: 13, color: "#555" }}>No requests yet.</p>
+                    ) : myAdminReqs.slice().reverse().map((req, i, arr) => (
+                      <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
+                        <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{req.name}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.type === "production-house" ? "Production House" : "Equipment"}{req.status === "approved" ? " — Added to system" : ""}</p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
 
               {/* Add New Equipment — goes to admin approval */}
