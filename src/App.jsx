@@ -6571,20 +6571,23 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {/* My Invoice tab */}
       {activeTab === "myinvoice" && (
         <div style={S.col}>
-          {/* ── 3 compact dialog-trigger rows ── */}
-          {[
-            { key: "info", label: "My Info", sub: [adminProfileInfo.firstName, adminProfileInfo.lastName].filter(Boolean).join(" ") || adminProfileInfo.email || "Tap to fill in", open: () => setAdminMyInfoOpen(true) },
-            { key: "pos",  label: "Positions & Day Rate", sub: adminPositions.length ? adminPositions.map(p => p.name).filter(Boolean).join(", ") : "No positions — add to enable auto-fill", open: () => setAdminPosOpen(true) },
-            { key: "doc",  label: "Document", sub: [adminPromptPayQR ? "PromptPay ✓" : null, adminProfileInfo.bankName || null, headerLogo ? "Header logo ✓" : null, watermarkLogo ? "Watermark ✓" : null].filter(Boolean).join(" · ") || "PromptPay, bank, logos & prefix", open: () => setAdminDocOpen(true) },
-          ].map(({ key, label, sub, open }) => (
-            <button key={key} onClick={open} style={{ ...S.card, display: "flex", alignItems: "center", justifyContent: "space-between", textAlign: "left", cursor: "pointer", width: "100%", background: "var(--card-bg,#1a1e27)", border: "var(--card-border,1px solid #252830)" }}>
-              <div>
-                <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: "var(--text,#e8e4dc)" }}>{label}</p>
-                <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{sub}</p>
-              </div>
-              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ opacity: 0.35, flexShrink: 0 }}><path d="M9 18l6-6-6-6"/></svg>
-            </button>
-          ))}
+          {/* ── Profile settings group ── */}
+          <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
+            <p style={{ ...S.sectionTitle, margin: 0, padding: "10px 16px", borderBottom: "1px solid var(--divider-color,#252830)" }}>Profile Settings</p>
+            {[
+              { key: "info", label: "My Info", sub: [adminProfileInfo.firstName, adminProfileInfo.lastName].filter(Boolean).join(" ") || adminProfileInfo.email || "Tap to fill in", open: () => setAdminMyInfoOpen(true) },
+              { key: "pos",  label: "Positions & Day Rate", sub: adminPositions.length ? adminPositions.map(p => p.name).filter(Boolean).join(", ") : "No positions — add to enable auto-fill", open: () => setAdminPosOpen(true) },
+              { key: "doc",  label: "Document", sub: [adminPromptPayQR ? "PromptPay ✓" : null, adminProfileInfo.bankName || null, headerLogo ? "Header logo ✓" : null, watermarkLogo ? "Watermark ✓" : null].filter(Boolean).join(" · ") || "PromptPay, bank, logos & prefix", open: () => setAdminDocOpen(true) },
+            ].map(({ key, label, sub, open }, idx, arr) => (
+              <button key={key} onClick={open} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", textAlign: "left", cursor: "pointer", width: "100%", background: "transparent", border: "none", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#252830)" : "none", padding: "14px 16px" }}>
+                <div>
+                  <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: "var(--text,#e8e4dc)" }}>{label}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{sub}</p>
+                </div>
+                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ opacity: 0.35, flexShrink: 0 }}><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            ))}
+          </div>
 
           {/* My Info modal */}
           {adminMyInfoOpen && (
