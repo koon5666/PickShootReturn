@@ -6426,10 +6426,21 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
-        {[["myinvoice", `📋 My Invoice${myInvoices.length ? " (" + myInvoices.length + ")" : ""}`], ["invoices", `📄 All Invoices${invoices.length ? " (" + invoices.length + ")" : ""}`], ["companies", "🏢 Companies"]].map(([key, lbl]) => (
-          <button key={key} style={{ ...S.btn(activeTab === key ? "primary" : "ghost"), fontSize: 12, padding: "7px 14px" }} onClick={() => setActiveTab(key)}>{lbl}</button>
-        ))}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
+        {(() => {
+          const quoCount = invoices.filter(i => i.docType === "quotation").length;
+          const invCount = invoices.filter(i => i.docType === "invoice" || !i.docType).length;
+          const rtxCount = invoices.filter(i => i.docType === "receipt").length;
+          return [
+            ["myinvoice", `My Invoice${myInvoices.length ? " ("+myInvoices.length+")" : ""}`],
+            ["quo", `QUO${quoCount ? " ("+quoCount+")" : ""}`],
+            ["inv", `INV${invCount ? " ("+invCount+")" : ""}`],
+            ["rtx", `RTX${rtxCount ? " ("+rtxCount+")" : ""}`],
+            ["companies", "Companies"],
+          ].map(([key, lbl]) => (
+            <button key={key} style={{ ...S.btn(activeTab === key ? "primary" : "ghost"), fontSize: 12, padding: "7px 14px" }} onClick={() => setActiveTab(key)}>{lbl}</button>
+          ));
+        })()}
       </div>
 
       {/* Companies tab */}
@@ -6497,17 +6508,15 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
         </>
       )}
 
-      {/* All Invoices tab */}
-      {activeTab === "invoices" && (
+      {/* QUO / INV / RTX tabs */}
+      {(activeTab === "quo" || activeTab === "inv" || activeTab === "rtx") && (
         <>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {[["all", "All"], ["invoice", "INV"], ["quotation", "QUO"], ["receipt", "RTX"]].map(([key, lbl]) => (
-              <button key={key} onClick={() => setDocTypeFilter(key)}
-                style={{ ...S.btn(docTypeFilter === key ? "primary" : "ghost"), padding: "5px 12px", fontSize: 12 }}>{lbl}</button>
-            ))}
-          </div>
           {(() => {
-            const filtered = [...invoices].filter(inv => docTypeFilter === "all" || (inv.docType || "invoice") === docTypeFilter);
+            const filtered = [...invoices].filter(inv => {
+              if (activeTab === "quo") return inv.docType === "quotation";
+              if (activeTab === "rtx") return inv.docType === "receipt";
+              return inv.docType === "invoice" || !inv.docType; // inv
+            });
             if (filtered.length === 0) return (
               <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
                 <Icon d={icons.invoice} size={36} color="var(--text-muted,#444)" />
