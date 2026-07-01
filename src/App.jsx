@@ -6534,7 +6534,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             const groups = Object.values(groupMap)
               .sort((a, b) => Math.max(...b.docs.map(d => d.updatedAt)) - Math.max(...a.docs.map(d => d.updatedAt)))
               .map(g => ({ ...g, docs: [...g.docs].sort((a, b) => (docOrder[a.docType || "invoice"] ?? 1) - (docOrder[b.docType || "invoice"] ?? 1)) }));
-            // ── Monthly income summary (RTX only) ────────────────────────────
+            // ── Monthly income summary + month buckets (RTX only) ────────────
             const monthSummary = activeTab === "rtx" ? (() => {
               const map = {};
               filtered.forEach(inv => {
@@ -6549,6 +6549,68 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
               });
               return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0])).map(([, v]) => v);
             })() : null;
+
+            const monthBuckets = activeTab === "rtx" ? (() => {
+              const map = {};
+              groups.forEach(group => {
+                const latest = group.docs.reduce((a, d) => d.updatedAt > a.updatedAt ? d : a, group.docs[0]);
+                const d = new Date(latest.updatedAt);
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                const label = d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+                if (!map[key]) map[key] = { key, label, groups: [], subtotal: 0, vatAmount: 0, total: 0 };
+                map[key].groups.push(group);
+                group.docs.forEach(inv => {
+                  const { subtotal, vatAmount, total } = calcVatBreakdown(inv);
+                  map[key].subtotal += subtotal; map[key].vatAmount += vatAmount; map[key].total += total;
+                });
+              });
+              return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0])).map(([, v]) => v);
+            })() : null;
+
+            const renderGroup = (group) => {
+              const empNames = [...new Set(group.docs.map(d => d.employeeName).filter(Boolean))].join(", ");
+              return (
+                <div key={group.key} style={S.card}>
+                  <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #252830" }}>
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.jobName}{group.productionCompany ? <span style={{ color: "var(--text-muted,#8a8f9d)", fontWeight: 400, margin: "0 5px" }}>·</span> : null}{group.productionCompany ? <span>{group.productionCompany}</span> : null}</p>
+                    {empNames ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#8a8f9d)" }}>{empNames}</p> : null}
+                  </div>
+                  {group.docs.map((inv, idx, arr) => {
+                    const total = calcTotal(inv);
+                    const isPaid = (inv.status || "Pending") === "Paid";
+                    return (
+                      <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, flex: 1, minWidth: 0 }}>
+                          <span style={{ ...S.badge("blue"), fontSize: 9, flexShrink: 0 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
+                          <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 9, flexShrink: 0 }}>{inv.status || "Pending"}</span>
+                          <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtInvoiceNo(inv)}</span>
+                        </div>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
+                        <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                          <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
+                          <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
+                          {inv.docType === "quotation" && (inv.status === "Pending" || !inv.status) && <>
+                            <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleConfirmQuo(inv)}>Confirm</button>
+                            <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
+                          </>}
+                          {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Pending" : "Paid ✓"}</button>}
+                          <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={11} /></button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            };
+
+            const summaryRow = (m, style = {}) => (
+              <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr 1fr", gap: "4px 10px", alignItems: "center", ...style }}>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{m.label}</p>
+                <p style={{ margin: 0, fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--text,#e8e4dc)" }}>฿{Math.round(m.subtotal).toLocaleString()}</p>
+                <p style={{ margin: 0, fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--text-muted,#8a8f9d)" }}>฿{Math.round(m.vatAmount).toLocaleString()}</p>
+                <p style={{ margin: 0, fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--accent,#e8b84b)", fontWeight: 700 }}>฿{Math.round(m.total).toLocaleString()}</p>
+              </div>
+            );
 
             return (
               <div style={S.col}>
@@ -6567,7 +6629,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                         <p key={m.label + "-tt"} style={{ margin: 0, fontSize: 12, textAlign: "right", color: "var(--accent,#e8b84b)", fontWeight: 700, fontFamily: "monospace" }}>฿{Math.round(m.total).toLocaleString()}</p>
                       </>))}
                       {monthSummary.length > 1 && (<>
-                        <p style={{ margin: "6px 0 0", fontSize: 11, fontWeight: 700, color: "var(--text-muted,#666)", gridColumn: "1", borderTop: "1px solid #252830", paddingTop: 6 }}>Total</p>
+                        <p style={{ margin: "6px 0 0", fontSize: 11, fontWeight: 700, color: "var(--text-muted,#666)", borderTop: "1px solid #252830", paddingTop: 6 }}>Total</p>
                         <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", borderTop: "1px solid #252830", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.subtotal, 0)).toLocaleString()}</p>
                         <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--text-muted,#8a8f9d)", borderTop: "1px solid #252830", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.vatAmount, 0)).toLocaleString()}</p>
                         <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--accent,#e8b84b)", fontWeight: 700, borderTop: "1px solid #252830", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.total, 0)).toLocaleString()}</p>
@@ -6575,41 +6637,19 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                     </div>
                   </div>
                 )}
-                {groups.map(group => {
-                  const empNames = [...new Set(group.docs.map(d => d.employeeName).filter(Boolean))].join(", ");
-                  return (
-                    <div key={group.key} style={S.card}>
-                      <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #252830" }}>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.jobName}{group.productionCompany ? <span style={{ color: "var(--text-muted,#8a8f9d)", fontWeight: 400, margin: "0 5px" }}>·</span> : null}{group.productionCompany ? <span>{group.productionCompany}</span> : null}</p>
-                        {empNames ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#8a8f9d)" }}>{empNames}</p> : null}
+                {monthBuckets ? (
+                  monthBuckets.map((bucket, bi) => (
+                    <div key={bucket.key}>
+                      {bi > 0 && <div style={{ height: 1, background: "#2e3340", margin: "6px 0" }} />}
+                      {summaryRow(bucket, { padding: "6px 4px" })}
+                      <div style={S.col}>
+                        {bucket.groups.map(renderGroup)}
                       </div>
-                      {group.docs.map((inv, idx, arr) => {
-                        const total = calcTotal(inv);
-                        const isPaid = (inv.status || "Pending") === "Paid";
-                        return (
-                          <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", flexWrap: "wrap" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 5, flex: 1, minWidth: 0 }}>
-                              <span style={{ ...S.badge("blue"), fontSize: 9, flexShrink: 0 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
-                              <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 9, flexShrink: 0 }}>{inv.status || "Pending"}</span>
-                              <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtInvoiceNo(inv)}</span>
-                            </div>
-                            <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
-                            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                              <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
-                              <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
-                              {inv.docType === "quotation" && (inv.status === "Pending" || !inv.status) && <>
-                                <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleConfirmQuo(inv)}>Confirm</button>
-                                <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
-                              </>}
-                              {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Pending" : "Paid ✓"}</button>}
-                              <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={11} /></button>
-                            </div>
-                          </div>
-                        );
-                      })}
                     </div>
-                  );
-                })}
+                  ))
+                ) : (
+                  groups.map(renderGroup)
+                )}
               </div>
             );
           })()}
