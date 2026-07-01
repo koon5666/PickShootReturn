@@ -6542,6 +6542,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                             <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
                             <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                               <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
+                              <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
                               {inv.docType === "quotation" && (inv.status === "Pending" || !inv.status) && <>
                                 <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleConfirmQuo(inv)}>Confirm</button>
                                 <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
