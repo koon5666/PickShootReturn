@@ -85,6 +85,8 @@ const icons = {
   bell: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0",
   package: ["M16.5 9.4l-9-5.19", "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z", "M3.27 6.96L12 12.01l8.73-5.05", "M12 22.08V12"],
   qr: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h3v3h-3z M17 17h3v3h-3z M14 20h3 M20 14v3",
+  chat: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+  send: "M22 2L11 13 M22 2L15 22l-4-9-9-4 22-7z",
 };
 
 // ─── UTILITY: Date / time helpers ────────────────────────────────────────────
@@ -3390,7 +3392,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, invoicePresets }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | gear | invoice
@@ -3827,6 +3829,18 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {chatEnabled && (
+            <button
+              onClick={onOpenChat}
+              style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
+              title="Team Chat"
+            >
+              <Icon d={icons.chat} size={18} color={chatUnread > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)"} />
+              {chatUnread > 0 && (
+                <div style={{ position: "absolute", top: 3, right: 3, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", border: "1.5px solid var(--bg,#0f1117)" }} />
+              )}
+            </button>
+          )}
           <LangPill setLang={setLang} />
           <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={onLogout}>
             <Icon d={icons.logout} size={13} /> {t("logout")}
@@ -5759,7 +5773,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
 }
 
 // ─── SETTINGS PANEL ───────────────────────────────────────────────────────────
-function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, saveSettingsNow, verificationConfig, setVerificationConfig, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, navOrder, setNavOrder, checkoutsCount, setCheckouts, invoicePresets, setInvoicePresets, onClose }) {
+function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, saveSettingsNow, verificationConfig, setVerificationConfig, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, navOrder, setNavOrder, checkoutsCount, setCheckouts, invoicePresets, setInvoicePresets, chatEnabled, setChatEnabled, onClose }) {
   useEffect(() => { document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, []);
   const t = useT();
   const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
@@ -6012,6 +6026,33 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
         <p style={{ fontSize: 11, color: "var(--text-muted,#555)", marginTop: 10 }}>
           {lineGroupId ? t("settingsLineGroupConnected") : t("settingsLineGroupNotConnected")}
         </p>
+      </div>
+
+      {/* Internal Chat toggle */}
+      <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>Internal Chat</p>
+        <div
+          onClick={() => setChatEnabled(v => !v)}
+          style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: chatEnabled ? "rgba(52,211,153,0.05)" : "rgba(255,255,255,0.03)", border: `1px solid ${chatEnabled ? "rgba(52,211,153,0.2)" : "#252830"}`, cursor: "pointer", userSelect: "none" }}
+        >
+          <div style={{ width: 36, height: 20, borderRadius: 10, background: chatEnabled ? "#34d399" : "#374151", position: "relative", flexShrink: 0, transition: "background .2s" }}>
+            <div style={{ position: "absolute", top: 2, left: chatEnabled ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: chatEnabled ? "#34d399" : "var(--text-muted,#666)" }}>
+              {chatEnabled ? "Chat Enabled" : "Chat Disabled"}
+            </p>
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#555)" }}>
+              {chatEnabled ? "Team members can send real-time messages" : "Enable real-time group chat for the whole team"}
+            </p>
+          </div>
+          <Icon d={icons.chat} size={16} color={chatEnabled ? "#34d399" : "#374151"} />
+        </div>
+        {chatEnabled && (
+          <p style={{ fontSize: 11, color: "var(--text-muted,#555)", marginTop: 10, lineHeight: 1.6 }}>
+            Messages appear instantly on all devices. Chat history is stored per-session (last 200 messages).
+          </p>
+        )}
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
@@ -7279,7 +7320,118 @@ function ThemeSelector({ themeStyle, setThemeStyle, themePalette, setThemePalett
 }
 
 // ─── ADMIN TOP BAR ────────────────────────────────────────────────────────────
-function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettings, notifItems }) {
+// ─── CHAT WINDOW ─────────────────────────────────────────────────────────────
+function ChatWindow({ user, messages, onSend, onClose, isMobile }) {
+  const [text, setText] = useState("");
+  const listRef = useRef(null);
+  const inputRef = useRef(null);
+  const myId = user?.id || (user?.role === "admin" ? "admin" : null);
+
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [messages]);
+
+  const handleSend = () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onSend(trimmed);
+    setText("");
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div style={{
+      position: "fixed",
+      bottom: isMobile ? 84 : 24,
+      right: isMobile ? 8 : 24,
+      width: isMobile ? "calc(100vw - 16px)" : 340,
+      height: 460,
+      zIndex: 9998,
+      background: "rgba(13,15,20,0.97)",
+      border: "1px solid rgba(255,255,255,0.1)",
+      borderRadius: 16,
+      backdropFilter: "blur(24px)",
+      WebkitBackdropFilter: "blur(24px)",
+      display: "flex",
+      flexDirection: "column",
+      boxShadow: "0 20px 60px rgba(0,0,0,0.7)",
+      overflow: "hidden",
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0, gap: 10 }}>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#34d399", flexShrink: 0 }} />
+        <span style={{ fontWeight: 700, fontSize: 14, color: "#e8e4dc", flex: 1, letterSpacing: "0.01em" }}>Team Chat</span>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", padding: "4px 6px", borderRadius: 6, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon d={icons.x} size={14} />
+        </button>
+      </div>
+
+      {/* Message list */}
+      <div ref={listRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px 6px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: "center", color: "#444", fontSize: 12, marginTop: "auto", paddingTop: 60 }}>
+            No messages yet. Say hello! 👋
+          </div>
+        )}
+        {messages.map(msg => {
+          const isMe = msg.senderId === myId;
+          return (
+            <div key={msg.id} style={{ display: "flex", gap: 8, alignItems: "flex-end", flexDirection: isMe ? "row-reverse" : "row" }}>
+              {!isMe && (
+                <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: "rgba(232,184,75,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {msg.senderAvatar
+                    ? <img src={msg.senderAvatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    : <span style={{ fontSize: 11, fontWeight: 700, color: "#e8b84b" }}>{(msg.senderName || "?")[0].toUpperCase()}</span>
+                  }
+                </div>
+              )}
+              <div style={{ maxWidth: "72%" }}>
+                {!isMe && <div style={{ fontSize: 10, color: "#666", marginBottom: 3, marginLeft: 2 }}>{msg.senderName}</div>}
+                <div style={{
+                  background: isMe ? "rgba(232,184,75,0.13)" : "rgba(255,255,255,0.06)",
+                  border: isMe ? "1px solid rgba(232,184,75,0.28)" : "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: isMe ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                  padding: "8px 12px",
+                  fontSize: 13,
+                  color: "#e8e4dc",
+                  lineHeight: 1.45,
+                  wordBreak: "break-word",
+                  whiteSpace: "pre-wrap",
+                }}>
+                  {msg.text}
+                </div>
+                <div style={{ fontSize: 9, color: "#3a3f4a", marginTop: 3, textAlign: isMe ? "right" : "left" }}>
+                  {new Date(msg.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Input bar */}
+      <div style={{ padding: "10px 12px", borderTop: "1px solid rgba(255,255,255,0.07)", display: "flex", gap: 8, flexShrink: 0, alignItems: "flex-end" }}>
+        <input
+          ref={inputRef}
+          style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "9px 12px", fontSize: 13, color: "#e8e4dc", outline: "none", fontFamily: "inherit" }}
+          placeholder="Message the team…"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+        />
+        <button
+          onClick={handleSend}
+          disabled={!text.trim()}
+          style={{ background: text.trim() ? "rgba(232,184,75,0.18)" : "transparent", border: text.trim() ? "1px solid rgba(232,184,75,0.35)" : "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "9px 11px", cursor: text.trim() ? "pointer" : "default", color: text.trim() ? "#e8b84b" : "#3a3f4a", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all .15s" }}
+        >
+          <Icon d={icons.send} size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettings, notifItems, chatEnabled, chatUnread, onOpenChat }) {
   const t = useT();
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef(null);
@@ -7305,6 +7457,20 @@ function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettin
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {offlineMode && <span title="Using cached data — reconnecting" style={{ fontSize: 10, color: "#e8b84b", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ OFFLINE</span>}
         {!offlineMode && saveErr && <span title="Sync error — retrying" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
+
+        {/* Chat button */}
+        {chatEnabled && (
+          <button
+            onClick={onOpenChat}
+            style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
+            title="Team Chat"
+          >
+            <Icon d={icons.chat} size={18} color={chatUnread > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)"} />
+            {chatUnread > 0 && (
+              <div style={{ position: "absolute", top: 4, right: 4, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", border: "1.5px solid var(--bg,#0f1117)" }} />
+            )}
+          </button>
+        )}
 
         {/* Notification bell */}
         <div ref={notifRef} style={{ position: "relative" }}>
@@ -7999,6 +8165,26 @@ function AdminBottomNav({ activePage, setActivePage, unresolvedCount, navOrder }
 }
 
 // ─── SESSION PRESENCE HELPERS ─────────────────────────────────────────────────
+// Resize a profile photo data-URL to a small square thumbnail for chat avatars.
+function resizeAvatar(dataUrl, size = 48) {
+  return new Promise((resolve) => {
+    if (!dataUrl) return resolve(null);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      const min = Math.min(img.width, img.height);
+      const sx = (img.width - min) / 2;
+      const sy = (img.height - min) / 2;
+      ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+      resolve(canvas.toDataURL("image/jpeg", 0.7));
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
+
 function getDeviceId() {
   const key = "psr_device_id";
   let id = localStorage.getItem(key);
@@ -8071,6 +8257,17 @@ export default function App() {
   const [invoicePresets, setInvoicePresets] = useState([]);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const saveTimer = useRef(null);
+
+  // Chat state
+  const [chatEnabled, setChatEnabled] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatUnread, setChatUnread] = useState(0);
+  const chatWsRef = useRef(null);
+  const chatReconnectTimerRef = useRef(null);
+  const chatReconnectDelayRef = useRef(1000);
+  const chatMyPhotoRef = useRef(null);
+  const chatOpenRef = useRef(false);
   // kvLoadedRef tracks which fields actually came back non-null from KV on the initial load.
   // postLoadSnapRef holds a reference snapshot of state right after load settles.
   // Together they allow the save effect to skip fields that were never loaded (preventing
@@ -8177,6 +8374,87 @@ export default function App() {
     };
   }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keep chatOpenRef in sync so the WS message handler can read it without a stale closure.
+  useEffect(() => { chatOpenRef.current = chatOpen; if (chatOpen) setChatUnread(0); }, [chatOpen]);
+
+  // When chatEnabled/user changes, fetch and resize the current user's profile photo for chat.
+  useEffect(() => {
+    chatMyPhotoRef.current = null;
+    if (!chatEnabled || !user || user.role === "admin") return;
+    api.getProfile(user.id).then(d => {
+      if (d?.photo) resizeAvatar(d.photo, 48).then(thumb => { chatMyPhotoRef.current = thumb; });
+    }).catch(() => {});
+  }, [chatEnabled, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Chat WebSocket — connects to the global ChatDO when chat is enabled and user is logged in.
+  useEffect(() => {
+    if (!chatEnabled || !user) {
+      chatWsRef.current?.close(); chatWsRef.current = null;
+      clearTimeout(chatReconnectTimerRef.current);
+      setChatMessages([]);
+      return;
+    }
+    const userId = user.id || (user.role === "admin" ? "admin" : null);
+    if (!userId) return;
+    const userName = user.role === "admin" ? "Admin" : (user.name || "User");
+    let active = true;
+
+    function connectChat() {
+      if (!active) return;
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const url = `${proto}//${window.location.host}/api/chat?userId=${encodeURIComponent(userId)}&name=${encodeURIComponent(userName)}`;
+      const ws = new WebSocket(url);
+      chatWsRef.current = ws;
+      ws.onopen = () => { chatReconnectDelayRef.current = 1000; };
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === "history") {
+            setChatMessages(data.messages || []);
+          } else if (data.type === "message" && data.message) {
+            setChatMessages(prev => {
+              if (prev.some(m => m.id === data.message.id)) return prev;
+              return [...prev, data.message];
+            });
+            if (!chatOpenRef.current) setChatUnread(p => p + 1);
+          }
+        } catch {}
+      };
+      ws.onerror = () => ws.close();
+      ws.onclose = () => {
+        if (!active) return;
+        chatReconnectTimerRef.current = setTimeout(() => {
+          chatReconnectDelayRef.current = Math.min(chatReconnectDelayRef.current * 2, 30000);
+          connectChat();
+        }, chatReconnectDelayRef.current);
+      };
+    }
+    connectChat();
+    return () => {
+      active = false;
+      chatWsRef.current?.close(); chatWsRef.current = null;
+      clearTimeout(chatReconnectTimerRef.current);
+    };
+  }, [chatEnabled, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sendChatMessage = useCallback((text) => {
+    if (!chatWsRef.current || chatWsRef.current.readyState !== WebSocket.OPEN) return;
+    const myId = user?.id || (user?.role === "admin" ? "admin" : null);
+    const myName = user?.role === "admin" ? "Admin" : (user?.name || "User");
+    const msg = {
+      id: typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      senderId: myId,
+      senderName: myName,
+      senderAvatar: chatMyPhotoRef.current,
+      text,
+      ts: Date.now(),
+    };
+    // Optimistic: add immediately to local state.
+    setChatMessages(prev => [...prev, msg]);
+    // Send to server; DO will broadcast to all OTHER connections.
+    chatWsRef.current.send(JSON.stringify({ type: "message", message: msg }));
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => { try { localStorage.setItem("psr_lang", lang); } catch {} }, [lang]);
 
   // Keep the module-level date/time helpers in sync with admin prefs.
@@ -8221,6 +8499,7 @@ export default function App() {
       kl.add("verificationConfig");
     }
     if (d.invoicePresets != null) { setInvoicePresets(d.invoicePresets); kl.add("invoicePresets"); }
+    if (d.chatEnabled != null) { setChatEnabled(d.chatEnabled); kl.add("chatEnabled"); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Animate load progress bar — ramps to ~88% while fetching, snaps to 100 on completion.
@@ -8290,7 +8569,7 @@ export default function App() {
   useEffect(() => {
     if (!loaded || !cloudSynced || snapTakenRef.current) return;
     snapTakenRef.current = true;
-    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets };
+    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
   }, [loaded, cloudSynced]); // intentionally omits data deps — captures post-load state once
 
   // Phase 1 reconnect loop: when offlineMode is active, poll every 20s and on the
@@ -8355,12 +8634,13 @@ export default function App() {
       if (safeSave("navOrder", navOrder)) savePayload.navOrder = navOrder;
       if (safeSave("verificationConfig", verificationConfig)) savePayload.verificationConfig = verificationConfig;
       if (safeSave("invoicePresets", invoicePresets)) savePayload.invoicePresets = invoicePresets;
+      if (safeSave("chatEnabled", chatEnabled)) savePayload.chatEnabled = chatEnabled;
       // lineGroupId: null means "don't touch KV"; only save if truthy or user cleared it
       if (lineGroupId !== null && safeSave("lineGroupId", lineGroupId)) savePayload.lineGroupId = lineGroupId;
 
       if (Object.keys(savePayload).length === 0) return;
       // Phase 1: build a full-state snapshot for the cache (saved on every success)
-      const fullSnapshot = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets };
+      const fullSnapshot = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
       const onSuccess = () => {
         setSaveErr(false);
         pendingSaveRef.current = null;
@@ -8388,7 +8668,7 @@ export default function App() {
           .then(onSuccess)
           .catch(onFail));
     }, 1500);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, loaded, cloudSynced]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, loaded, cloudSynced]);
 
   // Phase 2: when a save has failed, retry automatically when the browser comes back online
   // or every 30 seconds. This drains without user action and clears the ⚠ SYNC indicator.
@@ -8410,7 +8690,7 @@ export default function App() {
   // Immediate, awaitable save for the admin "Save" button — returns {ok} or {ok:false,error}.
   const saveSettingsNow = async () => {
     if (!loaded || !cloudSynced) return { ok: false, error: "Still syncing with the cloud — wait a moment, then try again." };
-    const payload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets };
+    const payload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, chatEnabled };
     if (lineGroupId !== null) payload.lineGroupId = lineGroupId;
     try {
       const res = await api.putData(payload);
@@ -8597,7 +8877,7 @@ export default function App() {
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} invoicePresets={invoicePresets} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
       ) : (
         <div id="admin-layout" style={S.app}>
           {isMobile ? (
@@ -8608,6 +8888,9 @@ export default function App() {
               companyName={companyName}
               onOpenSettings={() => setSettingsPanelOpen(true)}
               notifItems={notifItems}
+              chatEnabled={chatEnabled}
+              chatUnread={chatUnread}
+              onOpenChat={() => setChatOpen(true)}
             />
           ) : (
             <AdminSidebarNav
@@ -8648,9 +8931,20 @@ export default function App() {
             {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} />}
           </main>
           {isMobile && <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} navOrder={navOrder} />}
-          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} onClose={() => setSettingsPanelOpen(false)} />}
+          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} chatEnabled={chatEnabled} setChatEnabled={setChatEnabled} onClose={() => setSettingsPanelOpen(false)} />}
         </div>
       )}
+      {/* Global chat window — visible across admin and employee views */}
+      {chatEnabled && chatOpen && user && (
+        <ChatWindow
+          user={user}
+          messages={chatMessages}
+          onSend={sendChatMessage}
+          onClose={() => setChatOpen(false)}
+          isMobile={isMobile}
+        />
+      )}
+
       {concurrentSessions.length > 0 && user && (
         <div style={{
           position: "fixed",

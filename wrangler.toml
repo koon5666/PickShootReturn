@@ -10,3 +10,8 @@ id = "0023db914404463ba278bc3fa31c4251"
 name = "PRESENCE"
 class_name = "PresenceDO"
 script_name = "pickshootreturn-presence"
+
+[[durable_objects.bindings]]
+name = "CHAT"
+class_name = "ChatDO"
+script_name = "pickshootreturn-presence"
