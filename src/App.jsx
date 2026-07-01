@@ -1765,7 +1765,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
             </div>
             {/* RTX: link to paid INV only */}
             {docType === "receipt" && !existingInvoice && (() => {
-              const paidInvs = (allInvoices || []).filter(i => (i.docType === "invoice" || !i.docType) && (isAdminCreator || i.employeeId === employee.id) && i.status === "Paid").sort((a, b) => b.updatedAt - a.updatedAt);
+              const paidInvs = (allInvoices || []).filter(i => !i._deleted && (i.docType === "invoice" || !i.docType) && (isAdminCreator || i.employeeId === employee.id) && i.status === "Paid").sort((a, b) => b.updatedAt - a.updatedAt);
               return (
                 <div>
                   <label style={S.label}>Linked Invoice <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(RTX only issues for a Paid invoice)</span></label>
@@ -4766,7 +4766,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {/* INVOICE TAB */}
         {tab === "invoice" && (() => {
           const confirmedJobs = jobs.filter(j => j.status === "Confirmed").sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1);
-          const allMyInvoices = invoices.filter(inv => inv.employeeId === employee.id);
+          const allMyInvoices = invoices.filter(inv => inv.employeeId === employee.id && !inv._deleted);
           const filteredInvoices = allMyInvoices
             .filter(inv => (invFilter === "all" || (inv.status || "Pending") === invFilter) && (invDocType === "all" || (inv.docType || "invoice") === invDocType))
             .sort((a, b) => invSort === "amount" ? calcTotal(b) - calcTotal(a) : b.updatedAt - a.updatedAt);
@@ -4781,7 +4781,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           };
 
           const delInvoice = (id) => {
-            if (window.confirm("Delete this invoice?")) setInvoices(p => p.filter(i => i.id !== id));
+            if (window.confirm("Delete this invoice?")) setInvoices(p => p.map(i => i.id === id ? { ...i, _deleted: true } : i));
           };
 
           return (
@@ -6274,7 +6274,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   };
 
   const adminEmployee = { id: "admin", name: [adminProfileInfo.firstName, adminProfileInfo.lastName].filter(Boolean).join(" ").trim() || companyName || "Admin", role: "admin" };
-  const myInvoices = invoices.filter(inv => inv.employeeId === "admin");
+  const myInvoices = invoices.filter(inv => inv.employeeId === "admin" && !inv._deleted);
 
   // ── Job-based lifecycle: auto-create QUO on new job, INV on Confirmed ────────
   useEffect(() => {
@@ -6424,9 +6424,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {/* Tabs */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
         {(() => {
-          const quoCount = invoices.filter(i => i.docType === "quotation").length;
-          const invCount = invoices.filter(i => i.docType === "invoice" || !i.docType).length;
-          const rtxCount = invoices.filter(i => i.docType === "receipt").length;
+          const quoCount = invoices.filter(i => !i._deleted && i.docType === "quotation").length;
+          const invCount = invoices.filter(i => !i._deleted && (i.docType === "invoice" || !i.docType)).length;
+          const rtxCount = invoices.filter(i => !i._deleted && i.docType === "receipt").length;
           return [
             ["myinvoice", `My Invoice${myInvoices.length ? " ("+myInvoices.length+")" : ""}`],
             ["quo", `QUO${quoCount ? " ("+quoCount+")" : ""}`],
@@ -6458,7 +6458,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             <div style={S.col}>
               {(() => {
                 const coStats = (co) => {
-                  const coInvs = invoices.filter(i => (i.productionCompany || "").toLowerCase() === (co.name || "").toLowerCase());
+                  const coInvs = invoices.filter(i => !i._deleted && (i.productionCompany || "").toLowerCase() === (co.name || "").toLowerCase());
                   const paid = coInvs.filter(i => i.status === "Paid").reduce((s, i) => s + calcTotal(i), 0);
                   const due = coInvs.filter(i => i.status !== "Paid").reduce((s, i) => s + calcTotal(i), 0);
                   return { count: coInvs.length, paid, due };
@@ -6509,6 +6509,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
         <>
           {(() => {
             const filtered = [...invoices].filter(inv => {
+              if (inv._deleted) return false;
               if (activeTab === "quo") return inv.docType === "quotation";
               if (activeTab === "rtx") return inv.docType === "receipt";
               return inv.docType === "invoice" || !inv.docType; // inv
@@ -6558,7 +6559,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                                 <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
                               </>}
                               {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Pending" : "Paid ✓"}</button>}
-                              <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.filter(i => i.id !== inv.id)); }}><Icon d={icons.trash} size={11} /></button>
+                              <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={11} /></button>
                             </div>
                           </div>
                         );
@@ -6614,7 +6615,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                             <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
                           </>}
                           {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Mark Pending" : "Mark Paid ✓"}</button>}
-                          <button style={{ ...S.btn("danger"), fontSize: 11, padding: "4px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.filter(i => i.id !== inv.id)); }}><Icon d={icons.trash} size={12} /></button>
+                          <button style={{ ...S.btn("danger"), fontSize: 11, padding: "4px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={12} /></button>
                         </div>
                       </div>
                     </div>
@@ -7794,14 +7795,6 @@ export default function App() {
   const kvLoadedRef = useRef(new Set());
   const postLoadSnapRef = useRef(null);
   const snapTakenRef = useRef(false);
-  // Grows monotonically: every invoice ID this session has ever held in local state.
-  // Used by the worker's merge to distinguish "deliberately deleted by this session"
-  // from "added by another concurrent session." We never remove IDs from this set —
-  // that's the point: a deleted invoice's ID stays here so the worker treats its
-  // absence from the payload as an intentional deletion, not an unknown addition.
-  const kvInvoiceIdsRef = useRef(new Set());
-  // Whenever invoices state changes, record every ID into the ref (only adds, never removes).
-  useEffect(() => { invoices.forEach(inv => { if (inv.id) kvInvoiceIdsRef.current.add(inv.id); }); }, [invoices]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
@@ -7967,7 +7960,7 @@ export default function App() {
       if (safeSave("employees", employees)) savePayload.employees = employees;
       if (safeSave("reports", reports)) savePayload.reports = reports;
       if (safeSave("productionCompanies", productionCompanies)) savePayload.productionCompanies = productionCompanies;
-      if (safeSave("invoices", invoices)) { savePayload.invoices = invoices; savePayload._invoiceKvIds = [...kvInvoiceIdsRef.current]; }
+      if (safeSave("invoices", invoices)) savePayload.invoices = invoices;
       if (safeSave("companyName", companyName)) savePayload.companyName = companyName;
       if (safeSave("equipmentRequests", equipmentRequests)) savePayload.equipmentRequests = equipmentRequests;
       if (safeSave("adminRequests", adminRequests)) savePayload.adminRequests = adminRequests;
