@@ -5913,33 +5913,6 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <p style={{ ...S.sectionTitle, margin: 0 }}>Invoice Item Presets</p>
-          <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={() => setInvoicePresets(p => [...p, { id: "ip" + Date.now(), description: "", rate: "" }])}>
-            <Icon d={icons.plus} size={12} /> Add
-          </button>
-        </div>
-        <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 12px", lineHeight: 1.6 }}>Saved items appear as quick-add chips when creating an invoice.</p>
-        {invoicePresets.length === 0 && (
-          <p style={{ fontSize: 12, color: "var(--text-muted,#666)", textAlign: "center", padding: "12px 0" }}>No presets yet.</p>
-        )}
-        <div style={S.col}>
-          {invoicePresets.map(ip => (
-            <div key={ip.id} style={{ display: "grid", gridTemplateColumns: "1fr 100px 32px", gap: 8, alignItems: "center" }}>
-              <input style={{ ...S.input, fontSize: 13 }} value={ip.description} placeholder="e.g. Equipment Rental" maxLength={50}
-                onChange={e => setInvoicePresets(p => p.map(x => x.id === ip.id ? { ...x, description: e.target.value } : x))} />
-              <input style={{ ...S.input, fontSize: 13, textAlign: "right" }} type="number" min="0" value={ip.rate} placeholder="฿ Rate"
-                onChange={e => setInvoicePresets(p => p.map(x => x.id === ip.id ? { ...x, rate: e.target.value } : x))} />
-              <button style={{ ...S.btn("danger"), padding: "6px 8px", minWidth: 0 }}
-                onClick={() => setInvoicePresets(p => p.filter(x => x.id !== ip.id))}>
-                <Icon d={icons.x} size={12} />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ ...S.card, marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div style={{ flex: 1 }}>
             <p style={{ ...S.sectionTitle, margin: 0 }}>{t("settingsClearHistory")}</p>
@@ -6186,7 +6159,7 @@ function makeDocNo(docType, allInvoices, invoicePrefix) {
 }
 
 // ─── INVOICE PAGE ─────────────────────────────────────────────────────────────
-function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees, companyName, user, invoicePresets, jobs, setJobs, adminRequests }) {
+function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees, companyName, user, invoicePresets, setInvoicePresets, jobs, setJobs, adminRequests }) {
   const t = useT();
   const [activeTab, setActiveTab] = useState("quo");
   const [companySortKey, setCompanySortKey] = useState("az");
@@ -6213,6 +6186,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   const [adminMyInfoOpen, setAdminMyInfoOpen] = useState(false);
   const [adminPosOpen, setAdminPosOpen] = useState(false);
   const [adminDocOpen, setAdminDocOpen] = useState(false);
+  const [adminPresetsOpen, setAdminPresetsOpen] = useState(false);
   const [docTypeFilter, setDocTypeFilter] = useState("all");
   const [myInfoPanelOpen, setMyInfoPanelOpen] = useState(false);
   const adminPromptPayRef = useRef(null);
@@ -6641,6 +6615,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 { key: "info", label: "My Info", sub: [adminProfileInfo.firstName, adminProfileInfo.lastName].filter(Boolean).join(" ") || "Name, contact details", open: () => { setAdminMyInfoOpen(true); setMyInfoPanelOpen(false); } },
                 { key: "pos", label: "Positions & Day Rate", sub: adminPositions.length ? `${adminPositions.length} position${adminPositions.length > 1 ? "s" : ""}` : "No positions yet", open: () => { setAdminPosOpen(true); setMyInfoPanelOpen(false); } },
                 { key: "doc", label: "Document", sub: [headerLogo && "Header logo", watermarkLogo && "Watermark logo"].filter(Boolean).join(" · ") || "Logos, signature, bank details", open: () => { setAdminDocOpen(true); setMyInfoPanelOpen(false); } },
+                { key: "presets", label: "Invoice Item Presets", sub: invoicePresets.length ? `${invoicePresets.length} preset${invoicePresets.length > 1 ? "s" : ""}` : "Quick-add line items", open: () => { setAdminPresetsOpen(true); setMyInfoPanelOpen(false); } },
               ].map(({ key, label, sub, open }, idx, arr) => (
                 <button key={key} onClick={open} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", background: "none", border: "none", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", cursor: "pointer", textAlign: "left" }}>
                   <div>
@@ -6922,6 +6897,37 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button style={S.btn("ghost")} onClick={() => setModal(false)}>Cancel</button>
               <button style={S.btn("primary")} onClick={save}>{editTarget ? "Save Changes" : "Add Company"}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Invoice Item Presets modal */}
+      {adminPresetsOpen && (
+        <Modal title="Invoice Item Presets" onClose={() => setAdminPresetsOpen(false)}>
+          <div style={S.col}>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>Saved items appear as quick-add chips when creating an invoice. Changes are auto-saved.</p>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={() => setInvoicePresets(p => [...p, { id: "ip" + Date.now(), description: "", rate: "" }])}>
+                <Icon d={icons.plus} size={12} /> Add
+              </button>
+            </div>
+            {invoicePresets.length === 0 && (
+              <p style={{ fontSize: 12, color: "var(--text-muted,#666)", textAlign: "center", padding: "12px 0" }}>No presets yet.</p>
+            )}
+            <div style={S.col}>
+              {invoicePresets.map(ip => (
+                <div key={ip.id} style={{ display: "grid", gridTemplateColumns: "1fr 100px 32px", gap: 8, alignItems: "center" }}>
+                  <input style={{ ...S.input, fontSize: 13 }} value={ip.description} placeholder="e.g. Equipment Rental" maxLength={50}
+                    onChange={e => setInvoicePresets(p => p.map(x => x.id === ip.id ? { ...x, description: e.target.value } : x))} />
+                  <input style={{ ...S.input, fontSize: 13, textAlign: "right" }} type="number" min="0" value={ip.rate} placeholder="฿ Rate"
+                    onChange={e => setInvoicePresets(p => p.map(x => x.id === ip.id ? { ...x, rate: e.target.value } : x))} />
+                  <button style={{ ...S.btn("danger"), padding: "6px 8px", minWidth: 0 }}
+                    onClick={() => setInvoicePresets(p => p.filter(x => x.id !== ip.id))}>
+                    <Icon d={icons.x} size={12} />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </Modal>
@@ -8268,7 +8274,7 @@ export default function App() {
             {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} />}
-            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} jobs={jobs} setJobs={setJobs} adminRequests={adminRequests} />}
+            {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} jobs={jobs} setJobs={setJobs} adminRequests={adminRequests} />}
             {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} />}
             {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} />}
           </main>
