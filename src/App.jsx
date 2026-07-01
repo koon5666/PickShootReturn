@@ -6534,8 +6534,47 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             const groups = Object.values(groupMap)
               .sort((a, b) => Math.max(...b.docs.map(d => d.updatedAt)) - Math.max(...a.docs.map(d => d.updatedAt)))
               .map(g => ({ ...g, docs: [...g.docs].sort((a, b) => (docOrder[a.docType || "invoice"] ?? 1) - (docOrder[b.docType || "invoice"] ?? 1)) }));
+            // ── Monthly income summary (RTX only) ────────────────────────────
+            const monthSummary = activeTab === "rtx" ? (() => {
+              const map = {};
+              filtered.forEach(inv => {
+                const d = new Date(inv.updatedAt);
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                const label = d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+                if (!map[key]) map[key] = { label, subtotal: 0, vatAmount: 0, total: 0 };
+                const { subtotal, vatAmount, total } = calcVatBreakdown(inv);
+                map[key].subtotal += subtotal;
+                map[key].vatAmount += vatAmount;
+                map[key].total += total;
+              });
+              return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0])).map(([, v]) => v);
+            })() : null;
+
             return (
               <div style={S.col}>
+                {monthSummary && monthSummary.length > 0 && (
+                  <div style={{ ...S.card, padding: "14px 16px" }}>
+                    <p style={{ ...S.sectionTitle, margin: "0 0 10px" }}>Monthly Income</p>
+                    <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr 1fr", gap: "6px 10px", alignItems: "center" }}>
+                      <div />
+                      {["ST", "VAT", "TT"].map(h => (
+                        <p key={h} style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "var(--text-muted,#8a8f9d)", textAlign: "right", letterSpacing: ".06em" }}>{h}</p>
+                      ))}
+                      {monthSummary.map(m => (<>
+                        <p key={m.label + "-l"} style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{m.label}</p>
+                        <p key={m.label + "-st"} style={{ margin: 0, fontSize: 12, textAlign: "right", color: "var(--text,#e8e4dc)", fontFamily: "monospace" }}>฿{Math.round(m.subtotal).toLocaleString()}</p>
+                        <p key={m.label + "-vat"} style={{ margin: 0, fontSize: 12, textAlign: "right", color: "var(--text-muted,#8a8f9d)", fontFamily: "monospace" }}>฿{Math.round(m.vatAmount).toLocaleString()}</p>
+                        <p key={m.label + "-tt"} style={{ margin: 0, fontSize: 12, textAlign: "right", color: "var(--accent,#e8b84b)", fontWeight: 700, fontFamily: "monospace" }}>฿{Math.round(m.total).toLocaleString()}</p>
+                      </>))}
+                      {monthSummary.length > 1 && (<>
+                        <p style={{ margin: "6px 0 0", fontSize: 11, fontWeight: 700, color: "var(--text-muted,#666)", gridColumn: "1", borderTop: "1px solid #252830", paddingTop: 6 }}>Total</p>
+                        <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", borderTop: "1px solid #252830", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.subtotal, 0)).toLocaleString()}</p>
+                        <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--text-muted,#8a8f9d)", borderTop: "1px solid #252830", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.vatAmount, 0)).toLocaleString()}</p>
+                        <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--accent,#e8b84b)", fontWeight: 700, borderTop: "1px solid #252830", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.total, 0)).toLocaleString()}</p>
+                      </>)}
+                    </div>
+                  </div>
+                )}
                 {groups.map(group => {
                   const empNames = [...new Set(group.docs.map(d => d.employeeName).filter(Boolean))].join(", ");
                   return (
