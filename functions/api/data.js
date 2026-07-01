@@ -29,7 +29,7 @@ export async function onRequestGet({ env }) {
 // invoices uses soft-delete (_deleted:true) instead of array removal, so deleted
 // records stay in the incoming payload and propagate to KV naturally — no special
 // delete-tracking needed. checkouts/adminRequests/equipmentRequests are append-only.
-const MERGE_ARRAYS = new Set(["invoices", "checkouts", "adminRequests", "equipmentRequests"]);
+const MERGE_ARRAYS = new Set(["checkouts", "adminRequests", "equipmentRequests"]);
 
 export async function onRequestPut({ request, env }) {
   const body = await request.json();
@@ -37,6 +37,24 @@ export async function onRequestPut({ request, env }) {
   for (const k of FIELDS) {
     if (body[k] === undefined) continue;               // field not sent → leave untouched
     if (k === "lineGroupId" && body[k] === null) { ops.push(env.KV.delete("lineGroupId")); continue; }
+
+    if (k === "invoices" && Array.isArray(body[k])) {
+      const existing = (await env.KV.get("invoices", "json")) || [];
+      const employeeId = body._invoiceEmployeeId; // set by non-admin sessions
+      if (employeeId && employeeId !== "admin") {
+        // Employee session: only owns its own invoices. Preserve every other employee's
+        // invoices (including admin's soft-deletes) exactly as they are in KV.
+        const incomingIds = new Set(body.invoices.map(e => e.id));
+        const otherKv = existing.filter(e => e.employeeId !== employeeId);
+        const myKvOnly = existing.filter(e => e.employeeId === employeeId && !incomingIds.has(e.id));
+        ops.push(env.KV.put("invoices", JSON.stringify([...body.invoices, ...otherKv, ...myKvOnly])));
+      } else {
+        // Admin session: append-only merge across all invoices.
+        const incomingIds = new Set(body.invoices.map(e => e.id));
+        ops.push(env.KV.put("invoices", JSON.stringify([...body.invoices, ...existing.filter(e => !incomingIds.has(e.id))])));
+      }
+      continue;
+    }
 
     if (MERGE_ARRAYS.has(k) && Array.isArray(body[k])) {
       // Read-merge-write: keep KV entries whose IDs aren't in the incoming set so that

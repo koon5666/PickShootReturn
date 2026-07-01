@@ -7960,7 +7960,13 @@ export default function App() {
       if (safeSave("employees", employees)) savePayload.employees = employees;
       if (safeSave("reports", reports)) savePayload.reports = reports;
       if (safeSave("productionCompanies", productionCompanies)) savePayload.productionCompanies = productionCompanies;
-      if (safeSave("invoices", invoices)) savePayload.invoices = invoices;
+      if (safeSave("invoices", invoices)) {
+        const isEmployee = user != null && user.role !== "admin";
+        // Employees only submit their own invoices so they can't overwrite admin's changes.
+        // Admin submits all invoices (including soft-deletes for auto-generated ones).
+        savePayload.invoices = isEmployee ? invoices.filter(inv => inv.employeeId === user.id) : invoices;
+        savePayload._invoiceEmployeeId = isEmployee ? user.id : "admin";
+      }
       if (safeSave("companyName", companyName)) savePayload.companyName = companyName;
       if (safeSave("equipmentRequests", equipmentRequests)) savePayload.equipmentRequests = equipmentRequests;
       if (safeSave("adminRequests", adminRequests)) savePayload.adminRequests = adminRequests;
