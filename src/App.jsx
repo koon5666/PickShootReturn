@@ -6214,6 +6214,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   const [adminPosOpen, setAdminPosOpen] = useState(false);
   const [adminDocOpen, setAdminDocOpen] = useState(false);
   const [docTypeFilter, setDocTypeFilter] = useState("all");
+  const [myInfoPanelOpen, setMyInfoPanelOpen] = useState(false);
   const adminPromptPayRef = useRef(null);
   const a4Ref = useRef(null);
   const dragging = useRef(null);
@@ -6414,7 +6415,10 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
           <h1 style={S.pageTitle}>Invoice</h1>
           <p style={S.pageSubtitle}>Production companies & team invoices</p>
         </div>
-        {activeTab === "companies" && <button style={S.btn("primary")} onClick={() => open()}><Icon d={icons.plus} size={15} /> Add Company</button>}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "7px 14px" }} onClick={() => setMyInfoPanelOpen(true)}><Icon d={icons.user} size={14} /> My Info</button>
+          {activeTab === "companies" && <button style={S.btn("primary")} onClick={() => open()}><Icon d={icons.plus} size={15} /> Add Company</button>}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -6571,313 +6575,6 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {/* My Invoice tab */}
       {activeTab === "myinvoice" && (
         <div style={S.col}>
-          {/* ── Profile settings group ── */}
-          <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
-            <p style={{ ...S.sectionTitle, margin: 0, padding: "10px 16px", borderBottom: "1px solid var(--divider-color,#252830)" }}>Profile Settings</p>
-            {[
-              { key: "info", label: "My Info", sub: [adminProfileInfo.firstName, adminProfileInfo.lastName].filter(Boolean).join(" ") || adminProfileInfo.email || "Tap to fill in", open: () => setAdminMyInfoOpen(true) },
-              { key: "pos",  label: "Positions & Day Rate", sub: adminPositions.length ? adminPositions.map(p => p.name).filter(Boolean).join(", ") : "No positions — add to enable auto-fill", open: () => setAdminPosOpen(true) },
-              { key: "doc",  label: "Document", sub: [adminPromptPayQR ? "PromptPay ✓" : null, adminProfileInfo.bankName || null, headerLogo ? "Header logo ✓" : null, watermarkLogo ? "Watermark ✓" : null].filter(Boolean).join(" · ") || "PromptPay, bank, logos & prefix", open: () => setAdminDocOpen(true) },
-            ].map(({ key, label, sub, open }, idx, arr) => (
-              <button key={key} onClick={open} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", textAlign: "left", cursor: "pointer", width: "100%", background: "transparent", border: "none", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#252830)" : "none", padding: "14px 16px" }}>
-                <div>
-                  <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: "var(--text,#e8e4dc)" }}>{label}</p>
-                  <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{sub}</p>
-                </div>
-                <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ opacity: 0.35, flexShrink: 0 }}><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            ))}
-          </div>
-
-          {/* My Info modal */}
-          {adminMyInfoOpen && (
-            <Modal title="My Info" onClose={() => setAdminMyInfoOpen(false)}>
-              <div style={S.col}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div><label style={S.label}>First Name</label><input style={S.input} value={adminProfileInfo.firstName} onChange={e => setAdminProfileInfo(p => ({ ...p, firstName: e.target.value }))} /></div>
-                  <div><label style={S.label}>Last Name</label><input style={S.input} value={adminProfileInfo.lastName} onChange={e => setAdminProfileInfo(p => ({ ...p, lastName: e.target.value }))} /></div>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <div><label style={S.label}>Phone</label><input style={S.input} type="tel" value={adminProfileInfo.phone} onChange={e => setAdminProfileInfo(p => ({ ...p, phone: e.target.value }))} /></div>
-                  <div><label style={S.label}>Email</label><input style={S.input} type="email" value={adminProfileInfo.email} onChange={e => setAdminProfileInfo(p => ({ ...p, email: e.target.value }))} /></div>
-                </div>
-                <div><label style={S.label}>{t("legalAddress")}</label><textarea style={{ ...S.input, height: 72, resize: "vertical", lineHeight: 1.5 }} value={adminProfileInfo.legalAddress} onChange={e => setAdminProfileInfo(p => ({ ...p, legalAddress: e.target.value }))} /></div>
-                <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile on the main screen.</p>
-              </div>
-            </Modal>
-          )}
-
-          {/* Positions & Day Rate modal */}
-          {adminPosOpen && (
-            <Modal title={t("positionsTitle")} onClose={() => setAdminPosOpen(false)}>
-              <div style={S.col}>
-                <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>{t("positionsDesc")}</p>
-                {adminPositions.length < 5 && <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12, alignSelf: "flex-start" }} onClick={addAdminPosition}><Icon d={icons.plus} size={12} /> {t("addRoleBtn")}</button>}
-                {adminPositions.length === 0 && <p style={{ fontSize: 13, color: "#666", margin: 0 }}>{t("positionsEmpty")}</p>}
-                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                  {adminPositions.map((pos, i) => {
-                    const rph = (parseFloat(pos.dayRate) || 0) / (parseFloat(pos.hoursPerDay) || 12);
-                    return (
-                      <div key={pos.id} style={{ border: "1px solid #2e3340", borderRadius: 10, padding: 14, background: "rgba(255,255,255,0.02)" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                          <span style={S.badge("amber")}>{t("roleLabel")} {i + 1}</span>
-                          <div style={{ flex: 1 }} />
-                          <button style={{ ...S.btn("danger"), padding: "5px 8px" }} onClick={() => removeAdminPosition(pos.id)}><Icon d={icons.trash} size={13} /></button>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          <div><label style={S.label}>{t("positionName")}</label><input style={S.input} value={pos.name} placeholder="e.g. Camera Operator" onChange={e => updateAdminPosition(pos.id, { name: e.target.value })} /></div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                            <div><label style={S.label}>{t("dayRateLabel")}</label><input style={S.input} type="number" min="0" inputMode="decimal" value={pos.dayRate} placeholder="4500" onChange={e => updateAdminPosition(pos.id, { dayRate: e.target.value })} /></div>
-                            <div><label style={S.label}>{t("hoursPerDayLabel")}</label><input style={S.input} type="number" min="1" inputMode="decimal" value={pos.hoursPerDay} placeholder="12" onChange={e => updateAdminPosition(pos.id, { hoursPerDay: e.target.value })} /></div>
-                          </div>
-                          {parseFloat(pos.dayRate) > 0 && parseFloat(pos.hoursPerDay) > 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>{t("hourlyRate")}: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}{t("perHr")}</p>}
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                            <label style={{ ...S.label, margin: 0 }}>{t("otLabel").replace("{h}", parseFloat(pos.hoursPerDay) || 12)}</label>
-                            <div style={{ flex: 1 }} />
-                            <button onClick={() => updateAdminPosition(pos.id, { variableOT: !pos.variableOT })} style={{ ...S.btn(pos.variableOT ? "primary" : "ghost"), padding: "5px 10px", fontSize: 12 }}>{pos.variableOT ? t("variableOT") : t("flatOT")}</button>
-                          </div>
-                          {!pos.variableOT ? (
-                            <div><label style={S.label}>{t("otMultiplierLabel")}</label><input style={{ ...S.input, maxWidth: 140 }} type="number" min="1" step="0.25" inputMode="decimal" value={pos.otMultiplier} placeholder="1.5" onChange={e => updateAdminPosition(pos.id, { otMultiplier: e.target.value })} /></div>
-                          ) : (
-                            <div>
-                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                                <label style={{ ...S.label, margin: 0 }}>{t("otTiersLabel")}</label>
-                            <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => addAdminTier(pos.id)}><Icon d={icons.plus} size={11} /> {t("addTierBtn")}</button>
-                          </div>
-                          {(pos.otTiers || []).map((tr, ti) => {
-                            const from = ti === 0 ? (parseFloat(pos.hoursPerDay) || 12) : (parseFloat((pos.otTiers[ti - 1] || {}).untilHour) || 0);
-                            return (
-                              <div key={ti} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 32px", gap: 6, alignItems: "center", marginBottom: 6 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                  <span style={{ fontSize: 11, color: "#666", whiteSpace: "nowrap" }}>{from}h–</span>
-                                  <input style={{ ...S.input, padding: "7px 8px" }} type="number" min="0" inputMode="decimal" value={tr.untilHour} placeholder="14" onChange={e => updateAdminTier(pos.id, ti, { untilHour: e.target.value })} />
-                                  <span style={{ fontSize: 11, color: "#666" }}>h</span>
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                  <input style={{ ...S.input, padding: "7px 8px" }} type="number" min="1" step="0.25" inputMode="decimal" value={tr.mult} placeholder="1.5" onChange={e => updateAdminTier(pos.id, ti, { mult: e.target.value })} />
-                                  <span style={{ fontSize: 11, color: "#666" }}>×</span>
-                                </div>
-                                <button style={{ ...S.btn("danger"), padding: "5px 6px", minWidth: 0 }} onClick={() => removeAdminTier(pos.id, ti)}><Icon d={icons.x} size={12} /></button>
-                              </div>
-                            );
-                          })}
-                          <p style={{ fontSize: 10, color: "#555", margin: "2px 0 0" }}>{t("otTiersNote")}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile on the main screen.</p>
-          </div>
-        </Modal>
-          )}
-
-          {/* Document modal (PromptPay, bank, logos) */}
-          {adminDocOpen && (
-            <Modal title="Document" onClose={() => setAdminDocOpen(false)}>
-          <div style={S.col}>
-          {/* Documents card */}
-          <div style={S.card}>
-            <p style={S.sectionTitle}>{t("documents")}</p>
-            <div style={S.col}>
-              <div>
-                <label style={S.label}>{t("promptPayQR")}</label>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  {adminPromptPayQR && <img src={adminPromptPayQR} alt="QR" style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff" }} />}
-                  <input ref={adminPromptPayRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; compressImage(f, { maxDim: 1000, quality: 0.85 }).then(d => d && setAdminPromptPayQR(d)); }} />
-                  <button style={S.btn("ghost")} onClick={() => adminPromptPayRef.current.click()}><Icon d={icons.photo} size={14} /> {adminPromptPayQR ? t("replacePhoto") : t("uploadPhoto")}</button>
-                  {adminPromptPayQR && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setAdminPromptPayQR(null)}><Icon d={icons.x} size={13} /></button>}
-                </div>
-              </div>
-              <div>
-                <label style={S.label}>{t("bankDetails")}</label>
-                <div style={S.col}>
-                  <input style={S.input} placeholder={t("bankNameLabel")} value={adminProfileInfo.bankName} onChange={e => setAdminProfileInfo(p => ({ ...p, bankName: e.target.value }))} />
-                  <input style={S.input} placeholder={t("accountNameLabel")} value={adminProfileInfo.accountName} onChange={e => setAdminProfileInfo(p => ({ ...p, accountName: e.target.value }))} />
-                  <input style={S.input} placeholder={t("accountNumberLabel")} value={adminProfileInfo.bankAccount} onChange={e => setAdminProfileInfo(p => ({ ...p, bankAccount: e.target.value }))} />
-                </div>
-              </div>
-              <div>
-                <label style={S.label}>Invoice Prefix</label>
-                <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 6px" }}>Used in invoice number: INV-<strong>XXXX</strong>-YY-####. Max 6 chars.</p>
-                <input style={{ ...S.input, textTransform: "uppercase" }} placeholder="e.g. ADM" maxLength={6}
-                  value={adminProfileInfo.invoicePrefix}
-                  onChange={e => setAdminProfileInfo(p => ({ ...p, invoicePrefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))} />
-              </div>
-              <button onClick={() => setAdminProfileInfo(p => ({ ...p, showCompanyName: !p.showCompanyName }))} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: adminProfileInfo.showCompanyName ? "rgba(232,184,75,0.05)" : "rgba(255,255,255,0.02)", border: `1px solid ${adminProfileInfo.showCompanyName ? "rgba(232,184,75,0.25)" : "#252830"}`, cursor: "pointer", userSelect: "none", textAlign: "left" }}>
-                <div style={{ width: 36, height: 20, borderRadius: 10, background: adminProfileInfo.showCompanyName ? "var(--accent,#e8b84b)" : "#444", position: "relative", flexShrink: 0, transition: "background .2s" }}>
-                  <div style={{ position: "absolute", top: 2, left: adminProfileInfo.showCompanyName ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
-                </div>
-                <div>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: adminProfileInfo.showCompanyName ? "var(--accent,#e8b84b)" : "var(--text,#e8e4dc)" }}>Company name on invoice {adminProfileInfo.showCompanyName ? "ON" : "OFF"}</p>
-                  <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", marginTop: 2 }}>{adminProfileInfo.showCompanyName ? `"${companyName || "Pick Shoot Return"}" shown at top of document` : "Company name hidden from document header"}</p>
-                </div>
-              </button>
-              <div>
-                <label style={S.label}>{t("signatureSection")}</label>
-                <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 8px" }}>{t("signatureHint")}</p>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  {adminSignature && <img src={adminSignature} alt="Signature" style={{ height: 50, maxWidth: 160, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />}
-                  <input ref={adminSigRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => makeSignatureTransparent(ev.target.result).then(setAdminSignature); r.readAsDataURL(f); }} />
-                  <button style={S.btn("ghost")} onClick={() => adminSigRef.current.click()}><Icon d={icons.photo} size={14} /> {adminSignature ? t("replacePhoto") : t("uploadSignature")}</button>
-                  {adminSignature && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setAdminSignature(null)}><Icon d={icons.x} size={13} /></button>}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* A4 Live Preview */}
-          <div style={{ ...S.card, marginTop: 12 }}>
-            <p style={{ ...S.sectionTitle, margin: "0 0 4px" }}>A4 Preview</p>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 10px" }}>Drag logos directly on the page. <span style={{ color: "#e8b84b" }}>H</span> = Header · <span style={{ color: "#818cf8" }}>W</span> = Watermark</p>
-            <div style={{ display: "flex", justifyContent: "center", background: "#0f1117", borderRadius: 6, padding: "14px 10px" }}>
-              <div
-                ref={a4Ref}
-                style={{
-                  position: "relative",
-                  width: "100%",
-                  maxWidth: 220,
-                  aspectRatio: "210 / 297",
-                  background: "#fff",
-                  boxShadow: "0 4px 24px rgba(0,0,0,0.7)",
-                  borderRadius: 2,
-                  overflow: "hidden",
-                  userSelect: "none",
-                  flexShrink: 0,
-                }}
-              >
-                {/* Simulated page chrome */}
-                <div style={{ position: "absolute", top: "7%", left: "8%", right: "8%", height: 2, background: "#e0e0e0", borderRadius: 1 }} />
-                {[17, 22, 27, 32, 37, 42, 47, 52, 57, 62, 67, 72].map(pct => (
-                  <div key={pct} style={{ position: "absolute", top: `${pct}%`, left: "8%", right: pct % 10 === 7 ? "35%" : "8%", height: 2, background: "#f0f0f0", borderRadius: 1 }} />
-                ))}
-                <div style={{ position: "absolute", bottom: "6%", left: "8%", right: "8%", height: 1, background: "#e0e0e0" }} />
-
-                {!headerLogo && !watermarkLogo && (
-                  <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <p style={{ color: "#bbb", fontSize: 10, textAlign: "center", padding: "0 16px", lineHeight: 1.5 }}>Upload logos below<br />to preview here</p>
-                  </div>
-                )}
-
-                {/* Watermark (z-index 1) */}
-                {watermarkLogo && (
-                  <>
-                    <img
-                      src={watermarkLogo}
-                      draggable={false}
-                      onPointerDown={e => startLogoDrag(e, setWatermarkLogoPos, watermarkLogoPos)}
-                      onPointerMove={moveLogoDrag}
-                      onPointerUp={endLogoDrag}
-                      onPointerCancel={endLogoDrag}
-                      style={{
-                        position: "absolute",
-                        left: `${(watermarkLogoPos.x / 210 * 100).toFixed(2)}%`,
-                        top: `${(watermarkLogoPos.y / 297 * 100).toFixed(2)}%`,
-                        width: `${(watermarkLogoPos.width / 210 * 100).toFixed(2)}%`,
-                        opacity: watermarkLogoPos.opacity,
-                        cursor: "move",
-                        userSelect: "none",
-                        touchAction: "none",
-                        zIndex: 1,
-                      }}
-                    />
-                    <div style={{ position: "absolute", left: `${(watermarkLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(watermarkLogoPos.y / 297 * 100).toFixed(2)}%`, background: "rgba(129,140,248,0.9)", color: "#fff", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 2, pointerEvents: "none", zIndex: 10, lineHeight: 1.4 }}>W</div>
-                  </>
-                )}
-
-                {/* Header logo (z-index 2) */}
-                {headerLogo && (
-                  <>
-                    <img
-                      src={headerLogo}
-                      draggable={false}
-                      onPointerDown={e => startLogoDrag(e, setHeaderLogoPos, headerLogoPos)}
-                      onPointerMove={moveLogoDrag}
-                      onPointerUp={endLogoDrag}
-                      onPointerCancel={endLogoDrag}
-                      style={{
-                        position: "absolute",
-                        left: `${(headerLogoPos.x / 210 * 100).toFixed(2)}%`,
-                        top: `${(headerLogoPos.y / 297 * 100).toFixed(2)}%`,
-                        width: `${(headerLogoPos.width / 210 * 100).toFixed(2)}%`,
-                        opacity: headerLogoPos.opacity,
-                        cursor: "move",
-                        userSelect: "none",
-                        touchAction: "none",
-                        zIndex: 2,
-                      }}
-                    />
-                    <div style={{ position: "absolute", left: `${(headerLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(headerLogoPos.y / 297 * 100).toFixed(2)}%`, background: "rgba(232,184,75,0.9)", color: "#000", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 2, pointerEvents: "none", zIndex: 10, lineHeight: 1.4 }}>H</div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Per-logo controls */}
-          {[
-            { label: "Header Logo", logo: headerLogo, setLogo: setHeaderLogo, pos: headerLogoPos, setPos: setHeaderLogoPos, ref: headerLogoRef },
-            { label: "Watermark Logo", logo: watermarkLogo, setLogo: setWatermarkLogo, pos: watermarkLogoPos, setPos: setWatermarkLogoPos, ref: watermarkLogoRef },
-          ].map(({ label, logo, setLogo, pos, setPos, ref }) => {
-            const jog = (axis, amt) => setPos(p => ({ ...p, [axis]: Math.round((p[axis] + amt) * 10) / 10 }));
-            return (
-              <div key={label} style={{ ...S.card, marginTop: 12 }}>
-                <p style={{ ...S.sectionTitle, margin: "0 0 10px" }}>{label}</p>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                  {logo && <img src={logo} alt="" style={{ height: 48, maxWidth: 120, objectFit: "contain", borderRadius: 4, border: "1px solid #252830", background: "#fff", padding: 2 }} />}
-                  <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; compressImage(f, { maxDim: 800, quality: 0.85 }).then(d => d && setLogo(d)); }} />
-                  <button style={S.btn("ghost")} onClick={() => ref.current.click()}><Icon d={icons.photo} size={14} /> {logo ? "Replace" : "Upload"}</button>
-                  {logo && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setLogo(null)}><Icon d={icons.x} size={13} /></button>}
-                </div>
-                {logo && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>X: {pos.x}mm</span>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", -10)}>−10</button>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", -1)}>−1</button>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", 1)}>+1</button>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", 10)}>+10</button>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>Y: {pos.y}mm</span>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", -10)}>−10</button>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", -1)}>−1</button>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", 1)}>+1</button>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", 10)}>+10</button>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>W: {pos.width}mm</span>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", -10)}>−10</button>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", -1)}>−1</button>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", 1)}>+1</button>
-                      <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", 10)}>+10</button>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>Opacity: {Math.round(pos.opacity * 100)}%</span>
-                      <input type="range" min="0" max="100" value={Math.round(pos.opacity * 100)} onChange={e => setPos(p => ({ ...p, opacity: parseInt(e.target.value) / 100 }))} style={{ flex: 1 }} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile on the main screen.</p>
-          </div>
-        </Modal>
-          )}
-
-          {/* Save profile button */}
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
-            {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
-            {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
-            <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={saveAdminProfile} disabled={adminSaveStatus === "saving"}>
-              {adminSaveStatus === "saving" ? "Saving…" : "Save Profile"}
-            </button>
-          </div>
-
           {/* My invoices */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
             <p style={{ ...S.sectionTitle, margin: 0 }}>My Invoices</p>
@@ -6928,6 +6625,281 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
           )}
         </div>
       )}
+
+      {/* My Info slide panel */}
+      {myInfoPanelOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 500, display: "flex", justifyContent: "flex-end" }} onClick={e => { if (e.target === e.currentTarget) setMyInfoPanelOpen(false); }}>
+          <div style={{ width: "min(380px,100vw)", background: "var(--bg,#0f1117)", height: "100%", overflowY: "auto", borderLeft: "1px solid #252830", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px", borderBottom: "1px solid #252830" }}>
+              <p style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>My Info</p>
+              <button style={{ ...S.btn("ghost"), padding: "6px 10px" }} onClick={() => setMyInfoPanelOpen(false)}><Icon d={icons.x} size={16} /></button>
+            </div>
+            <div style={{ flex: 1 }}>
+              {[
+                { key: "info", label: "My Info", sub: [adminProfileInfo.firstName, adminProfileInfo.lastName].filter(Boolean).join(" ") || "Name, contact details", open: () => { setAdminMyInfoOpen(true); setMyInfoPanelOpen(false); } },
+                { key: "pos", label: "Positions & Day Rate", sub: adminPositions.length ? `${adminPositions.length} position${adminPositions.length > 1 ? "s" : ""}` : "No positions yet", open: () => { setAdminPosOpen(true); setMyInfoPanelOpen(false); } },
+                { key: "doc", label: "Document", sub: [headerLogo && "Header logo", watermarkLogo && "Watermark logo"].filter(Boolean).join(" · ") || "Logos, signature, bank details", open: () => { setAdminDocOpen(true); setMyInfoPanelOpen(false); } },
+              ].map(({ key, label, sub, open }, idx, arr) => (
+                <button key={key} onClick={open} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", background: "none", border: "none", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", cursor: "pointer", textAlign: "left" }}>
+                  <div>
+                    <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{label}</p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{sub}</p>
+                  </div>
+                  <Icon d={icons.arrow_left} size={14} color="var(--text-muted,#555)" strokeW={2} style={{ transform: "rotate(180deg)", flexShrink: 0, marginLeft: 8 }} />
+                </button>
+              ))}
+            </div>
+            <div style={{ padding: "16px 20px", borderTop: "1px solid #252830", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12 }}>
+              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
+              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
+              <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={saveAdminProfile} disabled={adminSaveStatus === "saving"}>
+                {adminSaveStatus === "saving" ? "Saving…" : "Save Profile"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* My Info modal */}
+      {adminMyInfoOpen && (
+        <Modal title="My Info" onClose={() => setAdminMyInfoOpen(false)}>
+          <div style={S.col}>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>Your personal details appear on invoices and documents.</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div><label style={S.label}>First Name</label><input style={S.input} placeholder="e.g. Koon" value={adminProfileInfo.firstName} onChange={e => setAdminProfileInfo(p => ({ ...p, firstName: e.target.value }))} /></div>
+              <div><label style={S.label}>Last Name</label><input style={S.input} placeholder="e.g. Smith" value={adminProfileInfo.lastName} onChange={e => setAdminProfileInfo(p => ({ ...p, lastName: e.target.value }))} /></div>
+            </div>
+            <div><label style={S.label}>Phone</label><input style={S.input} placeholder="e.g. +66 81 234 5678" value={adminProfileInfo.phone} onChange={e => setAdminProfileInfo(p => ({ ...p, phone: e.target.value }))} /></div>
+            <div><label style={S.label}>Email</label><input style={S.input} type="email" placeholder="e.g. name@email.com" value={adminProfileInfo.email} onChange={e => setAdminProfileInfo(p => ({ ...p, email: e.target.value }))} /></div>
+            <div><label style={S.label}>Legal Address</label><textarea style={{ ...S.input, height: 80, resize: "vertical", lineHeight: 1.5 }} placeholder={"e.g. 123 Sukhumvit Rd\nBangkok 10110\nThailand"} value={adminProfileInfo.legalAddress} onChange={e => setAdminProfileInfo(p => ({ ...p, legalAddress: e.target.value }))} /></div>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile.</p>
+          </div>
+        </Modal>
+      )}
+
+      {/* Positions & Day Rate modal */}
+      {adminPosOpen && (
+        <Modal title={t("positionsTitle")} onClose={() => setAdminPosOpen(false)}>
+          <div style={S.col}>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>{t("positionsDesc")}</p>
+            {adminPositions.length < 5 && <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12, alignSelf: "flex-start" }} onClick={addAdminPosition}><Icon d={icons.plus} size={12} /> {t("addRoleBtn")}</button>}
+            {adminPositions.length === 0 && <p style={{ fontSize: 13, color: "#666", margin: 0 }}>{t("positionsEmpty")}</p>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {adminPositions.map((pos, i) => {
+                const rph = (parseFloat(pos.dayRate) || 0) / (parseFloat(pos.hoursPerDay) || 12);
+                return (
+                  <div key={pos.id} style={{ border: "1px solid #2e3340", borderRadius: 10, padding: 14, background: "rgba(255,255,255,0.02)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                      <span style={S.badge("amber")}>{t("roleLabel")} {i + 1}</span>
+                      <div style={{ flex: 1 }} />
+                      <button style={{ ...S.btn("danger"), padding: "5px 8px" }} onClick={() => removeAdminPosition(pos.id)}><Icon d={icons.trash} size={13} /></button>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div><label style={S.label}>{t("positionName")}</label><input style={S.input} value={pos.name} placeholder="e.g. Camera Operator" onChange={e => updateAdminPosition(pos.id, { name: e.target.value })} /></div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        <div><label style={S.label}>{t("dayRateLabel")}</label><input style={S.input} type="number" min="0" inputMode="decimal" value={pos.dayRate} placeholder="4500" onChange={e => updateAdminPosition(pos.id, { dayRate: e.target.value })} /></div>
+                        <div><label style={S.label}>{t("hoursPerDayLabel")}</label><input style={S.input} type="number" min="1" inputMode="decimal" value={pos.hoursPerDay} placeholder="12" onChange={e => updateAdminPosition(pos.id, { hoursPerDay: e.target.value })} /></div>
+                      </div>
+                      {parseFloat(pos.dayRate) > 0 && parseFloat(pos.hoursPerDay) > 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>{t("hourlyRate")}: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}{t("perHr")}</p>}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <label style={{ ...S.label, margin: 0 }}>{t("otLabel").replace("{h}", parseFloat(pos.hoursPerDay) || 12)}</label>
+                        <div style={{ flex: 1 }} />
+                        <button onClick={() => updateAdminPosition(pos.id, { variableOT: !pos.variableOT })} style={{ ...S.btn(pos.variableOT ? "primary" : "ghost"), padding: "5px 10px", fontSize: 12 }}>{pos.variableOT ? t("variableOT") : t("flatOT")}</button>
+                      </div>
+                      {!pos.variableOT ? (
+                        <div><label style={S.label}>{t("otMultiplierLabel")}</label><input style={{ ...S.input, maxWidth: 140 }} type="number" min="1" step="0.25" inputMode="decimal" value={pos.otMultiplier} placeholder="1.5" onChange={e => updateAdminPosition(pos.id, { otMultiplier: e.target.value })} /></div>
+                      ) : (
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                            <label style={{ ...S.label, margin: 0 }}>{t("otTiersLabel")}</label>
+                            <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => addAdminTier(pos.id)}><Icon d={icons.plus} size={11} /> {t("addTierBtn")}</button>
+                          </div>
+                          {(pos.otTiers || []).map((tr, ti) => {
+                            const from = ti === 0 ? (parseFloat(pos.hoursPerDay) || 12) : (parseFloat((pos.otTiers[ti - 1] || {}).untilHour) || 0);
+                            return (
+                              <div key={ti} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 32px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                  <span style={{ fontSize: 11, color: "#666", whiteSpace: "nowrap" }}>{from}h–</span>
+                                  <input style={{ ...S.input, padding: "7px 8px" }} type="number" min="0" inputMode="decimal" value={tr.untilHour} placeholder="14" onChange={e => updateAdminTier(pos.id, ti, { untilHour: e.target.value })} />
+                                  <span style={{ fontSize: 11, color: "#666" }}>h</span>
+                                </div>
+                                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                                  <input style={{ ...S.input, padding: "7px 8px" }} type="number" min="1" step="0.25" inputMode="decimal" value={tr.mult} placeholder="1.5" onChange={e => updateAdminTier(pos.id, ti, { mult: e.target.value })} />
+                                  <span style={{ fontSize: 11, color: "#666" }}>×</span>
+                                </div>
+                                <button style={{ ...S.btn("danger"), padding: "5px 6px", minWidth: 0 }} onClick={() => removeAdminTier(pos.id, ti)}><Icon d={icons.x} size={12} /></button>
+                              </div>
+                            );
+                          })}
+                          <p style={{ fontSize: 10, color: "#555", margin: "2px 0 0" }}>{t("otTiersNote")}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile.</p>
+          </div>
+        </Modal>
+      )}
+
+      {/* Document modal */}
+      {adminDocOpen && (
+        <Modal title="Document" onClose={() => setAdminDocOpen(false)}>
+          <div style={S.col}>
+            <div style={S.card}>
+              <p style={S.sectionTitle}>{t("documents")}</p>
+              <div style={S.col}>
+                <div>
+                  <label style={S.label}>{t("promptPayQR")}</label>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    {adminPromptPayQR && <img src={adminPromptPayQR} alt="QR" style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff" }} />}
+                    <input ref={adminPromptPayRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; compressImage(f, { maxDim: 1000, quality: 0.85 }).then(d => d && setAdminPromptPayQR(d)); }} />
+                    <button style={S.btn("ghost")} onClick={() => adminPromptPayRef.current.click()}><Icon d={icons.photo} size={14} /> {adminPromptPayQR ? t("replacePhoto") : t("uploadPhoto")}</button>
+                    {adminPromptPayQR && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setAdminPromptPayQR(null)}><Icon d={icons.x} size={13} /></button>}
+                  </div>
+                </div>
+                <div>
+                  <label style={S.label}>{t("bankDetails")}</label>
+                  <div style={S.col}>
+                    <input style={S.input} placeholder={t("bankNameLabel")} value={adminProfileInfo.bankName} onChange={e => setAdminProfileInfo(p => ({ ...p, bankName: e.target.value }))} />
+                    <input style={S.input} placeholder={t("accountNameLabel")} value={adminProfileInfo.accountName} onChange={e => setAdminProfileInfo(p => ({ ...p, accountName: e.target.value }))} />
+                    <input style={S.input} placeholder={t("accountNumberLabel")} value={adminProfileInfo.bankAccount} onChange={e => setAdminProfileInfo(p => ({ ...p, bankAccount: e.target.value }))} />
+                  </div>
+                </div>
+                <div>
+                  <label style={S.label}>Invoice Prefix</label>
+                  <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 6px" }}>Used in invoice number: INV-<strong>XXXX</strong>-YY-####. Max 6 chars.</p>
+                  <input style={{ ...S.input, textTransform: "uppercase" }} placeholder="e.g. ADM" maxLength={6}
+                    value={adminProfileInfo.invoicePrefix}
+                    onChange={e => setAdminProfileInfo(p => ({ ...p, invoicePrefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))} />
+                </div>
+                <button onClick={() => setAdminProfileInfo(p => ({ ...p, showCompanyName: !p.showCompanyName }))} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: adminProfileInfo.showCompanyName ? "rgba(232,184,75,0.05)" : "rgba(255,255,255,0.02)", border: `1px solid ${adminProfileInfo.showCompanyName ? "rgba(232,184,75,0.25)" : "#252830"}`, cursor: "pointer", userSelect: "none", textAlign: "left" }}>
+                  <div style={{ width: 36, height: 20, borderRadius: 10, background: adminProfileInfo.showCompanyName ? "var(--accent,#e8b84b)" : "#444", position: "relative", flexShrink: 0, transition: "background .2s" }}>
+                    <div style={{ position: "absolute", top: 2, left: adminProfileInfo.showCompanyName ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: adminProfileInfo.showCompanyName ? "var(--accent,#e8b84b)" : "var(--text,#e8e4dc)" }}>Company name on invoice {adminProfileInfo.showCompanyName ? "ON" : "OFF"}</p>
+                    <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", marginTop: 2 }}>{adminProfileInfo.showCompanyName ? `"${companyName || "Pick Shoot Return"}" shown at top of document` : "Company name hidden from document header"}</p>
+                  </div>
+                </button>
+                <div>
+                  <label style={S.label}>{t("signatureSection")}</label>
+                  <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 8px" }}>{t("signatureHint")}</p>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    {adminSignature && <img src={adminSignature} alt="Signature" style={{ height: 50, maxWidth: 160, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />}
+                    <input ref={adminSigRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => makeSignatureTransparent(ev.target.result).then(setAdminSignature); r.readAsDataURL(f); }} />
+                    <button style={S.btn("ghost")} onClick={() => adminSigRef.current.click()}><Icon d={icons.photo} size={14} /> {adminSignature ? t("replacePhoto") : t("uploadSignature")}</button>
+                    {adminSignature && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setAdminSignature(null)}><Icon d={icons.x} size={13} /></button>}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ ...S.card, marginTop: 12 }}>
+              <p style={{ ...S.sectionTitle, margin: "0 0 4px" }}>A4 Preview</p>
+              <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 10px" }}>Drag logos directly on the page. <span style={{ color: "#e8b84b" }}>H</span> = Header · <span style={{ color: "#818cf8" }}>W</span> = Watermark</p>
+              <div style={{ display: "flex", justifyContent: "center", background: "#0f1117", borderRadius: 6, padding: "14px 10px" }}>
+                <div
+                  ref={a4Ref}
+                  style={{
+                    position: "relative",
+                    width: "100%",
+                    maxWidth: 220,
+                    aspectRatio: "210 / 297",
+                    background: "#fff",
+                    boxShadow: "0 4px 24px rgba(0,0,0,0.7)",
+                    borderRadius: 2,
+                    overflow: "hidden",
+                    userSelect: "none",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{ position: "absolute", top: "7%", left: "8%", right: "8%", height: 2, background: "#e0e0e0", borderRadius: 1 }} />
+                  {[17, 22, 27, 32, 37, 42, 47, 52, 57, 62, 67, 72].map(pct => (
+                    <div key={pct} style={{ position: "absolute", top: `${pct}%`, left: "8%", right: pct % 10 === 7 ? "35%" : "8%", height: 2, background: "#f0f0f0", borderRadius: 1 }} />
+                  ))}
+                  <div style={{ position: "absolute", bottom: "6%", left: "8%", right: "8%", height: 1, background: "#e0e0e0" }} />
+                  {!headerLogo && !watermarkLogo && (
+                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <p style={{ color: "#bbb", fontSize: 10, textAlign: "center", padding: "0 16px", lineHeight: 1.5 }}>Upload logos below<br />to preview here</p>
+                    </div>
+                  )}
+                  {watermarkLogo && (
+                    <>
+                      <img src={watermarkLogo} draggable={false}
+                        onPointerDown={e => startLogoDrag(e, setWatermarkLogoPos, watermarkLogoPos)}
+                        onPointerMove={moveLogoDrag} onPointerUp={endLogoDrag} onPointerCancel={endLogoDrag}
+                        style={{ position: "absolute", left: `${(watermarkLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(watermarkLogoPos.y / 297 * 100).toFixed(2)}%`, width: `${(watermarkLogoPos.width / 210 * 100).toFixed(2)}%`, opacity: watermarkLogoPos.opacity, cursor: "move", userSelect: "none", touchAction: "none", zIndex: 1 }} />
+                      <div style={{ position: "absolute", left: `${(watermarkLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(watermarkLogoPos.y / 297 * 100).toFixed(2)}%`, background: "rgba(129,140,248,0.9)", color: "#fff", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 2, pointerEvents: "none", zIndex: 10, lineHeight: 1.4 }}>W</div>
+                    </>
+                  )}
+                  {headerLogo && (
+                    <>
+                      <img src={headerLogo} draggable={false}
+                        onPointerDown={e => startLogoDrag(e, setHeaderLogoPos, headerLogoPos)}
+                        onPointerMove={moveLogoDrag} onPointerUp={endLogoDrag} onPointerCancel={endLogoDrag}
+                        style={{ position: "absolute", left: `${(headerLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(headerLogoPos.y / 297 * 100).toFixed(2)}%`, width: `${(headerLogoPos.width / 210 * 100).toFixed(2)}%`, opacity: headerLogoPos.opacity, cursor: "move", userSelect: "none", touchAction: "none", zIndex: 2 }} />
+                      <div style={{ position: "absolute", left: `${(headerLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(headerLogoPos.y / 297 * 100).toFixed(2)}%`, background: "rgba(232,184,75,0.9)", color: "#000", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 2, pointerEvents: "none", zIndex: 10, lineHeight: 1.4 }}>H</div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {[
+              { label: "Header Logo", logo: headerLogo, setLogo: setHeaderLogo, pos: headerLogoPos, setPos: setHeaderLogoPos, ref: headerLogoRef },
+              { label: "Watermark Logo", logo: watermarkLogo, setLogo: setWatermarkLogo, pos: watermarkLogoPos, setPos: setWatermarkLogoPos, ref: watermarkLogoRef },
+            ].map(({ label, logo, setLogo, pos, setPos, ref }) => {
+              const jog = (axis, amt) => setPos(p => ({ ...p, [axis]: Math.round((p[axis] + amt) * 10) / 10 }));
+              return (
+                <div key={label} style={{ ...S.card, marginTop: 12 }}>
+                  <p style={{ ...S.sectionTitle, margin: "0 0 10px" }}>{label}</p>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                    {logo && <img src={logo} alt="" style={{ height: 48, maxWidth: 120, objectFit: "contain", borderRadius: 4, border: "1px solid #252830", background: "#fff", padding: 2 }} />}
+                    <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; compressImage(f, { maxDim: 800, quality: 0.85 }).then(d => d && setLogo(d)); }} />
+                    <button style={S.btn("ghost")} onClick={() => ref.current.click()}><Icon d={icons.photo} size={14} /> {logo ? "Replace" : "Upload"}</button>
+                    {logo && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setLogo(null)}><Icon d={icons.x} size={13} /></button>}
+                  </div>
+                  {logo && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>X: {pos.x}mm</span>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", -10)}>−10</button>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", -1)}>−1</button>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", 1)}>+1</button>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", 10)}>+10</button>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>Y: {pos.y}mm</span>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", -10)}>−10</button>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", -1)}>−1</button>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", 1)}>+1</button>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", 10)}>+10</button>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>W: {pos.width}mm</span>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", -10)}>−10</button>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", -1)}>−1</button>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", 1)}>+1</button>
+                        <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", 10)}>+10</button>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>Opacity: {Math.round(pos.opacity * 100)}%</span>
+                        <input type="range" min="0" max="100" value={Math.round(pos.opacity * 100)} onChange={e => setPos(p => ({ ...p, opacity: parseInt(e.target.value) / 100 }))} style={{ flex: 1 }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile.</p>
+          </div>
+        </Modal>
+      )}
+
 
       {modal && (
         <Modal title={editTarget ? "Edit Production Company" : "Add Production Company"} onClose={() => setModal(false)}>
@@ -7822,6 +7794,9 @@ export default function App() {
   const kvLoadedRef = useRef(new Set());
   const postLoadSnapRef = useRef(null);
   const snapTakenRef = useRef(false);
+  // IDs of invoices that were in KV when this session loaded — used by the worker's merge
+  // to distinguish "deliberately deleted by this session" from "created by another session."
+  const kvInvoiceIdsRef = useRef(new Set());
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
@@ -7852,7 +7827,7 @@ export default function App() {
     if (d.employees) { setEmployees(d.employees); kl.add("employees"); }
     if (d.reports) { setReports(d.reports); kl.add("reports"); }
     if (d.productionCompanies) { setProductionCompanies(d.productionCompanies); kl.add("productionCompanies"); }
-    if (d.invoices) { setInvoices(d.invoices); kl.add("invoices"); }
+    if (d.invoices) { setInvoices(d.invoices); kl.add("invoices"); kvInvoiceIdsRef.current = new Set(d.invoices.map(inv => inv.id)); }
     if (d.companyName != null) { setCompanyName(d.companyName); kl.add("companyName"); }
     if (d.equipmentRequests) { setEquipmentRequests(d.equipmentRequests); kl.add("equipmentRequests"); }
     if (d.adminRequests) { setAdminRequests(d.adminRequests); kl.add("adminRequests"); }
@@ -7987,7 +7962,7 @@ export default function App() {
       if (safeSave("employees", employees)) savePayload.employees = employees;
       if (safeSave("reports", reports)) savePayload.reports = reports;
       if (safeSave("productionCompanies", productionCompanies)) savePayload.productionCompanies = productionCompanies;
-      if (safeSave("invoices", invoices)) savePayload.invoices = invoices;
+      if (safeSave("invoices", invoices)) { savePayload.invoices = invoices; savePayload._invoiceKvIds = [...kvInvoiceIdsRef.current]; }
       if (safeSave("companyName", companyName)) savePayload.companyName = companyName;
       if (safeSave("equipmentRequests", equipmentRequests)) savePayload.equipmentRequests = equipmentRequests;
       if (safeSave("adminRequests", adminRequests)) savePayload.adminRequests = adminRequests;
