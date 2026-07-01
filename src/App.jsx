@@ -6316,6 +6316,18 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
     });
   }, [jobs, adminProfileLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Auto-register production companies from job bookings ─────────────────────
+  useEffect(() => {
+    const names = [...new Set((jobs || []).map(j => (j.production || "").trim()).filter(Boolean))];
+    if (names.length === 0) return;
+    setProductionCompanies(prev => {
+      const existing = new Set(prev.map(c => (c.name || "").toLowerCase().trim()));
+      const toAdd = names.filter(n => !existing.has(n.toLowerCase()));
+      if (toAdd.length === 0) return prev;
+      return [...prev, ...toAdd.map(n => ({ id: "co" + Date.now() + Math.random().toString(36).slice(2), name: n, address: "" }))];
+    });
+  }, [jobs]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── QUO Confirm / Decline ────────────────────────────────────────────────────
   const handleConfirmQuo = (inv) => {
     if (inv.jobId) setJobs(prev => prev.map(j => j.id === inv.jobId ? { ...j, status: "Confirmed" } : j));
@@ -6468,7 +6480,10 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                         <Icon d={icons.building} size={16} color="var(--accent,#e8b84b)" />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--text,#e8e4dc)" }}>{co.name}</p>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--text,#e8e4dc)" }}>{co.name}</p>
+                          {!co.address && <span style={{ fontSize: 10, fontWeight: 600, color: "#f87171", background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 4, padding: "1px 6px", letterSpacing: ".03em", flexShrink: 0 }}>Incomplete</span>}
+                        </div>
                         {co.address ? <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#666)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{co.address}</p>
                           : <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#444)", fontStyle: "italic" }}>No billing address</p>}
                         {count > 0 && (
