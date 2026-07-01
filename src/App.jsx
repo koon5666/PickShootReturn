@@ -7794,9 +7794,14 @@ export default function App() {
   const kvLoadedRef = useRef(new Set());
   const postLoadSnapRef = useRef(null);
   const snapTakenRef = useRef(false);
-  // IDs of invoices that were in KV when this session loaded — used by the worker's merge
-  // to distinguish "deliberately deleted by this session" from "created by another session."
+  // Grows monotonically: every invoice ID this session has ever held in local state.
+  // Used by the worker's merge to distinguish "deliberately deleted by this session"
+  // from "added by another concurrent session." We never remove IDs from this set —
+  // that's the point: a deleted invoice's ID stays here so the worker treats its
+  // absence from the payload as an intentional deletion, not an unknown addition.
   const kvInvoiceIdsRef = useRef(new Set());
+  // Whenever invoices state changes, record every ID into the ref (only adds, never removes).
+  useEffect(() => { invoices.forEach(inv => { if (inv.id) kvInvoiceIdsRef.current.add(inv.id); }); }, [invoices]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
@@ -7827,7 +7832,7 @@ export default function App() {
     if (d.employees) { setEmployees(d.employees); kl.add("employees"); }
     if (d.reports) { setReports(d.reports); kl.add("reports"); }
     if (d.productionCompanies) { setProductionCompanies(d.productionCompanies); kl.add("productionCompanies"); }
-    if (d.invoices) { setInvoices(d.invoices); kl.add("invoices"); kvInvoiceIdsRef.current = new Set(d.invoices.map(inv => inv.id)); }
+    if (d.invoices) { setInvoices(d.invoices); kl.add("invoices"); }
     if (d.companyName != null) { setCompanyName(d.companyName); kl.add("companyName"); }
     if (d.equipmentRequests) { setEquipmentRequests(d.equipmentRequests); kl.add("equipmentRequests"); }
     if (d.adminRequests) { setAdminRequests(d.adminRequests); kl.add("adminRequests"); }
