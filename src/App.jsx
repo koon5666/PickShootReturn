@@ -6651,13 +6651,6 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 </button>
               ))}
             </div>
-            <div style={{ padding: "16px 20px", borderTop: "1px solid #252830", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12 }}>
-              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
-              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
-              <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={saveAdminProfile} disabled={adminSaveStatus === "saving"}>
-                {adminSaveStatus === "saving" ? "Saving…" : "Save Profile"}
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -6674,7 +6667,11 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             <div><label style={S.label}>Phone</label><input style={S.input} placeholder="e.g. +66 81 234 5678" value={adminProfileInfo.phone} onChange={e => setAdminProfileInfo(p => ({ ...p, phone: e.target.value }))} /></div>
             <div><label style={S.label}>Email</label><input style={S.input} type="email" placeholder="e.g. name@email.com" value={adminProfileInfo.email} onChange={e => setAdminProfileInfo(p => ({ ...p, email: e.target.value }))} /></div>
             <div><label style={S.label}>Legal Address</label><textarea style={{ ...S.input, height: 80, resize: "vertical", lineHeight: 1.5 }} placeholder={"e.g. 123 Sukhumvit Rd\nBangkok 10110\nThailand"} value={adminProfileInfo.legalAddress} onChange={e => setAdminProfileInfo(p => ({ ...p, legalAddress: e.target.value }))} /></div>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile.</p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid #252830", marginTop: 4 }}>
+              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
+              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
+              <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={saveAdminProfile} disabled={adminSaveStatus === "saving"}>{adminSaveStatus === "saving" ? "Saving…" : "Save Profile"}</button>
+            </div>
           </div>
         </Modal>
       )}
@@ -6741,7 +6738,11 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 );
               })}
             </div>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile.</p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid #252830", marginTop: 4 }}>
+              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
+              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
+              <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={saveAdminProfile} disabled={adminSaveStatus === "saving"}>{adminSaveStatus === "saving" ? "Saving…" : "Save Profile"}</button>
+            </div>
           </div>
         </Modal>
       )}
@@ -6897,7 +6898,11 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
               );
             })}
 
-            <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: 0 }}>Changes saved when you tap Save Profile.</p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid #252830", marginTop: 4 }}>
+              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
+              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
+              <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={saveAdminProfile} disabled={adminSaveStatus === "saving"}>{adminSaveStatus === "saving" ? "Saving…" : "Save Profile"}</button>
+            </div>
           </div>
         </Modal>
       )}
