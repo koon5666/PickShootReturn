@@ -6573,25 +6573,35 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             const monthSummary = activeTab === "rtx" ? (() => {
               const map = {};
               filtered.forEach(inv => {
-                const d = new Date(inv.updatedAt);
-                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                const label = d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+                let key, label;
+                if (inv.paidDate) {
+                  const d = new Date(inv.paidDate + "T00:00:00");
+                  key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                  label = d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+                } else {
+                  key = "0000-00"; label = "No date";
+                }
                 if (!map[key]) map[key] = { label, subtotal: 0, vatAmount: 0, total: 0 };
                 const { subtotal, vatAmount, total } = calcVatBreakdown(inv);
                 map[key].subtotal += subtotal;
                 map[key].vatAmount += vatAmount;
                 map[key].total += total;
               });
-              return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0])).map(([, v]) => v);
+              return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0])).map(([, v]) => v);
             })() : null;
 
             const monthBuckets = activeTab === "rtx" ? (() => {
               const map = {};
               groups.forEach(group => {
-                const latest = group.docs.reduce((a, d) => d.updatedAt > a.updatedAt ? d : a, group.docs[0]);
-                const d = new Date(latest.updatedAt);
-                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                const label = d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+                const paidDoc = [...group.docs].filter(d => d.paidDate).sort((a, b) => b.paidDate.localeCompare(a.paidDate))[0];
+                let key, label;
+                if (paidDoc) {
+                  const d = new Date(paidDoc.paidDate + "T00:00:00");
+                  key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                  label = d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+                } else {
+                  key = "0000-00"; label = "No date";
+                }
                 if (!map[key]) map[key] = { key, label, groups: [], subtotal: 0, vatAmount: 0, total: 0 };
                 map[key].groups.push(group);
                 group.docs.forEach(inv => {
