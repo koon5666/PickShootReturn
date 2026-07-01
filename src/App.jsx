@@ -6181,6 +6181,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   const headerLogoRef = useRef(null);
   const watermarkLogoRef = useRef(null);
   const [adminSaveStatus, setAdminSaveStatus] = useState(null);
+  const [presetsSaveStatus, setPresetsSaveStatus] = useState(null);
   const [adminCreateModal, setAdminCreateModal] = useState(false);
   const [adminEditInvoice, setAdminEditInvoice] = useState(null);
   const [adminMyInfoOpen, setAdminMyInfoOpen] = useState(false);
@@ -6244,6 +6245,19 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
     } catch {
       setAdminSaveStatus("error");
       setTimeout(() => setAdminSaveStatus(null), 3500);
+    }
+  };
+
+  const savePresets = async () => {
+    setPresetsSaveStatus("saving");
+    try {
+      const res = await api.put({ invoicePresets });
+      if (!res.ok) throw new Error();
+      setPresetsSaveStatus("saved");
+      setTimeout(() => setPresetsSaveStatus(null), 3000);
+    } catch {
+      setPresetsSaveStatus("error");
+      setTimeout(() => setPresetsSaveStatus(null), 3500);
     }
   };
 
@@ -6906,7 +6920,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {adminPresetsOpen && (
         <Modal title="Invoice Item Presets" onClose={() => setAdminPresetsOpen(false)}>
           <div style={S.col}>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>Saved items appear as quick-add chips when creating an invoice. Changes are auto-saved.</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>Saved items appear as quick-add chips when creating an invoice.</p>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={() => setInvoicePresets(p => [...p, { id: "ip" + Date.now(), description: "", rate: "" }])}>
                 <Icon d={icons.plus} size={12} /> Add
@@ -6928,6 +6942,11 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                   </button>
                 </div>
               ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid #252830", marginTop: 4 }}>
+              {presetsSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
+              {presetsSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
+              <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={savePresets} disabled={presetsSaveStatus === "saving"}>{presetsSaveStatus === "saving" ? "Saving…" : "Save"}</button>
             </div>
           </div>
         </Modal>
