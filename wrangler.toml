@@ -5,3 +5,8 @@ pages_build_output_dir = "dist"
 [[kv_namespaces]]
 binding = "KV"
 id = "0023db914404463ba278bc3fa31c4251"
+
+[[durable_objects.bindings]]
+name = "PRESENCE"
+class_name = "PresenceDO"
+script_name = "pickshootreturn-presence"

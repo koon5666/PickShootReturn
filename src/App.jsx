@@ -1732,7 +1732,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
     <Modal title={existingInvoice ? "Edit Document" : "Create Document"} onClose={onClose} wide>
       <div style={S.col}>
         <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
-          {[{ id: "invoice", label: "INV Invoice" }, { id: "quotation", label: "QUO Quotation" }, { id: "receipt", label: "RTX Tax Receipt" }].map(dt => (
+          {[{ id: "quotation", label: "QUO Quotation" }, { id: "invoice", label: "INV Invoice" }, { id: "receipt", label: "RTX Tax Receipt" }].map(dt => (
             <button key={dt.id} onClick={() => setDocType(dt.id)}
               style={{ ...S.btn(docType === dt.id ? "primary" : "ghost"), padding: "6px 16px", fontSize: 13, flex: 1 }}>
               {dt.label}
@@ -5318,7 +5318,7 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
   const tryLogin = () => {
     if (isLocked) return;
     if (mode === "admin") {
-      if (pin === adminPin) { onLogin({ role: "admin" }); }
+      if (pin === adminPin) { onLogin({ role: "admin", id: "admin" }); }
       else { recordFailure(); setError(t("loginIncorrectPin")); setPin(""); }
     } else if (mode === "employee" && selectedEmp) {
       const emp = employees.find(e => e.id === selectedEmp);
@@ -6188,6 +6188,7 @@ function makeDocNo(docType, allInvoices, invoicePrefix) {
 function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees, companyName, user, invoicePresets, setInvoicePresets, jobs, setJobs, adminRequests }) {
   const t = useT();
   const [activeTab, setActiveTab] = useState("quo");
+  const [quoSubTab, setQuoSubTab] = useState("active"); // "active" | "declined"
   const [companySortKey, setCompanySortKey] = useState("az");
   const [modal, setModal] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -6299,22 +6300,34 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       let cur = [...prev];
       let changed = false;
       (jobs || []).filter(j => j.status !== "Cancelled").forEach(job => {
-        const hasQuo = cur.some(i => i.jobId === job.id && i.docType === "quotation" && i.employeeId === "admin");
+        const hasQuo = cur.some(i => i.jobId === job.id && i.docType === "quotation" && i.employeeId === "admin" && !i._deleted);
         if (!hasQuo) {
           const now = Date.now() + cur.length;
           const defItems = adminPositions.length > 0
             ? [{ id: `al-${job.id}`, description: `${adminPositions[0].name} (${adminPositions[0].hoursPerDay || 12}hr)`, qty: (job.dates || []).length || 1, rate: String(adminPositions[0].dayRate || ""), vat: true }]
             : DEFAULT_ITEMS.map(it => ({ ...it, id: `${it.id}-${job.id}` }));
+          // New QUOs mirror the job status: Pencil→Pending, Confirmed→Confirmed
+          const quoStatus = job.status === "Confirmed" ? "Confirmed" : "Pending";
           cur = [...cur, {
             id: `auto-quo-${job.id}`, invoiceNo: makeDocNo("quotation", cur, invPrefix),
             revisions: 0, employeeId: "admin", employeeName: adminName,
             jobId: job.id, jobName: job.name || "", productionCompany: job.production || "",
             shootDates: job.dates || [], position: adminPositions[0]?.name || "",
-            status: "Pending", docType: "quotation", items: defItems, callWrap: {},
+            status: quoStatus, docType: "quotation", items: defItems, callWrap: {},
             invoiceHeader: showCo ? companyName : "", showWatermark: false,
             vatEnabled: false, vatType: "exclusive", createdAt: now, updatedAt: now, auto: true,
           }];
           changed = true;
+        } else if (job.status === "Confirmed") {
+          // Sync any Pending QUO to Confirmed when its job is confirmed.
+          // Declined QUOs are never auto-changed.
+          cur = cur.map(i => {
+            if (i.jobId === job.id && i.docType === "quotation" && i.employeeId === "admin" && !i._deleted && i.status === "Pending") {
+              changed = true;
+              return { ...i, status: "Confirmed", updatedAt: Date.now() };
+            }
+            return i;
+          });
         }
         if (job.status === "Confirmed") {
           const hasInv = cur.some(i => i.jobId === job.id && (i.docType === "invoice" || !i.docType) && i.employeeId === "admin");
@@ -6357,7 +6370,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   // ── QUO Confirm / Decline ────────────────────────────────────────────────────
   const handleConfirmQuo = (inv) => {
     if (inv.jobId) setJobs(prev => prev.map(j => j.id === inv.jobId ? { ...j, status: "Confirmed" } : j));
-    setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: "Approved", updatedAt: Date.now() } : i));
+    setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: "Confirmed", updatedAt: Date.now() } : i));
   };
   const handleDeclineQuo = (inv) => {
     setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: "Declined", updatedAt: Date.now() } : i));
@@ -6458,7 +6471,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {/* Tabs */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
         {(() => {
-          const quoCount = invoices.filter(i => !i._deleted && i.docType === "quotation").length;
+          const quoCount = invoices.filter(i => !i._deleted && i.docType === "quotation" && i.status !== "Declined").length;
           const invCount = invoices.filter(i => !i._deleted && (i.docType === "invoice" || !i.docType)).length;
           const rtxCount = invoices.filter(i => !i._deleted && i.docType === "receipt").length;
           const teamsCount = invoices.filter(i => !i._deleted && i.employeeId !== "admin").length;
@@ -6545,10 +6558,74 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {/* QUO / INV / RTX tabs */}
       {(activeTab === "quo" || activeTab === "inv" || activeTab === "rtx") && (
         <>
-          {(() => {
+          {/* QUO sub-tabs: Active / Declined */}
+          {activeTab === "quo" && (() => {
+            const declinedCount = invoices.filter(i => !i._deleted && i.docType === "quotation" && i.status === "Declined").length;
+            return (
+              <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+                {[["active", "Active"], ["declined", `Declined${declinedCount ? ` (${declinedCount})` : ""}`]].map(([k, lbl]) => (
+                  <button key={k} style={{ ...S.btn(quoSubTab === k ? (k === "declined" ? "danger" : "primary") : "ghost"), fontSize: 11, padding: "5px 12px" }} onClick={() => setQuoSubTab(k)}>{lbl}</button>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Declined QUO sub-tab */}
+          {activeTab === "quo" && quoSubTab === "declined" && (() => {
+            const declined = invoices.filter(i => !i._deleted && i.docType === "quotation" && i.status === "Declined")
+              .sort((a, b) => b.updatedAt - a.updatedAt);
+            if (declined.length === 0) return (
+              <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
+                <Icon d={icons.invoice} size={36} color="var(--text-muted,#444)" />
+                <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No declined quotations.</p>
+              </div>
+            );
+            // Group by Month/Year of updatedAt
+            const monthMap = {};
+            declined.forEach(inv => {
+              const d = new Date(inv.updatedAt);
+              const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+              const label = d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+              if (!monthMap[key]) monthMap[key] = { key, label, docs: [] };
+              monthMap[key].docs.push(inv);
+            });
+            const months = Object.values(monthMap).sort((a, b) => b.key.localeCompare(a.key));
+            return (
+              <div style={S.col}>
+                {months.map((month, mi) => (
+                  <div key={month.key}>
+                    {mi > 0 && <div style={{ height: 1, background: "#2e3340", margin: "4px 0 10px" }} />}
+                    <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{month.label}</p>
+                    {month.docs.map((inv, idx, arr) => {
+                      const total = calcTotal(inv);
+                      return (
+                        <div key={inv.id} style={{ ...S.card, padding: "10px 14px", marginBottom: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ ...S.badge("red"), fontSize: 9, flexShrink: 0 }}>Declined</span>
+                            <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{inv.jobName || "—"}{inv.productionCompany ? <span style={{ color: "var(--text-muted,#8a8f9d)", fontWeight: 400 }}> · {inv.productionCompany}</span> : null}</span>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
+                            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                              <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
+                              <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
+                              <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: "Pending", updatedAt: Date.now() } : i))}>Restore</button>
+                              <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={11} /></button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Active QUO / INV / RTX */}
+          {(activeTab !== "quo" || quoSubTab === "active") && (() => {
             const filtered = [...invoices].filter(inv => {
               if (inv._deleted) return false;
-              if (activeTab === "quo") return inv.docType === "quotation";
+              if (activeTab === "quo") return inv.docType === "quotation" && inv.status !== "Declined";
               if (activeTab === "rtx") return inv.docType === "receipt";
               return inv.docType === "invoice" || !inv.docType; // inv
             });
@@ -6622,12 +6699,16 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                   </div>
                   {group.docs.map((inv, idx, arr) => {
                     const total = calcTotal(inv);
-                    const isPaid = (inv.status || "Pending") === "Paid";
+                    const st = inv.status || "Pending";
+                    const isPaid = st === "Paid";
+                    const statusColor = inv.docType === "quotation"
+                      ? (st === "Confirmed" ? "green" : st === "Declined" ? "red" : "amber")
+                      : (isPaid ? "green" : "amber");
                     return (
                       <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", flexWrap: "wrap" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 5, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
                           <span style={{ ...S.badge("blue"), fontSize: 9, flexShrink: 0 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
-                          <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 9, flexShrink: 0 }}>{inv.status || "Pending"}</span>
+                          <span style={{ ...S.badge(statusColor), fontSize: 9, flexShrink: 0 }}>{st}</span>
                           {inv.docType === "receipt" && (
                             <span style={{ fontSize: 9, fontWeight: 700, flexShrink: 0, borderRadius: 4, padding: "1px 5px", border: `1px solid ${inv.whTaxDoc ? "rgba(52,211,153,0.4)" : "rgba(232,184,75,0.4)"}`, color: inv.whTaxDoc ? "#34d399" : "#e8b84b", background: inv.whTaxDoc ? "rgba(52,211,153,0.1)" : "rgba(232,184,75,0.1)" }}>W/H DOC</span>
                           )}
@@ -6640,7 +6721,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                           <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
                           <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
-                          {inv.docType === "quotation" && (inv.status === "Pending" || !inv.status) && <>
+                          {inv.docType === "quotation" && st === "Pending" && <>
                             <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleConfirmQuo(inv)}>Confirm</button>
                             <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
                           </>}
@@ -7917,6 +7998,29 @@ function AdminBottomNav({ activePage, setActivePage, unresolvedCount, navOrder }
   );
 }
 
+// ─── SESSION PRESENCE HELPERS ─────────────────────────────────────────────────
+function getDeviceId() {
+  const key = "psr_device_id";
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
+
+function getDeviceLabel() {
+  const ua = navigator.userAgent;
+  if (/iPhone/i.test(ua)) return "iPhone";
+  if (/iPad/i.test(ua)) return "iPad";
+  if (/Android/i.test(ua)) return /Mobile/i.test(ua) ? "Android Phone" : "Android Tablet";
+  if (/Mac/i.test(ua)) return "Mac";
+  if (/Windows/i.test(ua)) return "Windows PC";
+  return "Browser";
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   // Persist the signed-in user so a page refresh / pull-to-refresh keeps the session.
@@ -7975,11 +8079,103 @@ export default function App() {
   const postLoadSnapRef = useRef(null);
   const snapTakenRef = useRef(false);
 
+  // ── Session presence (Durable Objects WebSocket) ──────────────────────────
+  const [concurrentSessions, setConcurrentSessions] = useState([]);
+  const wsRef = useRef(null);
+  const reconnectTimerRef = useRef(null);
+  const reconnectDelayRef = useRef(1000);
+  // lastExternalSyncRef: timestamp of the most recent BC/WS data_saved received.
+  // onSuccess skips re-broadcasting within a 5s window to prevent echo loops.
+  const lastExternalSyncRef = useRef(0);
+  const broadcastChannelRef = useRef(null);
+
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  // BroadcastChannel: same-browser tab sync. When another tab saves to KV it posts
+  // its full snapshot here so we apply it without a network round-trip.
+  // Deps [] is intentional — applyData is a stable useCallback and must not be referenced
+  // in the dep array because it is declared later in this function (TDZ).
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const ch = new BroadcastChannel("psr-sync");
+    broadcastChannelRef.current = ch;
+    ch.onmessage = (e) => {
+      const { type, snapshot, sourceDeviceId } = e.data || {};
+      if (type !== "data_saved" || !snapshot || sourceDeviceId === getDeviceId()) return;
+      lastExternalSyncRef.current = Date.now();
+      applyData(snapshot);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(snapshot)); } catch {}
+    };
+    return () => { ch.close(); broadcastChannelRef.current = null; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Connect WebSocket for session presence when user logs in; disconnect on logout.
+  useEffect(() => {
+    if (!user) {
+      wsRef.current?.close();
+      wsRef.current = null;
+      clearTimeout(reconnectTimerRef.current);
+      setConcurrentSessions([]);
+      return;
+    }
+    const userId = user.id || (user.role === "admin" ? "admin" : null);
+    if (!userId) return;
+    const deviceId = getDeviceId();
+    const label = getDeviceLabel();
+    let active = true;
+
+    function connect() {
+      if (!active) return;
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const url = `${proto}//${window.location.host}/api/session?userId=${encodeURIComponent(userId)}&deviceId=${encodeURIComponent(deviceId)}&label=${encodeURIComponent(label)}`;
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen = () => { reconnectDelayRef.current = 1000; };
+
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data.type === "concurrent") {
+            setConcurrentSessions(data.sessions.filter(s => s.deviceId !== deviceId));
+          } else if (data.type === "session_join" && data.deviceId !== deviceId) {
+            setConcurrentSessions(p => [...p.filter(s => s.deviceId !== data.deviceId), { deviceId: data.deviceId, label: data.label }]);
+          } else if (data.type === "session_leave") {
+            setConcurrentSessions(p => p.filter(s => s.deviceId !== data.deviceId));
+          } else if (data.type === "data_saved") {
+            // Another device of this user just saved — pull fresh data immediately.
+            lastExternalSyncRef.current = Date.now();
+            api.getData().then(d => {
+              applyData(d);
+              try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch {}
+            }).catch(() => {});
+          }
+        } catch {}
+      };
+
+      ws.onerror = () => ws.close();
+      ws.onclose = () => {
+        if (!active) return;
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectDelayRef.current = Math.min(reconnectDelayRef.current * 2, 30000);
+          connect();
+        }, reconnectDelayRef.current);
+      };
+    }
+
+    connect();
+    return () => {
+      active = false;
+      wsRef.current?.close();
+      wsRef.current = null;
+      clearTimeout(reconnectTimerRef.current);
+      setConcurrentSessions([]);
+    };
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { try { localStorage.setItem("psr_lang", lang); } catch {} }, [lang]);
 
@@ -8169,6 +8365,14 @@ export default function App() {
         setSaveErr(false);
         pendingSaveRef.current = null;
         try { localStorage.setItem(CACHE_KEY, JSON.stringify(fullSnapshot)); } catch {}
+        // Broadcast the saved snapshot to other tabs/devices unless we're within
+        // the 5s cooldown from an incoming sync (prevents echo loops).
+        if (Date.now() - lastExternalSyncRef.current >= 5000) {
+          broadcastChannelRef.current?.postMessage({ type: "data_saved", snapshot: fullSnapshot, sourceDeviceId: getDeviceId() });
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: "data_saved" }));
+          }
+        }
       };
       const onFail = () => {
         setSaveErr(true);
@@ -8445,6 +8649,43 @@ export default function App() {
           </main>
           {isMobile && <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} navOrder={navOrder} />}
           {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} onClose={() => setSettingsPanelOpen(false)} />}
+        </div>
+      )}
+      {concurrentSessions.length > 0 && user && (
+        <div style={{
+          position: "fixed",
+          bottom: isMobile ? 90 : 20,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 9999,
+          background: "rgba(15,17,23,0.92)",
+          border: "1px solid rgba(251,191,36,0.45)",
+          borderRadius: 14,
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          padding: "10px 14px 10px 16px",
+          maxWidth: 380,
+          width: "calc(100vw - 48px)",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+        }}>
+          <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#fbbf24", lineHeight: 1.3 }}>
+              Another device is active
+            </p>
+            <p style={{ margin: "3px 0 0", fontSize: 11, color: "#9ca3af", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {concurrentSessions.map(s => s.label).join(", ")} — edits may conflict
+            </p>
+          </div>
+          <button
+            onClick={() => setConcurrentSessions([])}
+            style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", padding: "4px 6px", borderRadius: 6, flexShrink: 0, lineHeight: 1 }}
+          >
+            <Icon d={icons.x} size={14} />
+          </button>
         </div>
       )}
     </LangCtx.Provider>
