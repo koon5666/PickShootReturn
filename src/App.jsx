@@ -6188,7 +6188,7 @@ function makeDocNo(docType, allInvoices, invoicePrefix) {
 // ─── INVOICE PAGE ─────────────────────────────────────────────────────────────
 function InvoicePage({ productionCompanies, setProductionCompanies, invoices, setInvoices, employees, companyName, user, invoicePresets, jobs, setJobs, adminRequests }) {
   const t = useT();
-  const [activeTab, setActiveTab] = useState("myinvoice");
+  const [activeTab, setActiveTab] = useState("quo");
   const [companySortKey, setCompanySortKey] = useState("az");
   const [modal, setModal] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
@@ -6274,7 +6274,6 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   };
 
   const adminEmployee = { id: "admin", name: [adminProfileInfo.firstName, adminProfileInfo.lastName].filter(Boolean).join(" ").trim() || companyName || "Admin", role: "admin" };
-  const myInvoices = invoices.filter(inv => inv.employeeId === "admin" && !inv._deleted);
 
   // ── Job-based lifecycle: auto-create QUO on new job, INV on Confirmed ────────
   useEffect(() => {
@@ -6427,11 +6426,12 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
           const quoCount = invoices.filter(i => !i._deleted && i.docType === "quotation").length;
           const invCount = invoices.filter(i => !i._deleted && (i.docType === "invoice" || !i.docType)).length;
           const rtxCount = invoices.filter(i => !i._deleted && i.docType === "receipt").length;
+          const teamsCount = invoices.filter(i => !i._deleted && i.employeeId !== "admin").length;
           return [
-            ["myinvoice", `My Invoice${myInvoices.length ? " ("+myInvoices.length+")" : ""}`],
             ["quo", `QUO${quoCount ? " ("+quoCount+")" : ""}`],
             ["inv", `INV${invCount ? " ("+invCount+")" : ""}`],
             ["rtx", `RTX${rtxCount ? " ("+rtxCount+")" : ""}`],
+            ["teams", `Team's${teamsCount ? " ("+teamsCount+")" : ""}`],
             ["companies", "Companies"],
           ].map(([key, lbl]) => (
             <button key={key} style={{ ...S.btn(activeTab === key ? "primary" : "ghost"), fontSize: 12, padding: "7px 14px" }} onClick={() => setActiveTab(key)}>{lbl}</button>
@@ -6573,57 +6573,58 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
         </>
       )}
 
-      {/* My Invoice tab */}
-      {activeTab === "myinvoice" && (
+      {/* Team's tab */}
+      {activeTab === "teams" && (
         <div style={S.col}>
-          {/* My invoices */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-            <p style={{ ...S.sectionTitle, margin: 0 }}>My Invoices</p>
-            <button style={S.btn("primary")} onClick={() => { setAdminEditInvoice(null); setAdminCreateModal(true); }}><Icon d={icons.plus} size={14} /> Create Invoice</button>
-          </div>
-          {myInvoices.length === 0 ? (
-            <div style={{ ...S.card, textAlign: "center", padding: "30px 20px" }}>
-              <p style={{ color: "var(--text-muted,#666)", fontSize: 13 }}>No invoices yet. Create your first one.</p>
-            </div>
-          ) : (
-            <div style={S.col}>
-              {[...myInvoices].sort((a, b) => b.updatedAt - a.updatedAt).map(inv => {
-                const total = calcTotal(inv);
-                const isPaid = (inv.status || "Pending") === "Paid";
-                return (
-                  <div key={inv.id} style={{ ...S.card, border: isPaid ? "1px solid rgba(52,211,153,0.25)" : "var(--card-border,1px solid #252830)" }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}>
-                          <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 10 }}>{inv.status || "Pending"}</span>
-                          <span style={{ ...S.badge("blue"), fontSize: 10 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
-                          {inv.auto && <span style={{ fontSize: 9, color: "#888", background: "#1e2230", borderRadius: 4, padding: "1px 5px", letterSpacing: ".04em" }}>AUTO</span>}
-                          <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</span>
-                        </div>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{inv.jobName}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.position || "—"} · {inv.productionCompany}</p>
+          {(() => {
+            const teamInvoices = invoices.filter(inv => !inv._deleted && inv.employeeId !== "admin");
+            if (teamInvoices.length === 0) return (
+              <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
+                <Icon d={icons.invoice} size={36} color="var(--text-muted,#444)" />
+                <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No team invoices yet.</p>
+              </div>
+            );
+            const groupMap = {};
+            teamInvoices.forEach(inv => {
+              const eid = inv.employeeId || "unknown";
+              if (!groupMap[eid]) groupMap[eid] = { employeeId: eid, employeeName: inv.employeeName || eid, docs: [] };
+              groupMap[eid].docs.push(inv);
+            });
+            const groups = Object.values(groupMap).sort((a, b) => (a.employeeName || "").localeCompare(b.employeeName || ""));
+            return groups.map(group => (
+              <div key={group.employeeId} style={S.card}>
+                <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #252830" }}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.employeeName}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#8a8f9d)" }}>{group.docs.length} document{group.docs.length !== 1 ? "s" : ""}</p>
+                </div>
+                {[...group.docs].sort((a, b) => b.updatedAt - a.updatedAt).map((inv, idx, arr) => {
+                  const total = calcTotal(inv);
+                  const isPaid = (inv.status || "Pending") === "Paid";
+                  return (
+                    <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 5, flex: 1, minWidth: 0 }}>
+                        <span style={{ ...S.badge("blue"), fontSize: 9, flexShrink: 0 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
+                        <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 9, flexShrink: 0 }}>{inv.status || "Pending"}</span>
+                        <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtInvoiceNo(inv)}</span>
+                        {inv.jobName && <span style={{ fontSize: 10, color: "var(--text-muted,#555)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {inv.jobName}</span>}
                       </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</p>
-                        <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{new Date(inv.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
-                        <div style={{ display: "flex", gap: 6, marginTop: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                          <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => previewAdminInvoice(inv, false)}>Preview</button>
-                          <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => previewAdminInvoice(inv, true)}>Print</button>
-                          <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
-                          {inv.docType === "quotation" && (inv.status === "Pending" || !inv.status) && <>
-                            <button style={{ ...S.btn("success"), fontSize: 11, padding: "4px 8px" }} onClick={() => handleConfirmQuo(inv)}>Confirm</button>
-                            <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "4px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
-                          </>}
-                          {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 11, padding: "4px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Mark Pending" : "Mark Paid ✓"}</button>}
-                          <button style={{ ...S.btn("danger"), fontSize: 11, padding: "4px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={12} /></button>
-                        </div>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
+                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                        <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
+                        <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
+                        {inv.docType === "quotation" && (inv.status === "Pending" || !inv.status) && <>
+                          <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleConfirmQuo(inv)}>Confirm</button>
+                          <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
+                        </>}
+                        {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Pending" : "Paid ✓"}</button>}
+                        <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={11} /></button>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })}
+              </div>
+            ));
+          })()}
         </div>
       )}
 
@@ -6934,7 +6935,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
           jobs={jobs}
           adminRequests={adminRequests}
           onSave={inv => {
-            setInvoices(p => adminEditInvoice ? p.map(i => i.id === inv.id ? inv : i) : [...p, inv]);
+            const origEmpId = adminEditInvoice?.employeeId;
+            const finalInv = (origEmpId && origEmpId !== "admin") ? { ...inv, employeeId: origEmpId, employeeName: adminEditInvoice.employeeName } : inv;
+            setInvoices(p => adminEditInvoice ? p.map(i => i.id === finalInv.id ? finalInv : i) : [...p, finalInv]);
             setAdminCreateModal(false);
           }}
           onClose={() => setAdminCreateModal(false)}
