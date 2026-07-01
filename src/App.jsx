@@ -1631,6 +1631,9 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
   const [invoiceHeader, setInvoiceHeader] = useState(existingInvoice?.invoiceHeader ?? companyName);
   const isAdminCreator = employee?.id === "admin";
   const [showWatermark, setShowWatermark] = useState(existingInvoice ? !!existingInvoice.showWatermark : !isAdminCreator);
+  const [paidDate, setPaidDate] = useState(existingInvoice?.paidDate || "");
+  const [whTaxDoc, setWhTaxDoc] = useState(existingInvoice?.whTaxDoc || null);
+  const whTaxDocRef = useRef(null);
   const [items, setItems] = useState(() => migrateItems(existingInvoice));
   const [callWrap, setCallWrap] = useState(() => {
     if (existingInvoice?.callWrap) return existingInvoice.callWrap;
@@ -1719,6 +1722,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
       updatedAt: now,
       jobName, productionCompany, shootDates, position, status, docType, items, callWrap, invoiceHeader, showWatermark, vatEnabled, vatType,
       ...(linkedInvId ? { linkedInvId } : {}),
+      ...(docType === "receipt" ? { paidDate: paidDate || null, whTaxDoc: whTaxDoc || null } : {}),
     });
   };
 
@@ -1810,6 +1814,28 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
             </select>
           </div>
         </div>
+
+        {docType === "receipt" && (
+          <div style={{ ...S.card, background: "rgba(52,211,153,0.04)", border: "1px solid rgba(52,211,153,0.15)" }}>
+            <p style={{ ...S.sectionTitle, marginBottom: 10 }}>Tax Receipt Info</p>
+            <div style={S.col}>
+              <div>
+                <label style={S.label}>Paid Date</label>
+                <input style={S.input} type="date" value={paidDate} onChange={e => setPaidDate(e.target.value)} />
+                <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "4px 0 0" }}>Auto-set when the linked invoice is marked Paid. Editable for manual adjustment.</p>
+              </div>
+              <div>
+                <label style={S.label}>Withholding Tax Document</label>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  {whTaxDoc && <img src={whTaxDoc} alt="W/H Tax" style={{ width: 72, height: 72, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff", padding: 2 }} />}
+                  <input ref={whTaxDocRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; compressImage(f, { maxDim: 1400, quality: 0.85 }).then(d => d && setWhTaxDoc(d)); }} />
+                  <button style={S.btn("ghost")} onClick={() => whTaxDocRef.current.click()}><Icon d={icons.photo} size={14} /> {whTaxDoc ? "Replace" : "Upload"}</button>
+                  {whTaxDoc && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setWhTaxDoc(null)}><Icon d={icons.x} size={13} /></button>}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Call / Wrap times */}
         {shootDates.length > 0 && (
@@ -6340,17 +6366,26 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   // ── Mark Paid handler: toggles status + auto-creates RTX for admin INVs ─────
   const handleAdminMarkPaid = (inv, isPaid) => {
     setInvoices(prev => {
-      const updated = prev.map(i => i.id === inv.id ? { ...i, status: isPaid ? "Pending" : "Paid", updatedAt: Date.now() } : i);
+      const today = new Date().toISOString().split("T")[0];
+      const rtxNo = (inv.invoiceNo || "").replace(/^INV-/, "RTX-");
+      let updated = prev.map(i => {
+        if (i.id === inv.id) return { ...i, status: isPaid ? "Pending" : "Paid", updatedAt: Date.now() };
+        // Stamp paidDate on linked RTX when marking Paid (don't override an existing manual date)
+        if (!isPaid && i.docType === "receipt" && (i.linkedInvId === inv.id || i.invoiceNo === rtxNo)) {
+          return { ...i, paidDate: i.paidDate || today };
+        }
+        return i;
+      });
       if (!isPaid && (inv.docType === "invoice" || !inv.docType) && inv.employeeId === "admin") {
-        const hasRtx = prev.some(i => i.linkedInvId === inv.id && i.docType === "receipt");
+        const hasRtx = prev.some(i => i.docType === "receipt" && (i.linkedInvId === inv.id || i.invoiceNo === rtxNo));
         if (!hasRtx) {
           const now = Date.now();
           return [...updated, {
-            id: `auto-rtx-${inv.id}`, invoiceNo: (inv.invoiceNo || "").replace(/^INV-/, "RTX-"),
+            id: `auto-rtx-${inv.id}`, invoiceNo: rtxNo,
             revisions: 0, employeeId: "admin", employeeName: inv.employeeName,
             jobId: inv.jobId || "", jobName: inv.jobName || "", productionCompany: inv.productionCompany || "",
             shootDates: inv.shootDates || [], position: inv.position || "",
-            status: "Paid", docType: "receipt",
+            status: "Paid", docType: "receipt", paidDate: today,
             items: (inv.items || []).map(it => ({ ...it })), callWrap: inv.callWrap || {},
             invoiceHeader: inv.invoiceHeader || "", showWatermark: inv.showWatermark || false,
             vatEnabled: inv.vatEnabled || false, vatType: inv.vatType || "exclusive",
@@ -6580,10 +6615,16 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                     const isPaid = (inv.status || "Pending") === "Paid";
                     return (
                       <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", flexWrap: "wrap" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 5, flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
                           <span style={{ ...S.badge("blue"), fontSize: 9, flexShrink: 0 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
                           <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 9, flexShrink: 0 }}>{inv.status || "Pending"}</span>
+                          {inv.docType === "receipt" && (
+                            <span style={{ fontSize: 9, fontWeight: 700, flexShrink: 0, borderRadius: 4, padding: "1px 5px", border: `1px solid ${inv.whTaxDoc ? "rgba(52,211,153,0.4)" : "rgba(232,184,75,0.4)"}`, color: inv.whTaxDoc ? "#34d399" : "#e8b84b", background: inv.whTaxDoc ? "rgba(52,211,153,0.1)" : "rgba(232,184,75,0.1)" }}>W/H DOC</span>
+                          )}
                           <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtInvoiceNo(inv)}</span>
+                          {inv.docType === "receipt" && inv.paidDate && (
+                            <span style={{ fontSize: 10, color: "var(--text-muted,#666)", whiteSpace: "nowrap" }}>· Paid {new Date(inv.paidDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                          )}
                         </div>
                         <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
                         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
