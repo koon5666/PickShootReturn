@@ -6541,8 +6541,8 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                   return (
                     <div key={group.key} style={S.card}>
                       <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #252830" }}>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.jobName}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#8a8f9d)" }}>{empNames}{group.productionCompany ? ` · ${group.productionCompany}` : ""}</p>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.jobName}{group.productionCompany ? <span style={{ color: "var(--text-muted,#8a8f9d)", fontWeight: 400, margin: "0 5px" }}>·</span> : null}{group.productionCompany ? <span>{group.productionCompany}</span> : null}</p>
+                        {empNames ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#8a8f9d)" }}>{empNames}</p> : null}
                       </div>
                       {group.docs.map((inv, idx, arr) => {
                         const total = calcTotal(inv);
