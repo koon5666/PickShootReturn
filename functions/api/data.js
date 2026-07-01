@@ -40,6 +40,18 @@ export async function onRequestPut({ request, env }) {
 
     if (k === "invoices" && Array.isArray(body[k])) {
       const existing = (await env.KV.get("invoices", "json")) || [];
+      const existingMap = new Map(existing.map(e => [e.id, e]));
+      // Preserve write-once fields (set by one device, must not be wiped by a
+      // stale session on another device that loaded before the field was set).
+      const mergeInv = (inc) => {
+        const kv = existingMap.get(inc.id);
+        if (!kv) return inc;
+        return {
+          ...inc,
+          paidDate: inc.paidDate || kv.paidDate || null,
+          whTaxDoc: inc.whTaxDoc || kv.whTaxDoc || null,
+        };
+      };
       const employeeId = body._invoiceEmployeeId; // set by non-admin sessions
       if (employeeId && employeeId !== "admin") {
         // Employee session: only owns its own invoices. Preserve every other employee's
@@ -47,11 +59,11 @@ export async function onRequestPut({ request, env }) {
         const incomingIds = new Set(body.invoices.map(e => e.id));
         const otherKv = existing.filter(e => e.employeeId !== employeeId);
         const myKvOnly = existing.filter(e => e.employeeId === employeeId && !incomingIds.has(e.id));
-        ops.push(env.KV.put("invoices", JSON.stringify([...body.invoices, ...otherKv, ...myKvOnly])));
+        ops.push(env.KV.put("invoices", JSON.stringify([...body.invoices.map(mergeInv), ...otherKv, ...myKvOnly])));
       } else {
         // Admin session: append-only merge across all invoices.
         const incomingIds = new Set(body.invoices.map(e => e.id));
-        ops.push(env.KV.put("invoices", JSON.stringify([...body.invoices, ...existing.filter(e => !incomingIds.has(e.id))])));
+        ops.push(env.KV.put("invoices", JSON.stringify([...body.invoices.map(mergeInv), ...existing.filter(e => !incomingIds.has(e.id))])));
       }
       continue;
     }
