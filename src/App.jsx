@@ -6619,8 +6619,8 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                     <p style={{ ...S.sectionTitle, margin: "0 0 10px" }}>Monthly Income</p>
                     <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr 1fr", gap: "6px 10px", alignItems: "center" }}>
                       <div />
-                      {["ST", "VAT", "TT"].map(h => (
-                        <p key={h} style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "var(--text-muted,#8a8f9d)", textAlign: "right", letterSpacing: ".06em" }}>{h}</p>
+                      {["Subtotal", "VAT 7%", "Total"].map(h => (
+                        <p key={h} style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "var(--text-muted,#8a8f9d)", textAlign: "right", letterSpacing: ".03em" }}>{h}</p>
                       ))}
                       {monthSummary.map(m => (<>
                         <p key={m.label + "-l"} style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{m.label}</p>
