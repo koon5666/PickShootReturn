@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, createContext, useContext } f
 import jsQR from "jsqr";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
-const JOB_STATUSES = ["Pencil", "Confirmed", "Cancelled"];
+const JOB_STATUSES = ["Pencil", "Confirmed", "Cancelled", "Declined"];
 const SHOOT_TIMES = ["Day", "Night", "Half Day / Half Night", "Half Night / Half Day"];
 const LOCATIONS = ["Local (Bangkok)", "Out of Town", "Overseas"];
 
@@ -1808,13 +1808,21 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
             {selectedPos && <p style={{ fontSize: 11, color: "var(--accent,#e8b84b)", margin: "5px 0 0" }}>฿{(parseFloat(selectedPos.dayRate) || 0).toLocaleString()} / {parseFloat(selectedPos.hoursPerDay) || 12}hr — rates auto-filled below</p>}
             {positions.length === 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "5px 0 0" }}>Add roles &amp; day rates in your Profile to auto-fill invoices.</p>}
           </div>
-          <div>
-            <label style={S.label}>Status</label>
-            <select style={S.select} value={status} onChange={e => setStatus(e.target.value)}>
-              <option>Pending</option>
-              <option>Paid</option>
-            </select>
-          </div>
+          {docType !== "receipt" && (
+            <div>
+              <label style={S.label}>Status</label>
+              <select style={S.select} value={status} onChange={e => setStatus(e.target.value)}>
+                {docType === "quotation" ? <>
+                  <option>Pending</option>
+                  <option>Confirmed</option>
+                  <option>Declined</option>
+                </> : <>
+                  <option>Pending</option>
+                  <option>Paid</option>
+                </>}
+              </select>
+            </div>
+          )}
         </div>
 
         {docType === "receipt" && (
@@ -1998,7 +2006,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={S.btn("ghost")} onClick={onClose}>Cancel</button>
-          <button style={S.btn("primary")} onClick={save}>Save Invoice</button>
+          <button style={S.btn("primary")} onClick={save}>Save Document</button>
         </div>
       </div>
     </Modal>
@@ -2115,16 +2123,33 @@ function ProductionCombobox({ value, onChange, companies }) {
 function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, lineGroupId, lineNotifyMuted, onClose }) {
   const t = useT();
   const CONTACT_PLATFORMS = ["Line", "Facebook", "WhatsApp", "Instagram", "Phone"];
-  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line" };
-  const [form, setForm] = useState(editTarget ? { ...editTarget } : EMPTY);
+  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line", dateOverrides: {} };
+  const [form, setForm] = useState(editTarget ? { ...editTarget, dateOverrides: editTarget.dateOverrides || {} } : EMPTY);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = editTarget?.dates?.[0] ? new Date(editTarget.dates[0] + "T00:00:00") : new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
   });
 
-  const toggleDate = (ds) => setForm(p => ({
-    ...p, dates: p.dates.includes(ds) ? p.dates.filter(d => d !== ds) : [...p.dates, ds].sort()
-  }));
+  const toggleDate = (ds) => setForm(p => {
+    const removing = p.dates.includes(ds);
+    const newDates = removing ? p.dates.filter(d => d !== ds) : [...p.dates, ds].sort();
+    const newOv = { ...(p.dateOverrides || {}) };
+    if (removing) delete newOv[ds];
+    return { ...p, dates: newDates, dateOverrides: newOv };
+  });
+
+  const setDateOverride = (ds, field, value) => setForm(p => {
+    const ovs = { ...(p.dateOverrides || {}) };
+    const cur = { ...(ovs[ds] || {}) };
+    if (value) {
+      cur[field] = value;
+      if (field === "location" && value === "Local (Bangkok)") delete cur.locationCity;
+    } else {
+      delete cur[field];
+    }
+    if (Object.keys(cur).length === 0) delete ovs[ds]; else ovs[ds] = cur;
+    return { ...p, dateOverrides: ovs };
+  });
 
   const saveJob = () => {
     if (!form.name.trim() || form.dates.length === 0) return;
@@ -2247,6 +2272,39 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
             setCalendarMonth({ year: next.getFullYear(), month: next.getMonth() });
           }}>{t("viewNextMonth")}</button>
         </div>
+
+        {/* Per-date location / time overrides */}
+        {form.dates.length > 0 && (
+          <div>
+            <label style={S.label}>Per-date overrides <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(optional — overrides the defaults above for specific dates)</span></label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {[...form.dates].sort().map(ds => {
+                const ov = (form.dateOverrides || {})[ds] || {};
+                const effLoc = ov.location || form.location;
+                const hasOv = !!(ov.location || ov.shootTime);
+                return (
+                  <div key={ds} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 8, background: hasOv ? "rgba(232,184,75,0.05)" : "transparent", border: `1px solid ${hasOv ? "rgba(232,184,75,0.2)" : "var(--border-color,#252830)"}`, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12, color: "var(--text,#e8e4dc)", minWidth: 70, fontWeight: hasOv ? 600 : 400 }}>{formatDate(ds)}</span>
+                    <select style={{ ...S.select, flex: 1, minWidth: 120, fontSize: 11 }} value={ov.location || ""} onChange={e => setDateOverride(ds, "location", e.target.value)}>
+                      <option value="">Default ({form.location})</option>
+                      {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                    {effLoc !== "Local (Bangkok)" && (
+                      <input style={{ ...S.input, flex: 1, minWidth: 100, fontSize: 11, padding: "6px 10px" }} value={ov.locationCity || ""} onChange={e => setDateOverride(ds, "locationCity", e.target.value)} placeholder={effLoc === "Overseas" ? "Country / City" : "Province / City"} />
+                    )}
+                    <select style={{ ...S.select, flex: 1, minWidth: 120, fontSize: 11 }} value={ov.shootTime || ""} onChange={e => setDateOverride(ds, "shootTime", e.target.value)}>
+                      <option value="">Default ({form.shootTime})</option>
+                      {SHOOT_TIMES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    {hasOv && (
+                      <button style={{ ...S.btn("ghost"), padding: "3px 7px", fontSize: 11, flexShrink: 0 }} onClick={() => setForm(p => { const o = { ...(p.dateOverrides || {}) }; delete o[ds]; return { ...p, dateOverrides: o }; })}>✕</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={S.btn("ghost")} onClick={onClose}>{t("cancel")}</button>
           <button style={S.btn("primary")} onClick={saveJob}>{t("saveJob")}</button>
@@ -2300,8 +2358,8 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
     });
   };
 
-  const statusColor = { Pencil: "gray", Confirmed: "green", Cancelled: "red" };
-  const locationColor = { "Local (Bangkok)": "blue", "Out of Town": "amber", "Overseas": "red" };
+  const statusColor = { Pencil: "gray", Confirmed: "green", Cancelled: "red", Declined: "gray" };
+  const locationColor = { "Local (Bangkok)": "green", "Out of Town": "amber", "Overseas": "blue" };
 
   const getCheckoutSummary = (job) => {
     const jobCheckouts = checkouts.filter(c => c.jobId === job.id);
@@ -2311,7 +2369,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
     return { outCount, picked, returned };
   };
 
-  const tabJobs = statusTab === "all" ? jobs : jobs.filter(j => j.status === statusTab);
+  const tabJobs = statusTab === "all" ? jobs.filter(j => j.status !== "Declined") : jobs.filter(j => j.status === statusTab);
 
   return (
     <div>
@@ -2326,7 +2384,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
       {/* Status tabs */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
         {[["Pencil", "gray"], ["Confirmed", "green"], ["Cancelled", "red"], ["all", null]].map(([key, color]) => {
-          const count = key === "all" ? jobs.length : jobs.filter(j => j.status === key).length;
+          const count = key === "all" ? jobs.filter(j => j.status !== "Declined").length : jobs.filter(j => j.status === key).length;
           const isActive = statusTab === key;
           return (
             <button key={key} onClick={() => setStatusTab(key)}
@@ -2335,6 +2393,16 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
             </button>
           );
         })}
+        {(() => {
+          const count = jobs.filter(j => j.status === "Declined").length;
+          if (count === 0 && statusTab !== "Declined") return null;
+          return (
+            <button onClick={() => setStatusTab("Declined")}
+              style={{ ...S.btn(statusTab === "Declined" ? "danger" : "ghost"), padding: "7px 14px", fontSize: 12 }}>
+              Declined ({count})
+            </button>
+          );
+        })()}
       </div>
 
       {/* Job list */}
@@ -2347,12 +2415,17 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
             <div key={job.id} style={{ ...S.card, cursor: "pointer" }} onClick={() => setSelectedJob(selectedJob?.id === job.id ? null : job)}>
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
-                    <span style={S.badge(statusColor[job.status])}>{job.status}</span>
-                    <span style={S.badge(locationColor[job.location] || "gray")}>{job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</span>
-                    <span style={S.badge("gray")}>{job.shootTime}</span>
-                    {job.checkoutMode === "daily" && <span style={S.badge("blue")}>{t("jobDailyReturn")}</span>}
-                  </div>
+                  {(() => {
+                    const ovCount = Object.keys(job.dateOverrides || {}).length;
+                    return (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                        <span style={S.badge(statusColor[job.status] || "gray")}>{job.status}</span>
+                        <span style={S.badge(locationColor[job.location] || "gray")}>{job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}{ovCount > 0 ? " ±" : ""}</span>
+                        <span style={S.badge("gray")}>{job.shootTime}{ovCount > 0 ? " ±" : ""}</span>
+                        {job.checkoutMode === "daily" && <span style={S.badge("blue")}>{t("jobDailyReturn")}</span>}
+                      </div>
+                    );
+                  })()}
                   <h3 style={{ margin: "0 0 2px", fontSize: 16, fontWeight: 700 }}>{job.name}</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "#666" }}>{job.production}</p>
                   <p style={{ margin: "6px 0 0", fontSize: 12, color: "#8a8f9d" }}>
@@ -2371,11 +2444,38 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                 <div style={{ marginTop: 16 }}>
                   <div style={S.divider} />
                   <p style={S.sectionTitle}>{t("jobProductionDates")}</p>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {job.dates.map(d => (
-                      <span key={d} style={{ ...S.badge(d === today() ? "amber" : d < today() ? "gray" : "blue") }}>{formatDate(d)}{d === today() ? " ★ Today" : ""}</span>
-                    ))}
-                  </div>
+                  {(() => {
+                    const todayStr = today();
+                    const ovs = job.dateOverrides || {};
+                    // Group dates by effective (location, shootTime)
+                    const groups = {};
+                    [...job.dates].sort().forEach(d => {
+                      const ov = ovs[d] || {};
+                      const loc = ov.location || job.location;
+                      const locCity = ov.locationCity || (ov.location ? "" : job.locationCity);
+                      const time = ov.shootTime || job.shootTime;
+                      const key = `${loc}||${locCity}||${time}`;
+                      if (!groups[key]) groups[key] = { loc, locCity, time, dates: [] };
+                      groups[key].dates.push(d);
+                    });
+                    const groupList = Object.values(groups);
+                    const multiGroup = groupList.length > 1;
+                    return groupList.map((g, gi) => (
+                      <div key={gi} style={{ marginBottom: multiGroup ? 10 : 0 }}>
+                        {multiGroup && (
+                          <div style={{ display: "flex", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                            <span style={S.badge(locationColor[g.loc] || "gray")}>{g.loc}{g.locCity ? ` · ${g.locCity}` : ""}</span>
+                            <span style={S.badge("gray")}>{g.time}</span>
+                          </div>
+                        )}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {g.dates.map(d => (
+                            <span key={d} style={S.badge("gray")}>{formatDate(d)}{d === todayStr ? " ★" : ""}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
                   {(job.assignedEquipment || []).length > 0 && (
                     <>
                       <div style={S.divider} />
@@ -2556,9 +2656,9 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 }
 
 // ─── JOB DETAIL MODAL ────────────────────────────────────────────────────────
-function JobDetailModal({ job, equipment, onClose }) {
+function JobDetailModal({ job, equipment, onClose, onEdit }) {
   if (!job) return null;
-  const statusColor = { Pencil: "gray", Confirmed: "green", Cancelled: "red" };
+  const statusColor = { Pencil: "gray", Confirmed: "green", Cancelled: "red", Declined: "gray" };
   return (
     <Modal title="Job Details" onClose={onClose}>
       <div style={S.col}>
@@ -2605,13 +2705,20 @@ function JobDetailModal({ job, equipment, onClose }) {
         {(job.assignedEquipment || []).length === 0 && (
           <p style={{ fontSize: 12, color: "#555", fontStyle: "italic" }}>No equipment assigned yet.</p>
         )}
+        {onEdit && (
+          <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 4 }}>
+            <button style={{ ...S.btn("primary"), gap: 6, display: "flex", alignItems: "center" }} onClick={() => { onClose(); onEdit(job); }}>
+              <Icon d={icons.edit} size={14} /> Edit Job
+            </button>
+          </div>
+        )}
       </div>
     </Modal>
   );
 }
 
 // ─── DASHBOARD CALENDAR ───────────────────────────────────────────────────────
-function DashboardCalendar({ jobs, equipment }) {
+function DashboardCalendar({ jobs, equipment, onEdit }) {
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [detailJob, setDetailJob] = useState(null);
 
@@ -2630,6 +2737,7 @@ function DashboardCalendar({ jobs, equipment }) {
     Confirmed: { bg: "rgba(52,211,153,0.18)", border: "#34d399", text: "#34d399" },
     Pencil:    { bg: "rgba(148,163,184,0.15)", border: "#94a3b8", text: "#94a3b8" },
     Cancelled: { bg: "rgba(239,68,68,0.12)", border: "#f87171", text: "#f87171" },
+    Declined:  { bg: "rgba(148,163,184,0.15)", border: "#94a3b8", text: "#94a3b8" },
   };
 
   // For each cell row in the calendar grid, we need to know which job bars
@@ -2814,7 +2922,7 @@ function DashboardCalendar({ jobs, equipment }) {
       </div>
 
       {/* Job detail modal */}
-      {detailJob && <JobDetailModal job={detailJob} equipment={equipment} onClose={() => setDetailJob(null)} />}
+      {detailJob && <JobDetailModal job={detailJob} equipment={equipment} onClose={() => setDetailJob(null)} onEdit={onEdit} />}
     </div>
   );
 }
@@ -2883,7 +2991,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
     setDashReqModal(null);
   };
 
-  const statusColor = { Confirmed: "green", Pencil: "gray", Cancelled: "red" };
+  const statusColor = { Confirmed: "green", Pencil: "gray", Cancelled: "red", Declined: "gray" };
   const locationColor = { "Local (Bangkok)": "blue", "Out of Town": "amber", "Overseas": "red" };
 
   const statSections = {
@@ -2958,7 +3066,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
       })()}
 
       {/* Calendar */}
-      <DashboardCalendar jobs={jobs} equipment={equipment} />
+      <DashboardCalendar jobs={jobs} equipment={equipment} onEdit={(job) => setDashJobModal(job)} />
 
       {/* Equipment status — compact chips */}
       {(() => {
@@ -6340,7 +6448,17 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
     setInvoices(prev => {
       let cur = [...prev];
       let changed = false;
-      (jobs || []).filter(j => j.status !== "Cancelled").forEach(job => {
+      // Auto-decline QUOs for Declined jobs (bidirectional sync).
+      (jobs || []).filter(j => j.status === "Declined").forEach(job => {
+        cur = cur.map(i => {
+          if (i.jobId === job.id && i.docType === "quotation" && i.employeeId === "admin" && !i._deleted && i.status !== "Declined") {
+            changed = true;
+            return { ...i, status: "Declined", updatedAt: Date.now() };
+          }
+          return i;
+        });
+      });
+      (jobs || []).filter(j => j.status !== "Cancelled" && j.status !== "Declined").forEach(job => {
         const hasQuo = cur.some(i => i.jobId === job.id && i.docType === "quotation" && i.employeeId === "admin" && !i._deleted);
         if (!hasQuo) {
           const now = Date.now() + cur.length;
@@ -6414,7 +6532,36 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
     setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: "Confirmed", updatedAt: Date.now() } : i));
   };
   const handleDeclineQuo = (inv) => {
+    if (inv.jobId) setJobs(prev => prev.map(j => j.id === inv.jobId ? { ...j, status: "Declined" } : j));
     setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: "Declined", updatedAt: Date.now() } : i));
+  };
+
+  // ── Regenerate INV: creates a fresh admin INV for a Confirmed job that has none ─
+  const handleRegenerateInv = (jobId) => {
+    setInvoices(prev => {
+      const job = (jobs || []).find(j => j.id === jobId);
+      if (!job || job.status !== "Confirmed") return prev;
+      const hasActive = prev.some(i => !i._deleted && i.jobId === jobId && (i.docType === "invoice" || !i.docType) && i.employeeId === "admin");
+      if (hasActive) return prev;
+      const quo = prev.find(i => !i._deleted && i.jobId === jobId && i.docType === "quotation" && i.employeeId === "admin");
+      const showCo = adminProfileInfo.showCompanyName !== false;
+      const now = Date.now();
+      const newInv = {
+        id: `regen-inv-${jobId}-${now}`,
+        invoiceNo: makeDocNo("invoice", prev, adminProfileInfo.invoicePrefix),
+        revisions: 0, employeeId: "admin", employeeName: adminEmployee.name,
+        jobId, jobName: job.name || "", productionCompany: quo?.productionCompany || job.production || "",
+        shootDates: quo?.shootDates || job.dates || [], position: quo?.position || adminPositions[0]?.name || "",
+        status: "Pending", docType: "invoice", linkedQuoId: quo?.id || null,
+        items: quo ? quo.items.map(it => ({ ...it })) : DEFAULT_ITEMS.map(it => ({ ...it, id: `${it.id}-${jobId}-ri` })),
+        callWrap: quo?.callWrap || {},
+        invoiceHeader: quo?.invoiceHeader ?? (showCo ? companyName : ""),
+        showWatermark: quo?.showWatermark || false,
+        vatEnabled: quo?.vatEnabled || false, vatType: quo?.vatType || "exclusive",
+        createdAt: now, updatedAt: now, auto: true,
+      };
+      return [...prev, newInv];
+    });
   };
 
   // ── Mark Paid handler: toggles status + auto-creates RTX for admin INVs ─────
@@ -6431,7 +6578,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
         return i;
       });
       if (!isPaid && (inv.docType === "invoice" || !inv.docType) && inv.employeeId === "admin") {
-        const hasRtx = prev.some(i => i.docType === "receipt" && (i.linkedInvId === inv.id || i.invoiceNo === rtxNo));
+        const hasRtx = prev.some(i => !i._deleted && i.docType === "receipt" && (i.linkedInvId === inv.id || i.invoiceNo === rtxNo));
         if (!hasRtx) {
           const now = Date.now();
           return [...updated, {
@@ -6512,9 +6659,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {/* Tabs */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
         {(() => {
-          const quoCount = invoices.filter(i => !i._deleted && i.docType === "quotation" && i.status !== "Declined").length;
-          const invCount = invoices.filter(i => !i._deleted && (i.docType === "invoice" || !i.docType)).length;
-          const rtxCount = invoices.filter(i => !i._deleted && i.docType === "receipt").length;
+          const quoCount = invoices.filter(i => !i._deleted && i.employeeId === "admin" && i.docType === "quotation" && i.status !== "Declined").length;
+          const invCount = invoices.filter(i => !i._deleted && i.employeeId === "admin" && (i.docType === "invoice" || !i.docType)).length;
+          const rtxCount = invoices.filter(i => !i._deleted && i.employeeId === "admin" && i.docType === "receipt").length;
           const teamsCount = invoices.filter(i => !i._deleted && i.employeeId !== "admin").length;
           return [
             ["quo", `QUO${quoCount ? " ("+quoCount+")" : ""}`],
@@ -6613,7 +6760,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
 
           {/* Declined QUO sub-tab */}
           {activeTab === "quo" && quoSubTab === "declined" && (() => {
-            const declined = invoices.filter(i => !i._deleted && i.docType === "quotation" && i.status === "Declined")
+            const declined = invoices.filter(i => !i._deleted && i.employeeId === "admin" && i.docType === "quotation" && i.status === "Declined")
               .sort((a, b) => b.updatedAt - a.updatedAt);
             if (declined.length === 0) return (
               <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
@@ -6666,6 +6813,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
           {(activeTab !== "quo" || quoSubTab === "active") && (() => {
             const filtered = [...invoices].filter(inv => {
               if (inv._deleted) return false;
+              if (inv.employeeId !== "admin") return false;
               if (activeTab === "quo") return inv.docType === "quotation" && inv.status !== "Declined";
               if (activeTab === "rtx") return inv.docType === "receipt";
               return inv.docType === "invoice" || !inv.docType; // inv
@@ -6732,11 +6880,20 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
 
             const renderGroup = (group) => {
               const empNames = [...new Set(group.docs.map(d => d.employeeName).filter(Boolean))].join(", ");
+              const jobForGroup = activeTab === "inv" ? (jobs || []).find(j => j.id === group.key) : null;
+              const groupMissingAdminInv = jobForGroup?.status === "Confirmed" &&
+                !group.docs.some(d => d.employeeId === "admin") &&
+                !invoices.some(i => !i._deleted && i.jobId === group.key && (i.docType === "invoice" || !i.docType) && i.employeeId === "admin");
               return (
                 <div key={group.key} style={S.card}>
-                  <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #252830" }}>
-                    <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.jobName}{group.productionCompany ? <span style={{ color: "var(--text-muted,#8a8f9d)", fontWeight: 400, margin: "0 5px" }}>·</span> : null}{group.productionCompany ? <span>{group.productionCompany}</span> : null}</p>
-                    {empNames ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#8a8f9d)" }}>{empNames}</p> : null}
+                  <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #252830", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.jobName}{group.productionCompany ? <span style={{ color: "var(--text-muted,#8a8f9d)", fontWeight: 400, margin: "0 5px" }}>·</span> : null}{group.productionCompany ? <span>{group.productionCompany}</span> : null}</p>
+                      {empNames ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#8a8f9d)" }}>{empNames}</p> : null}
+                    </div>
+                    {groupMissingAdminInv && (
+                      <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px", flexShrink: 0 }} onClick={() => handleRegenerateInv(group.key)} title="Recreate the admin INV for this job">Regen INV</button>
+                    )}
                   </div>
                   {group.docs.map((inv, idx, arr) => {
                     const total = calcTotal(inv);
@@ -6766,6 +6923,10 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                             <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleConfirmQuo(inv)}>Confirm</button>
                             <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
                           </>}
+                          {inv.docType === "quotation" && st === "Confirmed" && (() => {
+                            const hasActiveInv = invoices.some(i => !i._deleted && i.jobId === inv.jobId && (i.docType === "invoice" || !i.docType) && i.employeeId === "admin");
+                            return !hasActiveInv ? <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleRegenerateInv(inv.jobId)} title="Recreate the admin INV from this QUO">Regen INV</button> : null;
+                          })()}
                           {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? "Pending" : "Paid ✓"}</button>}
                           <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={11} /></button>
                         </div>
