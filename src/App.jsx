@@ -176,6 +176,13 @@ const TIMEZONES = [
 const haversineMeters = (lat1, lon1, lat2, lon2) => { const R=6371000,φ1=lat1*Math.PI/180,φ2=lat2*Math.PI/180,Δφ=(lat2-lat1)*Math.PI/180,Δλ=(lon2-lon1)*Math.PI/180,a=Math.sin(Δφ/2)**2+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2; return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); };
 const formatDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 const formatDateTime = (ts) => new Date(ts).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const addDaysStr = (ds, n) => { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+// Effective pickup/return window of a job: admin may open pickup before the
+// first shoot day and allow returns after the last shoot day.
+const jobFirstDate = (j) => [...(j.dates || [])].sort()[0] || null;
+const jobLastDate = (j) => [...(j.dates || [])].sort().slice(-1)[0] || null;
+const effPickupDate = (j) => (j.pickupDate && jobFirstDate(j) && j.pickupDate < jobFirstDate(j)) ? j.pickupDate : jobFirstDate(j);
+const effReturnDate = (j) => (j.returnDate && jobLastDate(j) && j.returnDate > jobLastDate(j)) ? j.returnDate : jobLastDate(j);
 
 // ─── KPI scoring ─────────────────────────────────────────────────────────────
 const KPI_MAX_DEFAULT = 100; // 100 pts == 5 stars
@@ -2123,7 +2130,7 @@ function ProductionCombobox({ value, onChange, companies }) {
 function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, lineGroupId, lineNotifyMuted, onClose }) {
   const t = useT();
   const CONTACT_PLATFORMS = ["Line", "Facebook", "WhatsApp", "Instagram", "Phone"];
-  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line", dateOverrides: {} };
+  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line", dateOverrides: {}, pickupDate: "", returnDate: "" };
   const [form, setForm] = useState(editTarget ? { ...editTarget, dateOverrides: editTarget.dateOverrides || {} } : EMPTY);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = editTarget?.dates?.[0] ? new Date(editTarget.dates[0] + "T00:00:00") : new Date();
@@ -2155,10 +2162,17 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
     if (!form.name.trim() || form.dates.length === 0) return;
     const isNew = !editTarget;
     const statusChanged = editTarget && editTarget.status !== form.status;
+    // Pickup day only counts before the first shoot day; return day only after the last
+    const sorted = [...form.dates].sort();
+    const clean = {
+      ...form,
+      pickupDate: form.pickupDate && form.pickupDate < sorted[0] ? form.pickupDate : "",
+      returnDate: form.returnDate && form.returnDate > sorted[sorted.length - 1] ? form.returnDate : "",
+    };
     if (editTarget) {
-      setJobs(p => p.map(j => j.id === editTarget.id ? { ...j, ...form } : j));
+      setJobs(p => p.map(j => j.id === editTarget.id ? { ...j, ...clean } : j));
     } else {
-      setJobs(p => [...p, { ...form, id: "job" + Date.now(), assignedEquipment: [] }]);
+      setJobs(p => [...p, { ...clean, id: "job" + Date.now(), assignedEquipment: [] }]);
     }
     {
       const emoji = form.status === "Confirmed" ? "✅" : form.status === "Cancelled" ? "❌" : "✏️";
@@ -2272,6 +2286,26 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
             setCalendarMonth({ year: next.getFullYear(), month: next.getMonth() });
           }}>{t("viewNextMonth")}</button>
         </div>
+
+        {/* Pickup / return window around the shoot days */}
+        {form.dates.length > 0 && (() => {
+          const sorted = [...form.dates].sort();
+          const first = sorted[0], last = sorted[sorted.length - 1];
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={S.label}>Pickup day <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(optional, before job day)</span></label>
+                <input type="date" style={S.input} value={form.pickupDate || ""} max={addDaysStr(first, -1)} onChange={e => setForm(p => ({ ...p, pickupDate: e.target.value }))} />
+                <p style={{ margin: "4px 0 0", fontSize: 10, color: "var(--text-muted,#666)" }}>Crew can pick up from this day. Default: first shoot day ({formatDate(first)}).</p>
+              </div>
+              <div>
+                <label style={S.label}>Return day <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(optional, after job day)</span></label>
+                <input type="date" style={S.input} value={form.returnDate || ""} min={addDaysStr(last, 1)} onChange={e => setForm(p => ({ ...p, returnDate: e.target.value }))} />
+                <p style={{ margin: "4px 0 0", fontSize: 10, color: "var(--text-muted,#666)" }}>Gear due back by this day. Default: last shoot day ({formatDate(last)}).</p>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Per-date location / time overrides */}
         {form.dates.length > 0 && (
@@ -2681,6 +2715,13 @@ function JobDetailModal({ job, equipment, onClose, onEdit }) {
               </span>
             ))}
           </div>
+          {(job.pickupDate || job.returnDate) && (
+            <p style={{ margin: "8px 0 0", fontSize: 12, color: "#8a8f9d" }}>
+              {job.pickupDate ? <>📦 Pickup from <strong style={{ color: "#e8e4dc" }}>{formatDate(job.pickupDate)}</strong></> : null}
+              {job.pickupDate && job.returnDate ? " · " : ""}
+              {job.returnDate ? <>🔙 Return by <strong style={{ color: "#e8e4dc" }}>{formatDate(job.returnDate)}</strong></> : null}
+            </p>
+          )}
         </div>
         {(job.assignedEquipment || []).length > 0 && (
           <div>
@@ -2945,8 +2986,8 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
       const pickedIds = new Set(jobCheckouts.filter(c => isPickEvt(c.type)).map(c => c.eqId));
       const returnedIds = new Set(jobCheckouts.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
       const outIds = [...pickedIds].filter(id => !returnedIds.has(id));
-      const lastJobDate = job.dates.length ? job.dates[job.dates.length - 1] : null;
-      const overdue = lastJobDate ? lastJobDate < todayStr : false;
+      const dueDate = effReturnDate(job);
+      const overdue = dueDate ? dueDate < todayStr : false;
       outIds.forEach(eqId => {
         const eq = equipment.find(e => e.id === eqId);
         const pickEvent = jobCheckouts.filter(c => (isPickEvt(c.type)) && c.eqId === eqId).sort((a, b) => b.ts - a.ts)[0];
@@ -2979,11 +3020,14 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   const toggleActivity = (key) => setExpandedActivityKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
   const approveRequest = (req) => {
+    // Approval only unlocks the request — the employee still picks up with photo verification
     setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: Date.now() } : r));
-    const jobName = req.purpose === "work" ? (req.jobName || "Work") : "Personal / Practice";
-    const items = req.items || [{ eqId: req.eqId, eqName: req.eqName, qty: req.qty }];
-    const now = Date.now();
-    setCheckouts(p => [...p, ...items.map((item, i) => ({ id: "co" + now + i, jobId: null, jobName, eqId: item.eqId, qty: item.qty, employeeId: req.employeeId, employeeName: req.employeeName, type: "pick", ts: now, photo: null, location: null, requestId: req.id }))]);
+    setDashReqModal(null);
+  };
+  const deleteRequest = (req) => {
+    const hasEvents = checkouts.some(c => c.requestId === req.id);
+    if (!window.confirm(`Delete this gear request from ${req.employeeName}?${hasEvents ? " Its checkout history will be kept." : ""}`)) return;
+    setEquipmentRequests(p => p.filter(r => r.id !== req.id));
     setDashReqModal(null);
   };
   const denyRequest = (req) => {
@@ -3301,13 +3345,13 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
 
               {req.status === "pending" && (
                 <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
+                  <button style={{ ...S.btn("ghost"), flexShrink: 0 }} title="Delete request" onClick={() => deleteRequest(req)}><Icon d={icons.trash} size={14} /></button>
                   <button style={{ ...S.btn("danger"), flex: 1 }} onClick={() => denyRequest(req)}>{t("dashDeny")}</button>
                   <button style={{ ...S.btn("success"), flex: 1 }} onClick={() => approveRequest(req)}>{t("dashApprove")}</button>
                 </div>
               )}
               {req.status === "approved" && (() => {
                 const reqCheckouts = checkouts.filter(c => c.requestId === req.id);
-                if (reqCheckouts.length === 0) return null;
                 const pickedIds = new Set(reqCheckouts.filter(c => isPickEvt(c.type)).map(c => c.eqId));
                 const returnedIds = new Set(reqCheckouts.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
                 return (
@@ -3332,7 +3376,10 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 );
               })()}
               {req.status !== "pending" && (
-                <button style={{ ...S.btn("ghost"), width: "100%" }} onClick={() => setDashReqModal(null)}>{t("dashClose")}</button>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button style={{ ...S.btn("ghost"), flexShrink: 0 }} title="Delete request" onClick={() => deleteRequest(req)}><Icon d={icons.trash} size={14} /></button>
+                  <button style={{ ...S.btn("ghost"), flex: 1 }} onClick={() => setDashReqModal(null)}>{t("dashClose")}</button>
+                </div>
               )}
             </div>
           </Modal>
@@ -3345,7 +3392,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         const pendingCount = allReqs.filter(r => r.status === "pending").length;
         const isResolved = (r) => r.status === "approved" || r.status === "rejected";
         const filtered = allReqs.filter(r => approvalFilter === "all" ? true : approvalFilter === "pending" ? r.status === "pending" : isResolved(r));
-        const typeLabel = { "production-house": t("dashTypeProductionHouse"), "equipment": t("dashTypeEquipment"), "member-register": t("dashTypeNewMember") };
+        const typeLabel = { "production-house": t("dashTypeProductionHouse"), "equipment": t("dashTypeEquipment"), "member-register": t("dashTypeNewMember"), "early-pickup": "Early Pickup", "early-return": "Early Return" };
         // Geo-return requests consolidate into one collapsible row per job; others stay individual.
         const geo = filtered.filter(r => r.type === "geo-return");
         const others = filtered.filter(r => r.type !== "geo-return");
@@ -3435,6 +3482,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                     <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>
                       {typeLabel[req.type] || req.type}
                       {req.employeeName ? ` · ${t("dashByLabel")} ${req.employeeName}` : ` · ${t("dashGuest")}`}
+                      {req.requestedDate ? ` · For ${formatDate(req.requestedDate)}` : ""}
                       {req.address ? ` · ${req.address}` : ""}
                       {req.category ? ` · ${req.category}` : ""}
                       {req.total && req.type === "equipment" ? ` · ×${req.total}` : ""}
@@ -3559,8 +3607,34 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [barcodeResults, setBarcodeResults] = useState({});
 
   const todayStr = today();
-  const availableJobs = jobs.filter(j => j.status === "Confirmed" && j.dates.includes(todayStr) && (j.assignedEquipment || []).length > 0);
+  // Early pickup approved for me today → job becomes actionable even before its pickup day
+  const earlyPickupApproved = (j) => (adminRequests || []).some(r => r.type === "early-pickup" && r.status === "approved" && r.jobId === j.id && r.employeeId === employee.id && r.requestedDate === todayStr);
+  const earlyReturnApproved = (j) => (adminRequests || []).some(r => r.type === "early-return" && r.status === "approved" && r.jobId === j.id && r.employeeId === employee.id && r.requestedDate === todayStr);
+  const inJobWindow = (j) => { const p = effPickupDate(j), r = effReturnDate(j); return p && r && todayStr >= p && todayStr <= r; };
+  const availableJobs = jobs.filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0 && (inJobWindow(j) || earlyPickupApproved(j)));
   const myReports = [...(reports || [])].sort((a, b) => b.ts - a.ts);
+
+  // ── Approved gear requests behave like a job in the checkout flow ──────────
+  // Pseudo-job carries __reqId; checkout events for it use requestId instead of jobId.
+  const reqAsJob = (req) => ({
+    id: "reqjob_" + req.id, __reqId: req.id,
+    name: req.purpose === "work" ? (req.jobName || "Work") : "Personal / Practice",
+    dates: [...(req.useDates || [])].sort(),
+    status: "Confirmed", checkoutMode: "span",
+    assignedEquipment: (req.items || [{ eqId: req.eqId, qty: req.qty }]).map(it => ({ eqId: it.eqId, qty: it.qty || 1 })),
+  });
+  const evtMatchesJob = (c, job) => job.__reqId ? c.requestId === job.__reqId : c.jobId === job.id;
+
+  // ── Early pickup / early return requests (admin must approve) ──────────────
+  const earlyReqPending = (type, jobId) => (adminRequests || []).some(r => r.type === type && r.status === "pending" && r.jobId === jobId && r.employeeId === employee.id);
+  const submitEarlyRequest = (type, job) => {
+    const label = type === "early-pickup" ? "Early pickup" : "Early return";
+    setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type, status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: job.id, jobName: job.name, requestedDate: todayStr, name: `${label} — ${job.name}` }]);
+    if (lineGroupId && !lineNotifyMuted) {
+      const emoji = type === "early-pickup" ? "⏰" : "🔙";
+      api.notify({ userIds: [lineGroupId], message: `${emoji} [${label} Request] ${employee.name}\n🎬 ${job.name}\n📅 ${formatDate(todayStr)}\n🔗 https://pickshootreturn.pages.dev` });
+    }
+  };
 
   // ── Verification mode helpers ────────────────────────────────────────────────
   const vMode = verificationConfig?.mode || "photo";
@@ -3581,14 +3655,15 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
   // For "both" mode: check if an item has a barcode_pick/barcode_return event in persisted checkouts
   const hasBarcodeEvent = (job, eqId, isReturn) => {
-    if (vMode !== "both") return false;
+    if (vMode !== "both" || !job) return false;
     const evType = isReturn ? "barcode_return" : "barcode_pick";
-    return checkouts.some(c => c.jobId === job?.id && c.eqId === eqId && c.type === evType);
+    return checkouts.some(c => evtMatchesJob(c, job) && c.eqId === eqId && c.type === evType);
   };
   const hasPhotoEvent = (job, eqId, isReturn) => {
+    if (!job) return false;
     const evType = isReturn ? "return" : "pick";
     const altType = "checkout";
-    return checkouts.some(c => c.jobId === job?.id && c.eqId === eqId && (c.type === evType || c.type === altType));
+    return checkouts.some(c => evtMatchesJob(c, job) && c.eqId === eqId && (c.type === evType || c.type === altType));
   };
 
   // Load full profile from cloud
@@ -3641,7 +3716,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
   const getJobCheckoutState = (job) => {
     const mode = job.checkoutMode || "span";
-    const jobCheckouts = checkouts.filter(c => c.jobId === job.id);
+    const jobCheckouts = checkouts.filter(c => evtMatchesJob(c, job));
     const relevant = mode === "daily"
       ? jobCheckouts.filter(c => new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(c.ts)) === todayStr)
       : jobCheckouts;
@@ -3667,15 +3742,17 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const commitItem = (ae, dataUrl, loc) => {
     const now = Date.now();
     const eq = equipment.find(e => e.id === ae.eqId);
+    // Gear-request pickups carry requestId instead of jobId
+    const evtRef = selectedJob.__reqId ? { jobId: null, requestId: selectedJob.__reqId } : { jobId: selectedJob.id };
     if (phase === "pick") {
-      setCheckouts(p => [...p, { id: "co" + now + ae.eqId, jobId: selectedJob.id, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: "pick", ts: now, photo: dataUrl || null, location: loc || null }]);
+      setCheckouts(p => [...p, { id: "co" + now + ae.eqId, ...evtRef, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: "pick", ts: now, photo: dataUrl || null, location: loc || null }]);
       setItemResults(r => ({ ...r, [ae.eqId]: "ok" }));
       return;
     }
     // return — geo-validate against the pickup location (only when GPS is present)
     const isDailyMode = (selectedJob.checkoutMode || "span") === "daily";
     const pickupCo = [...checkouts].reverse().find(c => {
-      if (c.jobId !== selectedJob.id || c.eqId !== ae.eqId) return false;
+      if (!evtMatchesJob(c, selectedJob) || c.eqId !== ae.eqId) return false;
       if (!isPickEvt(c.type)) return false;
       if (isDailyMode && new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(c.ts)) !== todayStr) return false;
       return true;
@@ -3686,10 +3763,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     // Require geo check only when photo or barcode mode (both have GPS); "none" mode skips it
     const needsApproval = (vMode !== "none") && !geoOk;
     if (!needsApproval) {
-      setCheckouts(p => [...p, { id: "co" + now + ae.eqId, jobId: selectedJob.id, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: "return", ts: now, photo: dataUrl || null, location: loc || null }]);
+      setCheckouts(p => [...p, { id: "co" + now + ae.eqId, ...evtRef, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: "return", ts: now, photo: dataUrl || null, location: loc || null }]);
       setItemResults(r => ({ ...r, [ae.eqId]: "ok" }));
     } else {
-      setAdminRequests(p => [...(p || []), { id: "ar" + now + ae.eqId, type: "geo-return", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: selectedJob.id, jobName: selectedJob.name, eqId: ae.eqId, eqName: eq?.name || ae.eqId, qty: ae.qty, photo: dataUrl || null, returnLocation: loc || null, pickupLocation: pickupCo?.location || null, distance: distance !== null ? Math.round(distance) : null }]);
+      setAdminRequests(p => [...(p || []), { id: "ar" + now + ae.eqId, type: "geo-return", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: selectedJob.__reqId ? null : selectedJob.id, requestId: selectedJob.__reqId || null, jobName: selectedJob.name, eqId: ae.eqId, eqName: eq?.name || ae.eqId, qty: ae.qty, photo: dataUrl || null, returnLocation: loc || null, pickupLocation: pickupCo?.location || null, distance: distance !== null ? Math.round(distance) : null }]);
       setItemResults(r => ({ ...r, [ae.eqId]: "pending" }));
     }
   };
@@ -3698,7 +3775,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const commitBarcode = (ae, loc) => {
     const now = Date.now();
     const evType = phase === "pick" ? "barcode_pick" : "barcode_return";
-    setCheckouts(p => [...p, { id: "bc" + now + ae.eqId, jobId: selectedJob.id, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: evType, ts: now, location: loc || null }]);
+    const evtRef = selectedJob.__reqId ? { jobId: null, requestId: selectedJob.__reqId } : { jobId: selectedJob.id };
+    setCheckouts(p => [...p, { id: "bc" + now + ae.eqId, ...evtRef, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: evType, ts: now, location: loc || null }]);
     setBarcodeResults(r => ({ ...r, [ae.eqId]: "ok" }));
   };
 
@@ -3728,7 +3806,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     const items = (selectedJob.assignedEquipment || []).filter(ae =>
       equipment.some(e => e.id === ae.eqId) && (isReturn ? pickedIds.has(ae.eqId) : true)
     );
-    const pendingReturn = (ae) => (adminRequests || []).some(r => r.type === "geo-return" && r.status === "pending" && r.jobId === selectedJob.id && r.eqId === ae.eqId);
+    const pendingReturn = (ae) => (adminRequests || []).some(r => r.type === "geo-return" && r.status === "pending" && (selectedJob.__reqId ? r.requestId === selectedJob.__reqId : r.jobId === selectedJob.id) && r.eqId === ae.eqId);
     const itemDone = (ae) => {
       const baseKVDone = (isReturn ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId));
       const sessionDone = itemResults[ae.eqId] === "ok";
@@ -3991,9 +4069,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{new Date().toLocaleDateString(lang === "th" ? "th-TH" : "en-GB", { weekday: "long", day: "2-digit", month: "long" })}</p>
             </div>
 
-            {/* Gear currently out — return any day (not just the shoot date) */}
+            {/* Gear currently out — jobs + my approved gear requests */}
             {(() => {
-              const outJobs = jobs.filter(j => {
+              const myReqJobs = myRequests.filter(r => r.status === "approved").map(reqAsJob);
+              const outJobs = [...jobs, ...myReqJobs].filter(j => {
                 const { pickedIds, returnedIds } = getJobCheckoutState(j);
                 return (j.assignedEquipment || []).some(ae => pickedIds.has(ae.eqId) && !returnedIds.has(ae.eqId));
               });
@@ -4005,14 +4084,56 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     {outJobs.map(job => {
                       const { pickedIds, returnedIds } = getJobCheckoutState(job);
                       const outCount = (job.assignedEquipment || []).filter(ae => pickedIds.has(ae.eqId) && !returnedIds.has(ae.eqId)).length;
+                      // Returning before the last shoot day of an ongoing span-mode job needs admin approval
+                      const lastShoot = jobLastDate(job);
+                      const isEarly = !job.__reqId && (job.checkoutMode || "span") === "span" && lastShoot && todayStr < lastShoot;
+                      const canReturn = !isEarly || earlyReturnApproved(job);
+                      const erPending = isEarly && !canReturn && earlyReqPending("early-return", job.id);
                       return (
-                        <div key={job.id} style={{ ...S.card, background: "#0f1117", cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }} onClick={() => selectJob(job, true)}>
+                        <div key={job.id} style={{ ...S.card, background: "#0f1117", cursor: canReturn ? "pointer" : "default", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }} onClick={() => canReturn && selectJob(job, true)}>
                           <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{outCount} {t("outBadge")}</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}</p>
+                            <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}{job.__reqId ? <span style={{ ...S.badge("blue"), marginLeft: 6 }}>REQUEST</span> : null}</p>
                             <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
+                            {canReturn && isEarly && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#34d399" }}>Early return approved for today</p>}
                           </div>
-                          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#e8b84b" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
+                          {canReturn ? (
+                            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#e8b84b" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
+                          ) : erPending ? (
+                            <span style={{ ...S.badge("amber"), flexShrink: 0 }}>Return request pending</span>
+                          ) : (
+                            <button style={{ ...S.btn("ghost"), padding: "6px 12px", fontSize: 12, flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); submitEarlyRequest("early-return", job); }}>Request early return</button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Early pickup — jobs whose pickup day is tomorrow can be requested 1 day ahead */}
+            {(() => {
+              const tomorrow = addDaysStr(todayStr, 1);
+              const upcoming = jobs.filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0 && effPickupDate(j) === tomorrow && !earlyPickupApproved(j));
+              if (upcoming.length === 0) return null;
+              return (
+                <div style={{ ...S.card, background: "rgba(96,165,250,0.05)", border: "1px solid rgba(96,165,250,0.2)" }}>
+                  <p style={{ ...S.sectionTitle, marginBottom: 10 }}>⏰ Pickup tomorrow</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {upcoming.map(job => {
+                      const pending = earlyReqPending("early-pickup", job.id);
+                      return (
+                        <div key={job.id} style={{ ...S.card, background: "#0f1117", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>Pickup {formatDate(effPickupDate(job))} · {(job.assignedEquipment || []).length} item{(job.assignedEquipment || []).length > 1 ? "s" : ""}</p>
+                          </div>
+                          {pending ? (
+                            <span style={{ ...S.badge("amber"), flexShrink: 0 }}>Waiting for approval</span>
+                          ) : (
+                            <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12, flexShrink: 0 }} onClick={() => submitEarlyRequest("early-pickup", job)}>Request early pickup</button>
+                          )}
                         </div>
                       );
                     })}
@@ -4079,8 +4200,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 const itemLabel = req.items
                   ? req.items.map(it => { const e = equipment.find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
                   : `${equipment.find(e => e.id === req.eqId)?.name || req.eqName} ×${req.qty}`;
+                // Approved requests are picked up with the same photo verification as jobs
+                const reqJob = req.status === "approved" ? reqAsJob(req) : null;
+                const reqState = reqJob ? getJobCheckoutState(reqJob) : null;
+                const needsPickup = reqJob && (reqJob.assignedEquipment || []).some(ae => equipment.some(e => e.id === ae.eqId) && !reqState.pickedIds.has(ae.eqId));
                 return (
-                  <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < myRequests.length - 1 ? 10 : 0, marginBottom: i < myRequests.length - 1 ? 10 : 0, borderBottom: i < myRequests.length - 1 ? "1px solid #252830" : "none" }}>
+                  <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap", paddingBottom: i < myRequests.length - 1 ? 10 : 0, marginBottom: i < myRequests.length - 1 ? 10 : 0, borderBottom: i < myRequests.length - 1 ? "1px solid #252830" : "none" }}>
                     <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{itemLabel}</p>
@@ -4091,6 +4216,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       </p>
                       {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{req.reason}</p>}
                     </div>
+                    {needsPickup && (
+                      <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12, flexShrink: 0 }} onClick={() => selectJob(reqJob)}>
+                        <Icon d={icons.camera} size={13} /> Pick up
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -5597,19 +5727,16 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
   const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
 
   const approveRequest = (req) => {
+    // Approval only unlocks the request — the employee still picks up with photo verification
     setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: Date.now() } : r));
-    const jobName = req.purpose === "work" ? (req.jobName || "Work") : "Personal / Practice";
-    const items = req.items || [{ eqId: req.eqId, eqName: req.eqName, qty: req.qty }];
-    const now = Date.now();
-    const newCheckouts = items.map((item, i) => ({
-      id: "co" + now + i, jobId: null, jobName, eqId: item.eqId, qty: item.qty,
-      employeeId: req.employeeId, employeeName: req.employeeName, type: "pick",
-      ts: now, photo: null, location: null, requestId: req.id,
-    }));
-    setCheckouts(p => [...p, ...newCheckouts]);
   };
 
   const denyRequest = (id) => setEquipmentRequests(p => p.map(r => r.id === id ? { ...r, status: "denied", resolvedAt: Date.now() } : r));
+  const deleteRequest = (req) => {
+    const hasEvents = checkouts.some(c => c.requestId === req.id);
+    if (!window.confirm(`Delete this gear request from ${req.employeeName}?${hasEvents ? " Its checkout history will be kept." : ""}`)) return;
+    setEquipmentRequests(p => p.filter(r => r.id !== req.id));
+  };
   const openAdd = () => { setForm({ name: "", pin: "" }); setEditTarget(null); setFormErr(""); setModal("add"); };
   const openEdit = (emp) => { setForm({ name: emp.name, pin: emp.pin }); setEditTarget(emp); setFormErr(""); setModal("edit"); };
 
@@ -5701,12 +5828,13 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
                   {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.reason}</p>}
                   <p style={{ margin: "2px 0 0", fontSize: 10, color: "#444" }}>{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
                 </div>
-                {req.status === "pending" && (
-                  <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                  {req.status === "pending" && (<>
                     <button style={{ ...S.btn("success"), padding: "5px 10px", fontSize: 12 }} onClick={() => approveRequest(req)}>{t("teamApprove")}</button>
                     <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 12 }} onClick={() => denyRequest(req.id)}>{t("teamDeny")}</button>
-                  </div>
-                )}
+                  </>)}
+                  <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} title="Delete request" onClick={() => deleteRequest(req)}><Icon d={icons.trash} size={13} /></button>
+                </div>
               </div>
             </div>
           );
@@ -8943,7 +9071,7 @@ export default function App() {
     } else if (req.type === "member-register") {
       setEmployees(p => [...p, { id: "e" + Date.now(), name: req.name.trim(), pin: req.requestedPin }]);
     } else if (req.type === "geo-return") {
-      setCheckouts(p => [...p, { id: "co" + Date.now() + req.eqId, jobId: req.jobId, jobName: req.jobName, eqId: req.eqId, qty: req.qty, employeeId: req.employeeId, employeeName: req.employeeName, type: "return", ts: Date.now(), photo: req.photo || null, location: req.returnLocation || null, adminApproved: true }]);
+      setCheckouts(p => [...p, { id: "co" + Date.now() + req.eqId, jobId: req.jobId, requestId: req.requestId || null, jobName: req.jobName, eqId: req.eqId, qty: req.qty, employeeId: req.employeeId, employeeName: req.employeeName, type: "return", ts: Date.now(), photo: req.photo || null, location: req.returnLocation || null, adminApproved: true }]);
     }
     setAdminRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: new Date().toISOString() } : r));
   };
