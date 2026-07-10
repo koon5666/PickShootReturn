@@ -6014,6 +6014,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
   const t = useT();
   const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
   const [apMsg, setApMsg] = useState(null);
+  const [lineTest, setLineTest] = useState(null); // null | "sending" | { ok, text }
   const [backupStatus, setBackupStatus] = useState(null);
   const [lastBackupAt, setLastBackupAt] = useState(() => { try { return localStorage.getItem("psr_last_backup"); } catch { return null; } });
   const [saveState, setSaveState] = useState(null);
@@ -6228,14 +6229,32 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             {lineGroupId && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lineGroupId}</p>}
           </div>
           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-            {!lineGroupId && (
-              <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => api.getData().then(d => { if (d.lineGroupId) setLineGroupId(d.lineGroupId); })}>{t("settingsLineRefresh")}</button>
-            )}
-            {lineGroupId && (
-              <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11 }} onClick={async () => { const r = await api.putData({ lineGroupId: null }); if (r?.ok) setLineGroupId(null); }}>{t("settingsLineDisconnect")}</button>
-            )}
+            <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => api.getData().then(d => { if (d.lineGroupId && d.lineGroupId !== lineGroupId) { setLineGroupId(d.lineGroupId); setLineTest(null); } })}>{t("settingsLineRefresh")}</button>
+            {lineGroupId && (<>
+              <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} disabled={lineTest === "sending"} onClick={async () => {
+                setLineTest("sending");
+                try {
+                  const res = await fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userIds: [lineGroupId], message: "✅ Test from Pick Shoot Return — notifications are working" }) });
+                  const d = await res.json().catch(() => null);
+                  setLineTest(d?.ok ? { ok: true, text: "Delivered — check the group chat" } : { ok: false, text: (d?.errors && d.errors[0]) || `Failed (HTTP ${res.status})` });
+                } catch {
+                  setLineTest({ ok: false, text: "Network error — could not reach the server" });
+                }
+              }}>{lineTest === "sending" ? "Sending…" : "Send test"}</button>
+              <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11 }} onClick={async () => { const r = await api.putData({ lineGroupId: null }); if (r?.ok) { setLineGroupId(null); setLineTest(null); } }}>{t("settingsLineDisconnect")}</button>
+            </>)}
           </div>
         </div>
+        {lineTest && lineTest !== "sending" && (
+          <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 8, fontSize: 12, background: lineTest.ok ? "rgba(52,211,153,0.07)" : "rgba(239,68,68,0.07)", border: `1px solid ${lineTest.ok ? "rgba(52,211,153,0.25)" : "rgba(239,68,68,0.25)"}`, color: lineTest.ok ? "#34d399" : "#f87171" }}>
+            {lineTest.ok ? "✅ " : "⚠️ "}{lineTest.text}
+            {!lineTest.ok && /Failed to send messages/i.test(lineTest.text) && (
+              <p style={{ margin: "6px 0 0", color: "var(--text-muted,#8a8f9d)" }}>
+                The OA is probably no longer in this group (or the group was recreated). Re-invite the OA to the group, send any message there, then tap Refresh here to pick up the new group ID and test again.
+              </p>
+            )}
+          </div>
+        )}
         <div
           onClick={() => { const next = !lineNotifyMuted; setLineNotifyMuted(next); try { localStorage.setItem("psr_notify_muted", next ? "1" : "0"); } catch {} }}
           style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: lineNotifyMuted ? "rgba(239,68,68,0.07)" : "rgba(52,211,153,0.05)", border: `1px solid ${lineNotifyMuted ? "rgba(239,68,68,0.25)" : "rgba(52,211,153,0.15)"}`, cursor: "pointer", userSelect: "none" }}>

@@ -20,8 +20,8 @@ export async function onRequestPost({ request, env }) {
   }
 
   const results = await Promise.allSettled(
-    userIds.map(userId =>
-      fetch("https://api.line.me/v2/bot/message/push", {
+    userIds.map(async (userId) => {
+      const res = await fetch("https://api.line.me/v2/bot/message/push", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -31,13 +31,22 @@ export async function onRequestPost({ request, env }) {
           to: userId,
           messages: [{ type: "text", text: message }],
         }),
-      })
-    )
+      });
+      // LINE returns 200 on success; anything else is a real failure (bad token,
+      // bad recipient id, monthly quota exceeded, …) — surface it.
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`LINE ${res.status} for ${userId}: ${detail.slice(0, 300)}`);
+      }
+      return userId;
+    })
   );
 
+  const errors = results.filter(r => r.status === "rejected").map(r => String(r.reason?.message || r.reason));
   return Response.json({
-    ok: true,
+    ok: errors.length === 0,
     sent: results.filter(r => r.status === "fulfilled").length,
-    failed: results.filter(r => r.status === "rejected").length,
+    failed: errors.length,
+    errors,
   }, { headers: CORS });
 }
