@@ -8545,6 +8545,11 @@ export default function App() {
   const [verificationConfig, setVerificationConfig] = useState({ mode: "photo" });
   const [lineNotifyMuted, setLineNotifyMuted] = useState(() => { try { return localStorage.getItem("psr_notify_muted") === "1"; } catch { return false; } });
   const [loaded, setLoaded] = useState(false);
+
+  // Browser tab title: "Pick Shoot Return - {company name}" once data is loaded
+  useEffect(() => {
+    document.title = "Pick Shoot Return" + (loaded && (companyName || "").trim() ? ` - ${companyName.trim()}` : "");
+  }, [companyName, loaded]);
   const [cloudSynced, setCloudSynced] = useState(false);
   const [saveErr, setSaveErr] = useState(false);
   // needsInit: KV returned all-null — could be new account or outage.
