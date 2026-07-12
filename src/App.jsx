@@ -3,6 +3,8 @@ import jsQR from "jsqr";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const JOB_STATUSES = ["Pencil", "Confirmed", "Cancelled", "Declined"];
+// Global source of truth for job-status chip colors (badge tokens): Confirmed=green, Cancelled=red, Pencil=yellow(amber), Declined=grey.
+const JOB_STATUS_BADGE = { Pencil: "amber", Confirmed: "green", Cancelled: "red", Declined: "gray" };
 const SHOOT_TIMES = ["Day", "Night", "Half Day / Half Night", "Half Night / Half Day"];
 const LOCATIONS = ["Local (Bangkok)", "Out of Town", "Overseas"];
 
@@ -2392,7 +2394,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
     });
   };
 
-  const statusColor = { Pencil: "gray", Confirmed: "green", Cancelled: "red", Declined: "gray" };
+  const statusColor = JOB_STATUS_BADGE;
   const locationColor = { "Local (Bangkok)": "green", "Out of Town": "amber", "Overseas": "blue" };
 
   const getCheckoutSummary = (job) => {
@@ -2417,7 +2419,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
       {/* Status tabs */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
-        {[["Pencil", "gray"], ["Confirmed", "green"], ["Cancelled", "red"], ["all", null]].map(([key, color]) => {
+        {[["Pencil", "amber"], ["Confirmed", "green"], ["Cancelled", "red"], ["all", null]].map(([key, color]) => {
           const count = key === "all" ? jobs.filter(j => j.status !== "Declined").length : jobs.filter(j => j.status === key).length;
           const isActive = statusTab === key;
           return (
@@ -2692,7 +2694,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 // ─── JOB DETAIL MODAL ────────────────────────────────────────────────────────
 function JobDetailModal({ job, equipment, onClose, onEdit }) {
   if (!job) return null;
-  const statusColor = { Pencil: "gray", Confirmed: "green", Cancelled: "red", Declined: "gray" };
+  const statusColor = JOB_STATUS_BADGE;
   return (
     <Modal title="Job Details" onClose={onClose}>
       <div style={S.col}>
@@ -2776,7 +2778,7 @@ function DashboardCalendar({ jobs, equipment, onEdit }) {
   // and classify consecutive runs as "spans" for rendering bars
   const STATUS_COLORS = {
     Confirmed: { bg: "rgba(52,211,153,0.18)", border: "#34d399", text: "#34d399" },
-    Pencil:    { bg: "rgba(148,163,184,0.15)", border: "#94a3b8", text: "#94a3b8" },
+    Pencil:    { bg: "rgba(232,184,75,0.18)", border: "#e8b84b", text: "#e8b84b" },
     Cancelled: { bg: "rgba(239,68,68,0.12)", border: "#f87171", text: "#f87171" },
     Declined:  { bg: "rgba(148,163,184,0.15)", border: "#94a3b8", text: "#94a3b8" },
   };
@@ -3035,13 +3037,13 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
     setDashReqModal(null);
   };
 
-  const statusColor = { Confirmed: "green", Pencil: "gray", Cancelled: "red", Declined: "gray" };
+  const statusColor = JOB_STATUS_BADGE;
   const locationColor = { "Local (Bangkok)": "blue", "Out of Town": "amber", "Overseas": "red" };
 
   const statSections = {
     today:     { jobs: todayJobs,     label: t("dashTodayJobsLabel"),    color: "#e8b84b", badge: "amber" },
     confirmed: { jobs: confirmedJobs, label: t("dashConfirmedLabel"),  color: "#34d399", badge: "green" },
-    pencil:    { jobs: pencilJobs,    label: t("dashPencilLabel"),     color: "#94a3b8", badge: "gray"  },
+    pencil:    { jobs: pencilJobs,    label: t("dashPencilLabel"),     color: "#e8b84b", badge: "amber" },
   };
 
   return (
@@ -4147,7 +4149,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               {[
                 { key: "today", label: t("tabToday"), value: availableJobs.length, color: "#e8b84b" },
                 { key: "confirmed", label: t("statusConfirmed"), value: confirmedJobs.length, color: "#34d399" },
-                { key: "pencil", label: t("statusPencil"), value: pencilJobs.length, color: "#94a3b8" },
+                { key: "pencil", label: t("statusPencil"), value: pencilJobs.length, color: "#e8b84b" },
               ].map(stat => (
                 <div key={stat.key} onClick={() => setExpandedStat(expandedStat === stat.key ? null : stat.key)} style={{ ...S.card, textAlign: "center", padding: "12px 6px", cursor: "pointer", border: expandedStat === stat.key ? `1px solid ${stat.color}40` : undefined, transition: "border-color .15s" }}>
                   <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
@@ -4169,7 +4171,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                          {isToday ? (allReturned ? <span style={S.badge("green")}>{t("allReturned")}</span> : allPicked ? <span style={S.badge("amber")}>{t("onShoot")}</span> : <span style={S.badge("blue")}>{t("readyPick")}</span>) : <span style={S.badge(expandedStat === "confirmed" ? "green" : "gray")}>{job.status}</span>}
+                          {isToday ? (allReturned ? <span style={S.badge("green")}>{t("allReturned")}</span> : allPicked ? <span style={S.badge("amber")}>{t("onShoot")}</span> : <span style={S.badge("blue")}>{t("readyPick")}</span>) : <span style={S.badge(JOB_STATUS_BADGE[job.status] || "gray")}>{job.status}</span>}
                           <span style={S.badge("gray")}>{job.shootTime}</span>
                         </div>
                         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{job.name}</h3>
