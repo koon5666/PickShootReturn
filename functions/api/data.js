@@ -13,23 +13,70 @@ const FIELDS = [
   "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled",
 ];
 
+// ── Lean boot ────────────────────────────────────────────────────────────────
+// The verification photos on checkouts + resolved admin requests are the bulk of
+// the payload (tens of MB) but are only ever viewed on demand (equipment History
+// modal; the Approvals "resolved/all" tab). GET returns them stripped to `null`
+// with a `hasPhoto` flag; the base64 stays in KV and is fetched lazily via
+// /api/photo?field=..&id=... . Pending admin-request photos are kept inline
+// because the default Approvals view renders them immediately.
+const isDataUri = (s) => typeof s === "string" && s.startsWith("data:");
+function stripPhoto(entry) {
+  if (entry && isDataUri(entry.photo)) {
+    const { photo, ...rest } = entry;
+    return { ...rest, photo: null, hasPhoto: true };
+  }
+  return entry;
+}
+function leanCheckouts(arr) {
+  return Array.isArray(arr) ? arr.map(stripPhoto) : arr;
+}
+function leanAdminRequests(arr) {
+  return Array.isArray(arr)
+    ? arr.map(r => (r && r.status !== "pending") ? stripPhoto(r) : r)
+    : arr;
+}
+
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-export async function onRequestGet({ env }) {
+export async function onRequestGet({ env, request }) {
+  const url = new URL(request.url);
+  const full = url.searchParams.get("full") === "1"; // escape hatch: full payload w/ photos
   const vals = await Promise.all(FIELDS.map(k => env.KV.get(k, "json")));
   const out = {};
   FIELDS.forEach((k, i) => { out[k] = vals[i]; });
+  if (!full) {
+    out.checkouts = leanCheckouts(out.checkouts);
+    out.adminRequests = leanAdminRequests(out.adminRequests);
+  }
   return Response.json(out, { headers: CORS });
 }
 
-// Arrays where concurrent sessions may append entries independently.
+// Arrays where per-entry base64 photos live and must never be clobbered by a
+// client that loaded the lean (photo-stripped) payload and then re-saves.
+const PHOTO_ARRAYS = new Set(["checkouts", "adminRequests"]);
+// Other arrays where concurrent sessions may append entries independently.
 // On PUT: incoming entries win for shared IDs, KV-only IDs are preserved.
-// invoices uses soft-delete (_deleted:true) instead of array removal, so deleted
-// records stay in the incoming payload and propagate to KV naturally — no special
-// delete-tracking needed. checkouts/adminRequests/equipmentRequests are append-only.
-const MERGE_ARRAYS = new Set(["checkouts", "adminRequests", "equipmentRequests"]);
+const MERGE_ARRAYS = new Set(["equipmentRequests"]);
+
+// Merge an incoming photo-bearing array against KV, preserving each entry's
+// photo when the incoming copy is absent/stripped (loaded lean). A real data:
+// URI in the incoming entry always wins (new capture / re-shot photo).
+function mergePhotoArray(incoming, existing) {
+  const exMap = new Map((existing || []).map(e => [e.id, e]));
+  const incomingIds = new Set(incoming.map(e => e.id));
+  const merged = incoming.map(inc => {
+    const kv = exMap.get(inc.id);
+    const photo = isDataUri(inc.photo) ? inc.photo : ((kv && kv.photo) ?? inc.photo ?? null);
+    const { hasPhoto, ...rest } = inc; // never persist the transient lean marker
+    return { ...rest, photo };
+  });
+  // keep KV-only entries (added by another session, not in this payload)
+  for (const e of (existing || [])) if (!incomingIds.has(e.id)) merged.push(e);
+  return merged;
+}
 
 export async function onRequestPut({ request, env }) {
   const body = await request.json();
@@ -65,6 +112,12 @@ export async function onRequestPut({ request, env }) {
         const incomingIds = new Set(body.invoices.map(e => e.id));
         ops.push(env.KV.put("invoices", JSON.stringify([...body.invoices.map(mergeInv), ...existing.filter(e => !incomingIds.has(e.id))])));
       }
+      continue;
+    }
+
+    if (PHOTO_ARRAYS.has(k) && Array.isArray(body[k])) {
+      const existing = (await env.KV.get(k, "json")) || [];
+      ops.push(env.KV.put(k, JSON.stringify(mergePhotoArray(body[k], existing))));
       continue;
     }
 

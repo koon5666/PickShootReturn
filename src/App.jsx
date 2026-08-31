@@ -20,9 +20,32 @@ const api = {
   putBackup: (body) => fetch("/api/backup", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   getBackupAuto: () => fetch("/api/backup_auto").then(r => r.ok ? r.json() : null),
   putBackupAuto: (body) => fetch("/api/backup_auto", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  // Lazy per-entry verification photos (boot payload ships them stripped). Scoped
+  // server-side to checkouts + adminRequests. Returns { [id]: dataUrl }.
+  getPhotos: (field, ids) => fetch(`/api/photo?field=${encodeURIComponent(field)}&ids=${ids.map(encodeURIComponent).join(",")}`)
+    .then(r => r.ok ? r.json() : { photos: {} }).then(d => d.photos || {}).catch(() => ({})),
 };
 
 const CACHE_KEY = "psr_cache"; // localStorage key for offline fallback cache
+
+// Top-level fields persisted to KV (mirrors functions/api/data.js FIELDS).
+const DATA_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "adminPin", "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled"];
+
+// Replace inline base64 verification photos with a lightweight marker before a
+// snapshot is cached. Keeps the localStorage cache well under quota (the full
+// payload's photos are tens of MB); the cache is read-only in the offline path so
+// the stripped copy never round-trips back into KV.
+function stripSnapshotPhotos(d) {
+  if (!d || typeof d !== "object") return d;
+  const strip = (arr) => Array.isArray(arr)
+    ? arr.map(e => (e && typeof e.photo === "string" && e.photo.startsWith("data:")) ? { ...e, photo: null, hasPhoto: true } : e)
+    : arr;
+  return { ...d, checkouts: strip(d.checkouts), adminRequests: strip(d.adminRequests) };
+}
+function writeCache(snapshot) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(stripSnapshotPhotos(snapshot))); }
+  catch (e) { console.warn("[psr] offline cache write failed:", e && e.name); }
+}
 
 // ─── ADMIN THEME SYSTEM ───────────────────────────────────────────────────────
 const PALETTES = {
@@ -293,6 +316,25 @@ function Modal({ title, onClose, children, wide }) {
   );
 }
 
+// ─── LAZY VERIFICATION PHOTO ─────────────────────────────────────────────────
+// Verification photos are stripped from the boot payload (they are tens of MB and
+// only viewed on demand). If `photo` is present it renders immediately; otherwise
+// when `hasPhoto` is set it fetches the base64 from /api/photo on first mount.
+function LazyPhoto({ field, id, photo, hasPhoto, style, alt }) {
+  const [src, setSrc] = useState(photo || null);
+  useEffect(() => {
+    if (photo) { setSrc(photo); return; }
+    if (!hasPhoto || !id) { setSrc(null); return; }
+    let alive = true;
+    setSrc(null);
+    api.getPhotos(field, [id]).then(m => { if (alive && m && m[id]) setSrc(m[id]); }).catch(() => {});
+    return () => { alive = false; };
+  }, [field, id, photo, hasPhoto]);
+  if (!src && !hasPhoto) return null;
+  if (!src) return <div style={{ ...style, background: "#12151c", border: "1px dashed #2e3340", display: "flex", alignItems: "center", justifyContent: "center", color: "#4a5060", fontSize: 10 }}>…</div>;
+  return <img src={src} alt={alt || ""} style={style} />;
+}
+
 // ─── AVAILABILITY BAR ────────────────────────────────────────────────────────
 function AvailBar({ available, total }) {
   return (
@@ -323,14 +365,14 @@ function GeoPhoto({ onCapture, label }) {
     navigator.geolocation.getCurrentPosition(
       (pos) => { const l = { lat: pos.coords.latitude.toFixed(5), lng: pos.coords.longitude.toFixed(5), acc: Math.round(pos.coords.accuracy) }; setLocation(l); resolve(l); },
       () => { setLocErr("Location unavailable — photo still saved with timestamp."); resolve(null); },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     );
   });
 
   // Scale down and burn timestamp + GPS into the image.
   const stamp = (img, loc) => {
     const sw = img.naturalWidth || img.width, sh = img.naturalHeight || img.height;
-    const scale = Math.min(1, 1600 / Math.max(sw, sh));
+    const scale = Math.min(1, 1200 / Math.max(sw, sh));
     const w = Math.round(sw * scale), h = Math.round(sh * scale);
     const canvas = document.createElement("canvas");
     canvas.width = w; canvas.height = h;
@@ -342,7 +384,7 @@ function GeoPhoto({ onCapture, label }) {
     ctx.font = "bold 14px Inter, sans-serif";
     ctx.fillText(new Date().toLocaleString(), 10, h - 38);
     ctx.fillText(loc ? `GPS: ${loc.lat}, ${loc.lng} (±${loc.acc}m)` : "No GPS", 10, h - 16);
-    return canvas.toDataURL("image/jpeg", 0.85);
+    return canvas.toDataURL("image/jpeg", 0.72);
   };
 
   const onFilePicked = (e) => {
@@ -408,7 +450,7 @@ function QRScanner({ onScan, onClose, label }) {
     navigator.geolocation.getCurrentPosition(
       pos => resolve({ lat: pos.coords.latitude.toFixed(5), lng: pos.coords.longitude.toFixed(5), acc: Math.round(pos.coords.accuracy) }),
       () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     );
   });
 
@@ -488,6 +530,19 @@ function QRScanner({ onScan, onClose, label }) {
 // ─── LANG / TRANSLATIONS ─────────────────────────────────────────────────────
 const LANG = {
   en: {
+    // Added strings (perf/UX overhaul)
+    eqSearchPlaceholder: "Search gear by name…",
+    eqErrName: "Enter an equipment name.",
+    eqErrCategory: "Choose or type a category.",
+    eqDeleteStillOut: "⚠ {n} unit(s) still out (picked, not returned). Deleting removes them from tracking.",
+    jobErrName: "Enter a job name.",
+    jobErrDates: "Pick at least one shoot date on the calendar.",
+    jobDeleteStillOut: "⚠ {n} item(s) from this job are still out (not returned).",
+    jobNameLabel: "Job Name",
+    dashApprovalsWaiting: "approval(s) waiting — Review",
+    dashReview: "Review",
+    coOfflineNoCapture: "No connection — check-out/return can't be recorded right now.",
+    settingsRestoreFromAuto: "Restore from daily auto-backup",
     // Nav
     navDashboard: "Dashboard", navEquipment: "Equipment", navJobs: "Job Bookings",
     navTeam: "Team", navReports: "Reports", navInvoice: "Invoice", navCheckout: "Checkout",
@@ -730,6 +785,19 @@ const LANG = {
     adminAllReturned: "All items returned.",
   },
   th: {
+    // Added strings (perf/UX overhaul)
+    eqSearchPlaceholder: "ค้นหาอุปกรณ์ตามชื่อ…",
+    eqErrName: "กรุณากรอกชื่ออุปกรณ์",
+    eqErrCategory: "เลือกหรือพิมพ์หมวดหมู่",
+    eqDeleteStillOut: "⚠ ยังมี {n} ชิ้นที่ยืมออกอยู่ (ยังไม่คืน) การลบจะทำให้หลุดจากการติดตาม",
+    jobErrName: "กรุณากรอกชื่องาน",
+    jobErrDates: "เลือกวันถ่ายอย่างน้อย 1 วันในปฏิทิน",
+    jobDeleteStillOut: "⚠ มีอุปกรณ์ {n} ชิ้นของงานนี้ยังยืมออกอยู่ (ยังไม่คืน)",
+    jobNameLabel: "ชื่องาน",
+    dashApprovalsWaiting: "รายการรออนุมัติ — ตรวจสอบ",
+    dashReview: "ตรวจสอบ",
+    coOfflineNoCapture: "ไม่มีการเชื่อมต่อ — ยังบันทึกการยืม/คืนไม่ได้ตอนนี้",
+    settingsRestoreFromAuto: "กู้คืนจากสำรองอัตโนมัติรายวัน",
     // Nav
     navDashboard: "ภาพรวม", navEquipment: "อุปกรณ์", navJobs: "งาน",
     navTeam: "ทีม", navReports: "แจ้งปัญหา", navInvoice: "ใบแจ้งหนี้", navCheckout: "รับ-คืน",
@@ -1015,6 +1083,26 @@ function calcAvailable(equipment, jobs, checkouts, targetDate) {
   });
 }
 
+// Availability across a multi-day span = the WORST (minimum) available count on any
+// day in the span. Assigning gear off a single-day check double-books items that are
+// free on day 1 but taken on a later shoot day.
+function calcAvailableSpan(equipment, jobs, checkouts, dates) {
+  const days = (dates && dates.length) ? dates : [today()];
+  const perDay = days.map(d => {
+    const m = {};
+    calcAvailable(equipment, jobs, checkouts, d).forEach(e => { m[e.id] = e; });
+    return m;
+  });
+  return equipment.map(eq => {
+    let minAvail = eq.total, worstDate = null;
+    for (let i = 0; i < days.length; i++) {
+      const a = perDay[i][eq.id] ? perDay[i][eq.id].available : eq.total;
+      if (a < minAvail) { minAvail = a; worstDate = days[i]; }
+    }
+    return { ...eq, available: Math.max(0, minAvail), worstDate };
+  });
+}
+
 // ─── EQUIPMENT PAGE ───────────────────────────────────────────────────────────
 function printQRForItems(items, autoprint = true) {
   const rows = items.map(eq => `
@@ -1065,9 +1153,9 @@ const EQ_SORT_OPTIONS = [
   { key: "most",    label: "Most Used" },
 ];
 
-function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setReports }) {
+function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setReports, initialTab, onConsumeInitialTab }) {
   const t = useT();
-  const [eqTab, setEqTab] = useState("equipment"); // equipment | reports
+  const [eqTab, setEqTab] = useState(initialTab || "equipment"); // equipment | reports
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [form, setForm] = useState({ name: "", category: "", total: 1, notes: "", photo: null });
@@ -1075,6 +1163,12 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
   const [histTarget, setHistTarget] = useState(null);
   const [sortBy, setSortBy] = useState("name_az");
   const [filterCat, setFilterCat] = useState(null);
+  const [search, setSearch] = useState("");
+  const [eqFormErr, setEqFormErr] = useState("");
+  // Deep-link (e.g. Damage-Reports notification) → jump to a specific tab once.
+  useEffect(() => {
+    if (initialTab) { setEqTab(initialTab); onConsumeInitialTab && onConsumeInitialTab(); }
+  }, [initialTab]); // eslint-disable-line react-hooks/exhaustive-deps
   const [qrTarget, setQrTarget] = useState(null); // equipment item to show single QR
   const [selectedIds, setSelectedIds] = useState(new Set()); // for multi-select print
   const [selectMode, setSelectMode] = useState(false);
@@ -1083,8 +1177,8 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
   const availableList = calcAvailable(equipment, jobs, checkouts, today());
   const existingCategories = [...new Set(equipment.map(e => e.category).filter(Boolean))].sort();
 
-  const openAdd = () => { setForm({ name: "", category: "", total: 1, notes: "", photo: null }); setNewCatInput(""); setModal("add"); };
-  const openEdit = (eq) => { setEditTarget(eq); setForm({ ...eq }); setNewCatInput(""); setModal("edit"); };
+  const openAdd = () => { setForm({ name: "", category: "", total: 1, notes: "", photo: null }); setNewCatInput(""); setEqFormErr(""); setModal("add"); };
+  const openEdit = (eq) => { setEditTarget(eq); setForm({ ...eq }); setNewCatInput(""); setEqFormErr(""); setModal("edit"); };
   const openHistory = (eq) => { setHistTarget(eq); setModal("history"); };
 
   const handlePhoto = (e) => {
@@ -1093,9 +1187,10 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
   };
 
   const save = () => {
-    if (!form.name.trim()) return;
+    if (!form.name.trim()) { setEqFormErr(t("eqErrName")); return; }
     const cat = form.category === "__new__" ? newCatInput.trim() : form.category;
-    if (!cat) return;
+    if (!cat) { setEqFormErr(t("eqErrCategory")); return; }
+    setEqFormErr("");
     const saved = { ...form, category: cat, total: +form.total };
     if (modal === "add") {
       setEquipment(p => [...p, { ...saved, id: "eq" + Date.now() }]);
@@ -1105,7 +1200,13 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
     setModal(null);
   };
 
-  const del = (id) => { if (window.confirm(t("eqDeleteConfirm"))) setEquipment(p => p.filter(e => e.id !== id)); };
+  const del = (id) => {
+    // Warn if units are still out (picked, not returned) — deleting would erase the
+    // only record that this gear is unaccounted for.
+    const out = checkouts.reduce((n, c) => c.eqId === id ? n + (isPickEvt(c.type) ? (c.qty || 0) : -(c.qty || 0)) : n, 0);
+    const warn = out > 0 ? t("eqDeleteStillOut").replace("{n}", out) + "\n\n" : "";
+    if (window.confirm(warn + t("eqDeleteConfirm"))) setEquipment(p => p.filter(e => e.id !== id));
+  };
 
   const getHistory = (eqId) => checkouts.filter(c => c.eqId === eqId).sort((a, b) => b.ts - a.ts).slice(0, 20);
 
@@ -1165,7 +1266,11 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
   };
 
   // Sort + filter
-  const filtered = filterCat ? availableList.filter(e => e.category === filterCat) : availableList;
+  const _q = search.trim().toLowerCase();
+  const filtered = availableList.filter(e =>
+    (!filterCat || e.category === filterCat) &&
+    (!_q || (e.name || "").toLowerCase().includes(_q) || (e.category || "").toLowerCase().includes(_q) || (e.notes || "").toLowerCase().includes(_q))
+  );
   const sortedList = [...filtered].sort((a, b) => {
     switch (sortBy) {
       case "name_az": return a.name.localeCompare(b.name);
@@ -1262,6 +1367,9 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
       </div>
 
 
+      {/* Search */}
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t("eqSearchPlaceholder")} style={{ ...S.input, marginBottom: 10 }} />
+
       {/* Category filter chips */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
         <button onClick={() => setFilterCat(null)} style={{ ...S.badge(filterCat === null ? "amber" : "gray"), cursor: "pointer", border: "none", padding: "4px 10px" }}>{t("eqAll")}</button>
@@ -1320,6 +1428,7 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
               <button style={S.btn("ghost")} onClick={() => fileRef.current.click()}><Icon d={icons.photo} size={14} /> {form.photo ? t("eqChangePhoto") : t("uploadPhoto")}</button>
               {form.photo && <img src={form.photo} alt="preview" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 6, marginTop: 8 }} />}
             </div>
+            {eqFormErr && <p style={{ color: "#f87171", fontSize: 12, margin: "10px 0 0", fontWeight: 600 }}>{eqFormErr}</p>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
               <button style={S.btn("ghost")} onClick={() => setModal(null)}>{t("cancel")}</button>
               <button style={S.btn("primary")} onClick={save}>{t("eqSaveEquipment")}</button>
@@ -1341,7 +1450,7 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
                   <div style={{ flex: 1 }}>
                     <p style={{ margin: 0, fontWeight: 600, fontSize: 13 }}>{c.jobName}</p>
                     <p style={{ margin: "3px 0 0", fontSize: 12, color: "#666" }}>{formatDateTime(c.ts)} · {c.employeeName} · Qty: {c.qty}</p>
-                    {c.photo && <img src={c.photo} alt="evidence" style={{ width: 120, borderRadius: 6, marginTop: 8 }} />}
+                    <LazyPhoto field="checkouts" id={c.id} photo={c.photo} hasPhoto={c.hasPhoto} alt="evidence" style={{ width: 120, borderRadius: 6, marginTop: 8 }} />
                     {c.location && <p style={{ fontSize: 11, color: "#60a5fa", margin: "4px 0 0" }}>GPS: {c.location.lat}, {c.location.lng}</p>}
                   </div>
                 </div>
@@ -2134,6 +2243,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
   const CONTACT_PLATFORMS = ["Line", "Facebook", "WhatsApp", "Instagram", "Phone"];
   const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line", dateOverrides: {}, pickupDate: "", returnDate: "" };
   const [form, setForm] = useState(editTarget ? { ...editTarget, dateOverrides: editTarget.dateOverrides || {} } : EMPTY);
+  const [jobErr, setJobErr] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = editTarget?.dates?.[0] ? new Date(editTarget.dates[0] + "T00:00:00") : new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
@@ -2161,7 +2271,9 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
   });
 
   const saveJob = () => {
-    if (!form.name.trim() || form.dates.length === 0) return;
+    if (!form.name.trim()) { setJobErr(t("jobErrName")); return; }
+    if (form.dates.length === 0) { setJobErr(t("jobErrDates")); return; }
+    setJobErr("");
     const isNew = !editTarget;
     const statusChanged = editTarget && editTarget.status !== form.status;
     // Pickup day only counts before the first shoot day; return day only after the last
@@ -2341,6 +2453,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
             </div>
           </div>
         )}
+        {jobErr && <p style={{ color: "#f87171", fontSize: 12, margin: "0 0 6px", fontWeight: 600, textAlign: "right" }}>{jobErr}</p>}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={S.btn("ghost")} onClick={onClose}>{t("cancel")}</button>
           <button style={S.btn("primary")} onClick={saveJob}>{t("saveJob")}</button>
@@ -2365,7 +2478,11 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
   const openAdd = () => { setEditTarget(null); setModal("form"); };
   const openEdit = (job) => { setEditTarget(job); setModal("form"); };
-  const del = (id) => { if (window.confirm(t("jobDeleteConfirm"))) setJobs(p => p.filter(j => j.id !== id)); };
+  const del = (id) => {
+    const out = checkouts.reduce((n, c) => c.jobId === id ? n + (isPickEvt(c.type) ? (c.qty || 0) : -(c.qty || 0)) : n, 0);
+    const warn = out > 0 ? t("jobDeleteStillOut").replace("{n}", out) + "\n\n" : "";
+    if (window.confirm(warn + t("jobDeleteConfirm"))) setJobs(p => p.filter(j => j.id !== id));
+  };
 
   const openAssign = (job) => {
     const init = {};
@@ -2561,9 +2678,15 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
           </div>
           <p style={{ fontSize: 12, color: "#8a8f9d", marginBottom: 16 }}>{t("jobTapAssign")}</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {equipment.map(eq => {
-              const avList = calcAvailable(equipment, jobs.filter(j => j.id !== assignTarget.id), checkouts, assignTarget.dates[0] || today());
-              const avForEq = avList.find(a => a.id === eq.id);
+            {(() => {
+              // Availability across the job's WHOLE span (worst day), computed once —
+              // fixes double-booking on multi-day jobs and the per-item O(n²) recompute.
+              const spanDates = (assignTarget.dates && assignTarget.dates.length) ? assignTarget.dates : [today()];
+              const avMap = Object.fromEntries(
+                calcAvailableSpan(equipment, jobs.filter(j => j.id !== assignTarget.id), checkouts, spanDates).map(a => [a.id, a])
+              );
+              return equipment.map(eq => {
+              const avForEq = avMap[eq.id];
               const currentQty = +assignForm[eq.id] || 0;
               const maxAvail = avForEq?.available ?? 0;
               const isAssigned = currentQty > 0;
@@ -2623,7 +2746,8 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                   )}
                 </div>
               );
-            })}
+              });
+            })()}
           </div>
 
           {/* Verification roles — only shown when mode is barcode or both */}
@@ -3053,6 +3177,18 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         <p style={{ ...S.pageSubtitle, marginBottom: 0 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</p>
       </div>
 
+      {/* Approvals attention banner — the Approvals card lives far down the page and
+          gates crew logins + field returns, so surface a jump-to link when anything waits. */}
+      {(adminRequests || []).filter(r => r.status === "pending").length > 0 && (
+        <div onClick={() => document.getElementById("approvals-card")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 16px", borderRadius: 10, cursor: "pointer", background: "rgba(232,184,75,0.1)", border: "1px solid rgba(232,184,75,0.35)" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#e8b84b" }}>
+            {(adminRequests || []).filter(r => r.status === "pending").length} {t("dashApprovalsWaiting")}
+          </span>
+          <span style={{ ...S.btn("primary"), padding: "5px 12px", fontSize: 12 }}>{t("dashReview")}</span>
+        </div>
+      )}
+
       {/* Stats row — 3 tappable cards */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
         {Object.entries(statSections).map(([key, s]) => {
@@ -3412,7 +3548,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         ].sort((a, b) => b.sortTs - a.sortTs).slice(0, 50);
         const tabs = [{ k: "pending", l: t("dashPendingFilter") }, { k: "resolved", l: t("dashResolvedFilter") }, { k: "all", l: t("dashAllFilter") }];
         return (
-          <div style={S.card}>
+          <div id="approvals-card" style={{ ...S.card, scrollMarginTop: 70 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
               <p style={{ ...S.sectionTitle, margin: 0 }}>
                 {t("dashApprovals")}
@@ -3460,7 +3596,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                                 {req.distance !== null ? `📍 ${req.distance}${t("dashGpsFrom")}` : `📍 ${t("dashGpsUnavail")}`}
                               </p>
                               <p style={{ margin: "3px 0 0", fontSize: 10, color: "#555" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
-                              {req.photo && <img src={req.photo} alt="preview" style={{ width: "100%", maxWidth: 260, height: "auto", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />}
+                              <LazyPhoto field="adminRequests" id={req.id} photo={req.photo} hasPhoto={req.hasPhoto} alt="preview" style={{ width: "100%", maxWidth: 260, height: "auto", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />
                               {req.status === "pending" && (
                                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                                   <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>{t("dashReject")}</button>
@@ -3491,7 +3627,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                       {req.requestedPin && req.type === "member-register" ? ` · PIN: ${req.requestedPin}` : ""}
                     </p>
                     <p style={{ margin: "3px 0 0", fontSize: 10, color: "#555" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
-                    {req.photo && <img src={req.photo} alt="preview" style={{ width: 60, maxWidth: 60, height: 60, objectFit: "cover", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />}
+                    <LazyPhoto field="adminRequests" id={req.id} photo={req.photo} hasPhoto={req.hasPhoto} alt="preview" style={{ width: 60, maxWidth: 60, height: 60, objectFit: "cover", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />
                     {req.status === "pending" && (
                       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                         <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>{t("dashReject")}</button>
@@ -3581,7 +3717,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [invoiceModal, setInvoiceModal] = useState(null); // null | { job, existing }
   const [expandedInv, setExpandedInv] = useState(null);
-  const [expandedStat, setExpandedStat] = useState(null); // null | "today" | "confirmed" | "pencil"
+  const [expandedStat, setExpandedStat] = useState("today"); // null | "today" | "confirmed" | "pencil" — default open so the day's pickups are visible on open
   const [empDetailJob, setEmpDetailJob] = useState(null);
   const [invFilter, setInvFilter] = useState("all"); // all | Pending | Paid
   const [invSort, setInvSort] = useState("date"); // date | amount
@@ -3784,6 +3920,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
   // What happens when an item row is tapped: depends on mode + role
   const onTapItem = (ae, lane) => {
+    // Offline: KV is unreachable and the reconnect reloads from cloud, discarding
+    // anything entered now — block capture instead of silently losing the work.
+    if (offlineMode) { setCoSaveState({ error: t("coOfflineNoCapture") }); return; }
     if (lane === "barcode") { setScanAe(ae); return; }
     // photo or none lane
     if (vMode === "none") { commitItem(ae, null, null); return; }
@@ -6431,6 +6570,23 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
               {t("settingsRestoreFromBackup")}
             </button>
           )}
+          {backupStatus !== "confirm-restore" && (
+            <button
+              style={{ ...S.btn("ghost"), justifyContent: "center", fontSize: 12, opacity: backupStatus === "saving" || backupStatus === "restoring" ? 0.5 : 1 }}
+              disabled={backupStatus === "saving" || backupStatus === "restoring"}
+              onClick={async () => {
+                if (!window.confirm(t("settingsRestoreConfirmMsg"))) return;
+                setBackupStatus("restoring");
+                try {
+                  const savedAt = await restoreBackup("auto");
+                  if (!savedAt) { setBackupStatus("no-backup"); setTimeout(() => setBackupStatus(null), 4000); return; }
+                  setBackupStatus("restored");
+                } catch { setBackupStatus("error"); }
+                setTimeout(() => setBackupStatus(null), 4000);
+              }}>
+              {t("settingsRestoreFromAuto")}
+            </button>
+          )}
         </div>
       </div>
 
@@ -8523,6 +8679,7 @@ export default function App() {
   const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem("psr_user") || "null"); } catch { return null; } });
   useEffect(() => { try { user ? localStorage.setItem("psr_user", JSON.stringify(user)) : localStorage.removeItem("psr_user"); } catch {} }, [user]);
   const [activePage, setActivePage] = useState("dashboard");
+  const [eqInitialTab, setEqInitialTab] = useState(null); // opens Equipment page straight to a tab (e.g. reports)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [equipment, setEquipment] = useState([]);
   const [jobs, setJobs] = useState([]);
@@ -8590,6 +8747,13 @@ export default function App() {
   const kvLoadedRef = useRef(new Set());
   const postLoadSnapRef = useRef(null);
   const snapTakenRef = useRef(false);
+  // lastSavedRef: per-field reference of the value last persisted to (or loaded
+  // from) KV. The save effect only PUTs a field whose reference differs — so a
+  // change no longer re-uploads the whole ~multi-MB dataset, and data pulled from
+  // another device (applyData) counts as already-saved (kills the save→broadcast
+  // echo). Purely a narrowing filter on top of the existing loaded/cloudSynced +
+  // kvLoaded/snapshot guards; it can never cause a write, only skip a redundant one.
+  const lastSavedRef = useRef({});
 
   // ── Session presence (Durable Objects WebSocket) ──────────────────────────
   const [concurrentSessions, setConcurrentSessions] = useState([]);
@@ -8620,7 +8784,7 @@ export default function App() {
       if (type !== "data_saved" || !snapshot || sourceDeviceId === getDeviceId()) return;
       lastExternalSyncRef.current = Date.now();
       applyData(snapshot);
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify(snapshot)); } catch {}
+      writeCache(snapshot);
     };
     return () => { ch.close(); broadcastChannelRef.current = null; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -8663,7 +8827,7 @@ export default function App() {
             lastExternalSyncRef.current = Date.now();
             api.getData().then(d => {
               applyData(d);
-              try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch {}
+              writeCache(d);
             }).catch(() => {});
           }
         } catch {}
@@ -8815,6 +8979,11 @@ export default function App() {
     }
     if (d.invoicePresets != null) { setInvoicePresets(d.invoicePresets); kl.add("invoicePresets"); }
     if (d.chatEnabled != null) { setChatEnabled(d.chatEnabled); kl.add("chatEnabled"); }
+    // Mark every applied field as already-persisted (same reference now lives in
+    // state), so the debounced save effect skips re-uploading freshly loaded or
+    // remotely-synced data. Only fields actually present are recorded.
+    const ls = lastSavedRef.current;
+    for (const f of DATA_FIELDS) if (d[f] !== undefined && d[f] !== null) ls[f] = d[f];
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Animate load progress bar — ramps to ~88% while fetching, snaps to 100 on completion.
@@ -8822,8 +8991,8 @@ export default function App() {
     if (loaded) { setLoadProgress(100); return; }
     const iv = setInterval(() => {
       setLoadProgress(p => {
-        if (p >= 88) return p;
-        return Math.min(88, p + (p < 45 ? 5 : p < 72 ? 2 : 0.6));
+        if (p >= 95) return p;
+        return Math.min(95, p + (p < 45 ? 5 : p < 72 ? 2 : p < 88 ? 0.6 : 0.15));
       });
     }, 100);
     return () => clearInterval(iv);
@@ -8842,7 +9011,7 @@ export default function App() {
           const d = await api.getData();
           applyData(d);
           // Phase 1: write fresh KV data to localStorage cache on every successful load
-          try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch {}
+          writeCache(d);
           if (kvLoadedRef.current.size === 0) {
             // All fields null — show explicit init screen; do NOT set cloudSynced.
             setNeedsInit(true);
@@ -8895,7 +9064,7 @@ export default function App() {
       try {
         const d = await api.getData();
         if (d && typeof d === "object") {
-          try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch {}
+          writeCache(d);
           window.location.reload();
         }
       } catch {}
@@ -8921,37 +9090,44 @@ export default function App() {
       // and they clicked Initialize — initializeAccount() populated kl manually).
       // The newAccount path no longer auto-triggers; initialization is always explicit.
       const safeSave = (key, val) => kl.has(key) || (snap !== null && val !== snap[key]);
+      // Delta gate: only include a field whose reference actually changed since it
+      // was last saved or loaded. `sent` records what we persist so lastSavedRef can
+      // advance on success. This only NARROWS what safeSave already permits, so the
+      // loaded/cloudSynced + kvLoaded/snapshot data-safety guards are unchanged.
+      const ls = lastSavedRef.current;
+      const sent = {};
+      const changed = (key, val) => { const ok = safeSave(key, val) && ls[key] !== val; if (ok) sent[key] = val; return ok; };
 
       const savePayload = {};
-      if (safeSave("equipment", equipment)) savePayload.equipment = equipment;
-      if (safeSave("jobs", jobs)) savePayload.jobs = jobs;
-      if (safeSave("checkouts", checkouts)) savePayload.checkouts = checkouts;
-      if (safeSave("employees", employees)) savePayload.employees = employees;
-      if (safeSave("reports", reports)) savePayload.reports = reports;
-      if (safeSave("productionCompanies", productionCompanies)) savePayload.productionCompanies = productionCompanies;
-      if (safeSave("invoices", invoices)) {
+      if (changed("equipment", equipment)) savePayload.equipment = equipment;
+      if (changed("jobs", jobs)) savePayload.jobs = jobs;
+      if (changed("checkouts", checkouts)) savePayload.checkouts = checkouts;
+      if (changed("employees", employees)) savePayload.employees = employees;
+      if (changed("reports", reports)) savePayload.reports = reports;
+      if (changed("productionCompanies", productionCompanies)) savePayload.productionCompanies = productionCompanies;
+      if (changed("invoices", invoices)) {
         const isEmployee = user != null && user.role !== "admin";
         // Employees only submit their own invoices so they can't overwrite admin's changes.
         // Admin submits all invoices (including soft-deletes for auto-generated ones).
         savePayload.invoices = isEmployee ? invoices.filter(inv => inv.employeeId === user.id) : invoices;
         savePayload._invoiceEmployeeId = isEmployee ? user.id : "admin";
       }
-      if (safeSave("companyName", companyName)) savePayload.companyName = companyName;
-      if (safeSave("equipmentRequests", equipmentRequests)) savePayload.equipmentRequests = equipmentRequests;
-      if (safeSave("adminRequests", adminRequests)) savePayload.adminRequests = adminRequests;
-      if (safeSave("adminPin", adminPin)) savePayload.adminPin = adminPin;
-      if (safeSave("timezone", timezone)) savePayload.timezone = timezone;
-      if (safeSave("timeFormat", timeFormat)) savePayload.timeFormat = timeFormat;
-      if (safeSave("kpiConfig", kpiConfig)) savePayload.kpiConfig = kpiConfig;
-      if (safeSave("punishments", punishments)) savePayload.punishments = punishments;
-      if (safeSave("kpiEvents", kpiEvents)) savePayload.kpiEvents = kpiEvents;
-      if (safeSave("photoVerification", photoVerification)) savePayload.photoVerification = photoVerification;
-      if (safeSave("navOrder", navOrder)) savePayload.navOrder = navOrder;
-      if (safeSave("verificationConfig", verificationConfig)) savePayload.verificationConfig = verificationConfig;
-      if (safeSave("invoicePresets", invoicePresets)) savePayload.invoicePresets = invoicePresets;
-      if (safeSave("chatEnabled", chatEnabled)) savePayload.chatEnabled = chatEnabled;
+      if (changed("companyName", companyName)) savePayload.companyName = companyName;
+      if (changed("equipmentRequests", equipmentRequests)) savePayload.equipmentRequests = equipmentRequests;
+      if (changed("adminRequests", adminRequests)) savePayload.adminRequests = adminRequests;
+      if (changed("adminPin", adminPin)) savePayload.adminPin = adminPin;
+      if (changed("timezone", timezone)) savePayload.timezone = timezone;
+      if (changed("timeFormat", timeFormat)) savePayload.timeFormat = timeFormat;
+      if (changed("kpiConfig", kpiConfig)) savePayload.kpiConfig = kpiConfig;
+      if (changed("punishments", punishments)) savePayload.punishments = punishments;
+      if (changed("kpiEvents", kpiEvents)) savePayload.kpiEvents = kpiEvents;
+      if (changed("photoVerification", photoVerification)) savePayload.photoVerification = photoVerification;
+      if (changed("navOrder", navOrder)) savePayload.navOrder = navOrder;
+      if (changed("verificationConfig", verificationConfig)) savePayload.verificationConfig = verificationConfig;
+      if (changed("invoicePresets", invoicePresets)) savePayload.invoicePresets = invoicePresets;
+      if (changed("chatEnabled", chatEnabled)) savePayload.chatEnabled = chatEnabled;
       // lineGroupId: null means "don't touch KV"; only save if truthy or user cleared it
-      if (lineGroupId !== null && safeSave("lineGroupId", lineGroupId)) savePayload.lineGroupId = lineGroupId;
+      if (lineGroupId !== null && changed("lineGroupId", lineGroupId)) savePayload.lineGroupId = lineGroupId;
 
       if (Object.keys(savePayload).length === 0) return;
       // Phase 1: build a full-state snapshot for the cache (saved on every success)
@@ -8959,7 +9135,10 @@ export default function App() {
       const onSuccess = () => {
         setSaveErr(false);
         pendingSaveRef.current = null;
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(fullSnapshot)); } catch {}
+        // Advance the per-field last-saved references so these fields aren't re-sent
+        // until they change again (this is what makes saves incremental).
+        Object.assign(lastSavedRef.current, sent);
+        writeCache(fullSnapshot);
         // Broadcast the saved snapshot to other tabs/devices unless we're within
         // the 5s cooldown from an incoming sync (prevents echo loops).
         if (Date.now() - lastExternalSyncRef.current >= 5000) {
@@ -9002,14 +9181,22 @@ export default function App() {
     return () => { window.removeEventListener("online", retryPending); clearInterval(interval); };
   }, [saveErr]);
 
-  // Immediate, awaitable save for the admin "Save" button — returns {ok} or {ok:false,error}.
+  // Immediate, awaitable save for the "Save" buttons (Settings + checkout completion).
+  // Sends only fields changed since the last save/load — so a checkout on a phone no
+  // longer re-uploads the whole dataset (equipment, history, …). Returns {ok} or
+  // {ok:false,error}. The loaded/cloudSynced guard is unchanged.
   const saveSettingsNow = async () => {
     if (!loaded || !cloudSynced) return { ok: false, error: "Still syncing with the cloud — wait a moment, then try again." };
-    const payload = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, chatEnabled };
-    if (lineGroupId !== null) payload.lineGroupId = lineGroupId;
+    const ls = lastSavedRef.current;
+    const state = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, chatEnabled };
+    const payload = {}, sent = {};
+    for (const [k, v] of Object.entries(state)) if (ls[k] !== v) { payload[k] = v; sent[k] = v; }
+    if (lineGroupId !== null && ls.lineGroupId !== lineGroupId) { payload.lineGroupId = lineGroupId; sent.lineGroupId = lineGroupId; }
+    if (Object.keys(payload).length === 0) return { ok: true }; // nothing changed since last save
     try {
       const res = await api.putData(payload);
       if (!res.ok) { setSaveErr(true); return { ok: false, error: `Server error ${res.status} — changes not saved.` }; }
+      Object.assign(ls, sent);
       setSaveErr(false);
       return { ok: true };
     } catch (e) {
@@ -9051,10 +9238,13 @@ export default function App() {
     const lastStr = (() => { try { return localStorage.getItem("psr_last_auto_backup"); } catch { return null; } })();
     const last = lastStr ? +lastStr : 0;
     if (Date.now() - last < 24 * 3600 * 1000) return;
-    const snapshot = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, savedAt: Date.now() };
-    api.putBackupAuto(snapshot).then(() => {
-      try { localStorage.setItem("psr_last_auto_backup", String(Date.now())); } catch {}
-    }).catch(() => {});
+    // Server-side snapshot: the backup endpoint reads full KV (photos included) and
+    // profiles directly, storing them per-field so it fits under the 25 MiB per-key
+    // limit and never silently succeeds on failure. Only stamp "done" on a real ok.
+    api.putBackupAuto().then(res => {
+      if (res && res.ok) { try { localStorage.setItem("psr_last_auto_backup", String(Date.now())); } catch {} }
+      else autoBackupDoneRef.current = false; // let it retry next session
+    }).catch(() => { autoBackupDoneRef.current = false; });
   }, [loaded, cloudSynced, user]); // eslint-disable-line
 
   // One-time optimization: shrink oversized equipment photos already stored in KV.
@@ -9084,9 +9274,9 @@ export default function App() {
   const pendingEquipReqCount = (equipmentRequests || []).filter(r => r.status === "pending").length;
   const _tRoot = (key) => (LANG[lang] || LANG.en)[key] ?? LANG.en[key] ?? key;
   const notifItems = [
-    pendingAdminRequests.length > 0 && { label: _tRoot("notifAdminApprovals"), count: pendingAdminRequests.length, color: "#e8b84b", icon: icons.check, onClick: () => setActivePage("dashboard") },
+    pendingAdminRequests.length > 0 && { label: _tRoot("notifAdminApprovals"), count: pendingAdminRequests.length, color: "#e8b84b", icon: icons.check, onClick: () => { setActivePage("dashboard"); setTimeout(() => document.getElementById("approvals-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120); } },
     pendingEquipReqCount > 0 && { label: _tRoot("notifEquipRequests"), count: pendingEquipReqCount, color: "#60a5fa", icon: icons.gear, onClick: () => setActivePage("team") },
-    unresolvedCount > 0 && { label: _tRoot("notifDamageReports"), count: unresolvedCount, color: "#f87171", icon: icons.alert, onClick: () => setActivePage("reports") },
+    unresolvedCount > 0 && { label: _tRoot("notifDamageReports"), count: unresolvedCount, color: "#f87171", icon: icons.alert, onClick: () => { setEqInitialTab("reports"); setActivePage("equipment"); } },
   ].filter(Boolean);
 
   const approveAdminRequest = (req) => {
@@ -9107,15 +9297,22 @@ export default function App() {
   };
 
   const createBackup = async () => {
-    const payload = { savedAt: new Date().toISOString(), equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, lineGroupId, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets };
-    const res = await api.putBackup(payload);
-    if (res?.ok) { try { localStorage.setItem("psr_last_backup", payload.savedAt); } catch {} }
+    // Server snapshots full KV (photos + all profiles) per-field, so nothing is
+    // uploaded from the client and no single key nears the 25 MiB limit.
+    const res = await api.putBackup();
+    if (res?.ok) { try { localStorage.setItem("psr_last_backup", new Date().toISOString()); } catch {} }
     return res;
   };
 
-  const restoreBackup = async () => {
-    const d = await api.getBackup();
+  const restoreBackup = async (which = "manual") => {
+    const d = which === "auto" ? await api.getBackupAuto() : await api.getBackup();
     if (!d) return null;
+    // Restore per-employee profiles (photos, ID cards, PromptPay, signatures) too.
+    if (d._profiles && typeof d._profiles === "object") {
+      await Promise.all(Object.entries(d._profiles).map(([key, prof]) =>
+        prof ? api.putProfile(key.replace(/^profile_/, ""), prof).catch(() => {}) : null
+      ).filter(Boolean));
+    }
     if (d.equipment) setEquipment(d.equipment);
     if (d.jobs) setJobs(d.jobs);
     if (d.checkouts) setCheckouts(d.checkouts);
@@ -9136,6 +9333,9 @@ export default function App() {
     if (d.photoVerification != null) setPhotoVerification(d.photoVerification);
     if (d.verificationConfig != null) setVerificationConfig(d.verificationConfig);
     else if (d.photoVerification != null) setVerificationConfig({ mode: d.photoVerification ? "photo" : "none" });
+    if (d.invoicePresets != null) setInvoicePresets(d.invoicePresets);
+    if (d.navOrder) setNavOrder(d.navOrder);
+    if (d.chatEnabled != null) setChatEnabled(d.chatEnabled);
     return d.savedAt;
   };
 
@@ -9239,7 +9439,7 @@ export default function App() {
               </div>
             )}
             {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
-            {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} />}
+            {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} initialTab={eqInitialTab} onConsumeInitialTab={() => setEqInitialTab(null)} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} jobs={jobs} setJobs={setJobs} adminRequests={adminRequests} />}
             {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} />}
