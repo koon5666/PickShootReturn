@@ -7,3 +7,4 @@ tests/.smoke-shots/
 .wrangler-local/
 .dev.vars
 .DS_Store
+tests/.walk-shots/

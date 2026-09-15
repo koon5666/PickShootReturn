@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, createContext, useContext } f
 import jsQR from "jsqr";
 import { LANG } from "./i18n/index.js";
 import { hoursWorked, DEFAULT_OT_TIERS, calcOtAmount, calcVatBreakdown, calcTotal } from "./logic/money.js";
-import { availability, availabilitySpan, stillOutList, jobConflicts, jobHoldDates, unitsOutForEquipment, unitsOutForJob, isPickEvt, isReturnEvt, jobFirstDate, jobLastDate, effPickupDate, effReturnDate, isOpenReport } from "./logic/availability.js";
+import { availability, availabilitySpan, stillOutList, jobConflicts, jobHoldDates, unitsOutForEquipment, unitsOutForJob, buildReceiveEvents, isPickEvt, isReturnEvt, jobFirstDate, jobLastDate, effPickupDate, effReturnDate, isOpenReport } from "./logic/availability.js";
 import { filterHistory, historyCsv, downloadText } from "./logic/history.js";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -8942,12 +8942,7 @@ export default function App() {
     const item = (eq && eq.name) || extra.eqName || eqId;
     const qty = Math.max(1, +extra.qty || 1);
     if (!window.confirm(_tRoot("dashReceiveConfirm").replace("{n}", qty).replace("{item}", item).replace("{job}", extra.jobName || jobId || ""))) return;
-    const now = Date.now();
-    const base = { jobId: jobId || null, requestId: extra.requestId || null, jobName: extra.jobName || "", eqId, qty, employeeId: "admin", employeeName: "Admin", ts: now, photo: null, location: null, adminApproved: true, receivedFor: extra.employeeName || null };
-    const lanes = extra.lanes || { photo: qty, barcode: 0 };
-    const events = [];
-    if (lanes.photo > 0 || !lanes.barcode) events.push({ ...base, id: "co" + now + eqId, type: "return", qty: lanes.photo > 0 ? lanes.photo : qty });
-    if (lanes.barcode > 0) events.push({ ...base, id: "bc" + now + eqId, type: "barcode_return", qty: lanes.barcode });
+    const events = buildReceiveEvents({ jobId, requestId: extra.requestId, jobName: extra.jobName, eqId, qty, lanes: extra.lanes, receivedFor: extra.employeeName || null });
     setCheckouts(p => [...p, ...events]);
   };
 

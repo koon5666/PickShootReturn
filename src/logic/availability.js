@@ -75,7 +75,14 @@ export const reqLabel = (req) => req.purpose === "work" ? (req.jobName || req.pr
 // qty minus sum of return qty, per verification lane (photo lane = pick/checkout/
 // return, barcode lane = barcode_pick/barcode_return) so "both" mode, which writes
 // one event per lane, does not double count. Out = the larger lane balance.
+const stillOutCache = new WeakMap(); // checkouts array (replaced, never mutated, on every write) -> result
 export function stillOutUnits(checkouts) {
+  if (checkouts && typeof checkouts === "object" && stillOutCache.has(checkouts)) return stillOutCache.get(checkouts);
+  const result = computeStillOutUnits(checkouts);
+  if (checkouts && typeof checkouts === "object") stillOutCache.set(checkouts, result);
+  return result;
+}
+function computeStillOutUnits(checkouts) {
   const map = new Map();
   for (const c of checkouts || []) {
     if (!c || !c.eqId) continue;
@@ -233,3 +240,16 @@ export function jobConflicts(job, equipment, ctx = {}, opts = {}) {
 // Units of `eqId` still out (any holder). Used by the delete guards.
 export const unitsOutForEquipment = (checkouts, eqId) => stillOutUnits(checkouts).filter(u => u.eqId === eqId).reduce((s, u) => s + u.qty, 0);
 export const unitsOutForJob = (checkouts, jobId) => stillOutUnits(checkouts).filter(u => u.jobId === jobId).reduce((s, u) => s + u.qty, 0);
+
+// P1-11 Receive: the append-only return write(s) an admin makes to book a still-out
+// unit back in. One event per open verification lane so the unit really reads as
+// returned in "both" mode; adminApproved like a geo-return approval.
+export function buildReceiveEvents({ jobId = null, requestId = null, jobName = "", eqId, qty = 1, lanes, now = Date.now(), receivedFor = null, employeeId = "admin", employeeName = "Admin" }) {
+  const q = Math.max(1, +qty || 1);
+  const base = { jobId: jobId || null, requestId: requestId || null, jobName: jobName || "", eqId, employeeId, employeeName, ts: now, photo: null, location: null, adminApproved: true, receivedFor };
+  const l = lanes || { photo: q, barcode: 0 };
+  const events = [];
+  if (l.photo > 0 || !(l.barcode > 0)) events.push({ ...base, id: "co" + now + eqId, type: "return", qty: l.photo > 0 ? l.photo : q });
+  if (l.barcode > 0) events.push({ ...base, id: "bc" + now + eqId, type: "barcode_return", qty: l.barcode });
+  return events;
+}

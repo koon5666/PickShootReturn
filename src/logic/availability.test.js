@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   availability, availabilitySpan, stillOutUnits, stillOutList, jobConflicts, jobHoldDates, jobHoldsOn,
-  effPickupDate, effReturnDate, addDays, daysBetween, unitsOutForEquipment, unitsOutForJob,
+  effPickupDate, effReturnDate, addDays, daysBetween, unitsOutForEquipment, unitsOutForJob, buildReceiveEvents,
 } from "./availability.js";
 
 // Mirrors tests/seed.mjs (default profile) with a fixed "today" so the numbers are stable.
@@ -264,5 +264,30 @@ describe("delete guards", () => {
     expect(unitsOutForEquipment(checkouts, "eq_lens")).toBe(0);
     expect(unitsOutForJob(checkouts, "job1")).toBe(5);
     expect(unitsOutForJob(checkouts, "job2")).toBe(0);
+  });
+});
+
+describe("buildReceiveEvents (dashboard Receive)", () => {
+  it("writes one photo-lane return by default and clears the unit", () => {
+    const ev = buildReceiveEvents({ jobId: "job1", jobName: "TVC Toyota", eqId: "eq_vmount", qty: 4, now: 5, receivedFor: "Nong" });
+    expect(ev).toHaveLength(1);
+    expect(ev[0]).toMatchObject({ type: "return", qty: 4, jobId: "job1", employeeId: "admin", adminApproved: true, receivedFor: "Nong", photo: null });
+    expect(stillOutUnits([...checkouts, ...ev]).find(u => u.eqId === "eq_vmount")).toBeUndefined();
+  });
+  it("closes both lanes when the barcode lane is open too", () => {
+    const both = [{ jobId: "j", eqId: "x", qty: 2, type: "pick", ts: 1 }, { jobId: "j", eqId: "x", qty: 2, type: "barcode_pick", ts: 2 }];
+    const u = stillOutUnits(both)[0];
+    const ev = buildReceiveEvents({ jobId: "j", eqId: "x", qty: u.qty, lanes: u.lanes, now: 9 });
+    expect(ev.map(e => e.type)).toEqual(["return", "barcode_return"]);
+    expect(stillOutUnits([...both, ...ev])).toEqual([]);
+  });
+  it("request holders carry requestId, not jobId", () => {
+    const ev = buildReceiveEvents({ requestId: "r1", eqId: "y", qty: 1, now: 1 });
+    expect(ev[0]).toMatchObject({ jobId: null, requestId: "r1" });
+  });
+  it("memoises the still-out reducer per checkouts array", () => {
+    const a = stillOutUnits(checkouts), b = stillOutUnits(checkouts);
+    expect(a).toBe(b);
+    expect(stillOutUnits([...checkouts])).not.toBe(a);
   });
 });
