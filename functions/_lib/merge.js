@@ -34,8 +34,13 @@ export function tombstoneOf(entry, deletedAt = new Date().toISOString()) {
 //  - The transient `hasPhoto` marker is persisted ONLY when it means "photo lives
 //    in a photo key" (i.e. KV already had it); a lean marker with no photo behind
 //    it is never persisted.
-export function mergePhotoArray(incoming, existing) {
+//  - `clearedAt` (ms, from "clear history"): an incoming entry KV does not have
+//    whose `ts` is older than the clear is a record a stale device still holds
+//    from before the clear. It is dropped instead of resurrected. New captures
+//    (ts after the clear) always pass.
+export function mergePhotoArray(incoming, existing, { clearedAt = 0 } = {}) {
   const exMap = new Map((existing || []).map(e => [e.id, e]));
+  if (clearedAt) incoming = incoming.filter(e => !(e && !exMap.has(e.id) && typeof e.ts === "number" && e.ts < clearedAt));
   const incomingIds = new Set(incoming.map(e => e.id));
   const merged = incoming.map(inc => {
     const kv = exMap.get(inc.id);

@@ -111,3 +111,20 @@ describe("tombstones (P0-5) are honoured by every merge", () => {
     expect(tombstoneOf({ id: "c", eqName: "FX6", photo: PHOTO, photos: [PHOTO] }, "T")).toEqual({ id: "c", eqName: "FX6", _deleted: true, deletedAt: "T" });
   });
 });
+
+describe("clear-history watermark (clearedAt)", () => {
+  it("drops records a stale device still holds from before the clear, keeps new captures", () => {
+    const clearedAt = 1_000_000;
+    const kv = [{ id: "keep", ts: clearedAt + 5, photo: null }];
+    const incoming = [
+      { id: "old1", ts: clearedAt - 10, photo: null },          // cleared, resurrect attempt
+      { id: "keep", ts: clearedAt + 5, photo: null },           // already in KV
+      { id: "new1", ts: clearedAt + 50, photo: PHOTO },         // new capture after the clear
+      { id: "nots", photo: null },                              // no ts: cannot judge, kept
+    ];
+    const out = mergePhotoArray(incoming, kv, { clearedAt });
+    expect(out.map(e => e.id)).toEqual(["keep", "new1", "nots"]);
+    // without a watermark nothing is dropped (old behaviour)
+    expect(mergePhotoArray(incoming, kv).map(e => e.id)).toEqual(["old1", "keep", "new1", "nots"]);
+  });
+});

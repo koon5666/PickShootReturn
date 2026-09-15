@@ -21,12 +21,14 @@ export const FIELDS = [
 export const INLINE_ON_GET = new Set(["equipment", "reports"]);
 
 // ── read ────────────────────────────────────────────────────────────────────
-// Raw field read: { raw: string|null, value: any, v: string|null }.
+// Raw field read: { raw: string|null, value: any, v: string|null, meta: object }.
+// meta carries the version and, for checkouts, `clearedAt` (see history-clear).
 export async function readField(kv, field) {
   const { value: raw, metadata } = await kv.getWithMetadata(field);
   let value = null;
   if (raw != null) { try { value = JSON.parse(raw); } catch { value = null; } }
-  return { raw, value, v: metadata && metadata.v ? metadata.v : null };
+  const meta = metadata && typeof metadata === "object" ? metadata : {};
+  return { raw, value, v: meta.v || null, meta };
 }
 
 export async function readAllFields(kv) {
@@ -70,26 +72,30 @@ export function prepareWrite(field, value, existing) {
 }
 
 // Commit prepared writes: photo keys first (so an array never references a
-// missing key), then the values with a fresh version in metadata. Returns the
-// { field: version } map written.
-export async function commitWrites(kv, prepared, versions = {}) {
+// missing key), then the values with a fresh version in metadata. `metaByField`
+// carries existing metadata (e.g. checkouts.clearedAt) forward; `extraMeta` adds
+// to it. Returns the { field: version } map written.
+export async function commitWrites(kv, prepared, metaByField = {}, extraMeta = {}) {
   const photoOps = [];
   for (const p of prepared) for (const ph of p.photos) photoOps.push(kv.put(ph.key, ph.data));
   await Promise.all(photoOps);
   const out = {};
   await Promise.all(prepared.map(p => {
-    const v = versions[p.field] || newVersion();
+    const v = newVersion();
     out[p.field] = v;
-    return kv.put(p.field, p.str, { metadata: { v } });
+    const { v: _old, ...carry } = metaByField[p.field] || {};
+    return kv.put(p.field, p.str, { metadata: { ...carry, ...(extraMeta[p.field] || {}), v } });
   }));
   return out;
 }
 
 // Convenience: write one field (externalizing photos), return its new version.
-export async function writeField(kv, field, value) {
+// Existing metadata (clearedAt) is carried forward; `extraMeta` overrides it.
+export async function writeField(kv, field, value, extraMeta) {
   const p = prepareWrite(field, value);
   if (p.size) throw Object.assign(new Error(p.size.error), { size: p.size });
-  const vs = await commitWrites(kv, [p]);
+  const { meta } = await readField(kv, field);
+  const vs = await commitWrites(kv, [p], { [field]: meta }, extraMeta ? { [field]: extraMeta } : {});
   return vs[field];
 }
 
@@ -118,7 +124,7 @@ export async function deletePhotoPrefix(kv, field) {
 // and resumable: photo keys are written first, then the array; a crash between
 // the two only means the next run rewrites the same keys. Returns progress.
 export async function migrateField(kv, field, limit = 20) {
-  const { value, v } = await readField(kv, field);
+  const { value, v, meta } = await readField(kv, field);
   const before = countInline(field, value);
   if (!before) return { field, moved: 0, remaining: 0, records: Array.isArray(value) ? value.length : 0 };
   const { entries, photos } = externalize(field, value, limit);
@@ -127,7 +133,7 @@ export async function migrateField(kv, field, limit = 20) {
   const size = checkSize(field, str);
   if (size) throw Object.assign(new Error(size.error), { size });
   // keep the version: migration is not a user edit, open clients stay valid
-  await kv.put(field, str, { metadata: { v: v || newVersion() } });
+  await kv.put(field, str, { metadata: { ...meta, v: v || newVersion() } });
   return { field, moved: photos.length, remaining: countInline(field, entries), records: entries.length, bytes: str.length };
 }
 

@@ -90,3 +90,18 @@ describe("store: migration is batched, idempotent, resumable and keeps the versi
     expect(kv.keys().filter(k => k.startsWith("photo:checkouts:"))).toEqual([]);
   });
 });
+
+describe("store: field metadata is carried across writes", () => {
+  it("writeField keeps clearedAt, bumps v; extraMeta sets it", async () => {
+    const kv = fakeKV();
+    const v1 = await writeField(kv, "checkouts", [], { clearedAt: 123 });
+    expect(kv.metaOf("checkouts")).toEqual({ clearedAt: 123, v: v1 });
+    const v2 = await writeField(kv, "checkouts", [{ id: "a", ts: 500 }]);
+    expect(kv.metaOf("checkouts")).toEqual({ clearedAt: 123, v: v2 });
+    expect(v2).not.toBe(v1);
+    const r = await readField(kv, "checkouts");
+    expect(r.meta.clearedAt).toBe(123); expect(r.v).toBe(v2);
+    await migrateField(kv, "checkouts", 5);
+    expect(kv.metaOf("checkouts")).toEqual({ clearedAt: 123, v: v2 }); // migration keeps both
+  });
+});

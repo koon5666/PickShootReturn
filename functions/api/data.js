@@ -89,6 +89,7 @@ export async function onRequestPut({ request, env }) {
   const deletes = [];
   const conflicts = [];
   const currentV = {};
+  const metaByField = {};
   for (const k of FIELDS) {
     if (body[k] === undefined) continue;               // field not sent → leave untouched
     if (k === "lineGroupId" && body[k] === null) { deletes.push("lineGroupId"); continue; }
@@ -100,12 +101,13 @@ export async function onRequestPut({ request, env }) {
     const existing = cur && Array.isArray(cur.value) ? cur.value : [];
     if (merged) {
       if (k === "invoices") value = mergeInvoices(value, existing, body._invoiceEmployeeId);
-      else if (PHOTO_ARRAYS.has(k)) value = mergePhotoArray(value, existing);
+      else if (PHOTO_ARRAYS.has(k)) value = mergePhotoArray(value, existing, { clearedAt: cur.meta.clearedAt || 0 });
       else value = mergeById(value, existing);
     } else if (VERSIONED.has(k) && sentV && (k in sentV)) {
       currentV[k] = cur.v;
       if (isStale(k, sentV, cur.v)) conflicts.push(k);
     }
+    if (cur) metaByField[k] = cur.meta;
     prepared.push(prepareWrite(k, value, PHOTO_FIELDS[k] ? existing : undefined));
   }
 
@@ -118,7 +120,7 @@ export async function onRequestPut({ request, env }) {
   }
 
   // Phase 2: write photo keys, then values (fresh versions), then deletes.
-  const written = await commitWrites(env.KV, prepared);
+  const written = await commitWrites(env.KV, prepared, metaByField);
   await Promise.all(deletes.map(k => env.KV.delete(k)));
   return Response.json({ ok: true, _v: written }, { headers: CORS });
 }

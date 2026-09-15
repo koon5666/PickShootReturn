@@ -20,7 +20,9 @@ export async function onRequestPost({ env, request }) {
     const { value } = await readField(env.KV, "checkouts");
     const removed = Array.isArray(value) ? value.length : 0;
     const snap = await createBackup(env.KV, { kind: "safety", label: "before clear history" });
-    const v = await writeField(env.KV, "checkouts", []);
+    // clearedAt: a stale device re-saving records from before this moment can
+    // not bring them back (functions/_lib/merge.js mergePhotoArray).
+    const v = await writeField(env.KV, "checkouts", [], { clearedAt: Date.now() });
     const photos = await deletePhotoPrefix(env.KV, "checkouts");
     return Response.json({ ok: true, removed, photosRemoved: photos, safetyId: snap.id, _v: { checkouts: v } }, { headers: CORS });
   } catch (err) {
