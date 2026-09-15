@@ -15,9 +15,11 @@
 //
 // Every row carries `reasons` so the UI can say WHY ("1 still out on TVC Toyota").
 
-export const isPickEvt = (type) => type === "pick" || type === "checkout" || type === "barcode_pick";
-export const isReturnEvt = (type) => type === "return" || type === "barcode_return";
-const isBarcodeEvt = (type) => type === "barcode_pick" || type === "barcode_return";
+// Event-type predicates and the per-item counting core are shared with the
+// checkout screens (src/logic/checkoutState.js) so "out" means the same thing
+// everywhere: picked - returned - lost, lane-aware, void tombstones ignored.
+import { isPickEvt, isReturnEvt, isVoidEvt, isLostEvt, itemCounts } from "./checkoutState.js";
+export { isPickEvt, isReturnEvt, isVoidEvt, isLostEvt };
 
 export const jobFirstDate = (j) => [...((j && j.dates) || [])].sort()[0] || null;
 export const jobLastDate = (j) => [...((j && j.dates) || [])].sort().slice(-1)[0] || null;
@@ -71,10 +73,11 @@ export const reqRef = (req) => `req:${req.id}`;
 export const reqLabel = (req) => req.purpose === "work" ? (req.jobName || req.productionName || "Work") : "Personal / Practice";
 
 // ── Still-out units from the append-only checkout log ────────────────────────
-// Keyed by holder (jobId, or `req:<requestId>`) + eqId. Count-based: sum of pick
-// qty minus sum of return qty, per verification lane (photo lane = pick/checkout/
-// return, barcode lane = barcode_pick/barcode_return) so "both" mode, which writes
-// one event per lane, does not double count. Out = the larger lane balance.
+// Keyed by holder (jobId, or `req:<requestId>`) + eqId. Count-based via
+// checkoutState.itemCounts: per lane (photo lane = pick/checkout/return, barcode
+// lane = barcode_pick/barcode_return) so "both" mode, which writes one event per
+// lane, does not double count; out = max(picked) - max(returned) - lost.
+// `lanes` = units each lane still has open (what an admin Receive must close).
 const stillOutCache = new WeakMap(); // checkouts array (replaced, never mutated, on every write) -> result
 export function stillOutUnits(checkouts) {
   if (checkouts && typeof checkouts === "object" && stillOutCache.has(checkouts)) return stillOutCache.get(checkouts);
@@ -83,25 +86,30 @@ export function stillOutUnits(checkouts) {
   return result;
 }
 function computeStillOutUnits(checkouts) {
-  const map = new Map();
+  const byHolder = new Map(); // holder -> { jobId, requestId, events[] }
   for (const c of checkouts || []) {
-    if (!c || !c.eqId) continue;
-    const pick = isPickEvt(c.type), ret = isReturnEvt(c.type);
-    if (!pick && !ret) continue;
+    if (!c || !c.eqId || isVoidEvt(c.type)) continue;
+    if (!isPickEvt(c.type) && !isReturnEvt(c.type) && !isLostEvt(c.type)) continue;
     const holder = c.jobId || (c.requestId ? `req:${c.requestId}` : null);
     if (!holder) continue;
-    const key = `${holder}::${c.eqId}`;
-    let e = map.get(key);
-    if (!e) { e = { holder, jobId: c.jobId || null, requestId: c.requestId || null, eqId: c.eqId, photo: 0, barcode: 0, pickedAt: 0, pickedBy: null, pickedById: null, jobName: null }; map.set(key, e); }
-    const lane = isBarcodeEvt(c.type) ? "barcode" : "photo";
-    const q = Math.max(0, +c.qty || 1);
-    e[lane] += pick ? q : -q;
-    if (pick && (c.ts || 0) >= e.pickedAt) { e.pickedAt = c.ts || 0; e.pickedBy = c.employeeName || e.pickedBy; e.pickedById = c.employeeId || e.pickedById; e.jobName = c.jobName || e.jobName; }
+    let h = byHolder.get(holder);
+    if (!h) { h = { holder, jobId: c.jobId || null, requestId: c.requestId || null, events: [] }; byHolder.set(holder, h); }
+    h.events.push(c);
   }
   const out = [];
-  for (const e of map.values()) {
-    const qty = Math.max(0, e.photo, e.barcode);
-    if (qty > 0) out.push({ holder: e.holder, jobId: e.jobId, requestId: e.requestId, eqId: e.eqId, qty, lanes: { photo: Math.max(0, e.photo), barcode: Math.max(0, e.barcode) }, pickedAt: e.pickedAt, pickedBy: e.pickedBy, pickedById: e.pickedById, jobName: e.jobName });
+  for (const h of byHolder.values()) {
+    const counts = itemCounts(h.events);
+    for (const [eqId, it] of Object.entries(counts)) {
+      if (it.out <= 0) continue;
+      const L = it.lanes;
+      out.push({
+        holder: h.holder, jobId: h.jobId, requestId: h.requestId, eqId, qty: it.out,
+        lanes: { photo: Math.max(0, L.photoPicked - L.photoReturned - it.lost), barcode: Math.max(0, L.barcodePicked - L.barcodeReturned - it.lost) },
+        missing: it.missing,
+        pickedAt: it.owner ? it.owner.ts || 0 : 0, pickedBy: it.owner ? it.owner.employeeName || null : null,
+        pickedById: it.owner ? it.owner.employeeId || null : null, jobName: it.owner ? it.owner.jobName || null : null,
+      });
+    }
   }
   return out;
 }

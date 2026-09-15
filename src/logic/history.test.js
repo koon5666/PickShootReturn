@@ -43,8 +43,19 @@ describe("historyCsv", () => {
     ];
     const csv = historyCsv(rows, { eqName: "Sony FX6", tz: TZ });
     const lines = csv.split("\n");
-    expect(lines[0]).toBe("Date,Time,Type,Equipment,Job,Employee,Qty,GPS");
-    expect(lines[1]).toBe('2026-09-05,08:00,Pick,Sony FX6,"TVC ""Toyota"", Hero",Nong,2,"13.7,100.5"');
-    expect(lines[2]).toBe("2026-09-06,20:00,Return,Sony FX6,Netflix,Arthit,1,");
+    expect(lines[0]).toBe("Date,Time,Type,Equipment,Job,Employee,Qty,Condition,Note,GPS");
+    expect(lines[1]).toBe('2026-09-05,08:00,Pick,Sony FX6,"TVC ""Toyota"", Hero",Nong,2,,,"13.7,100.5"');
+    expect(lines[2]).toBe("2026-09-06,20:00,Return,Sony FX6,Netflix,Arthit,1,,,");
+  });
+  it("carries condition + note, labels lost events, and filterHistory drops void tombstones", () => {
+    const rows = [
+      { type: "return", ts: ts("2026-09-06", 20), jobName: "Netflix", employeeName: "Arthit", qty: 1, condition: "damaged", note: "lens cap, missing" },
+      { type: "lost", ts: ts("2026-09-07", 9), jobName: "Netflix", employeeName: "Admin", qty: 1, condition: "written_off" },
+    ];
+    const lines = historyCsv(rows, { eqName: "FX6", tz: TZ }).split("\n");
+    expect(lines[1]).toBe('2026-09-06,20:00,Return,FX6,Netflix,Arthit,1,damaged,"lens cap, missing",');
+    expect(lines[2]).toBe("2026-09-07,09:00,Lost,FX6,Netflix,Admin,1,written_off,,");
+    const log = [{ id: "a", eqId: "x", type: "pick", qty: 1, ts: 1 }, { id: "b", eqId: "x", type: "void", voidedType: "pick", qty: 0, ts: 2 }];
+    expect(filterHistory(log, "x", { limit: 0 }).rows.map(r => r.id)).toEqual(["a"]);
   });
 });

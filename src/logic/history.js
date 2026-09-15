@@ -1,16 +1,17 @@
 // Per-item checkout history helpers (P3-5): date-range filter + paging + CSV.
 // Pure except downloadText (a tiny DOM helper kept here so App.jsx stays lean).
-import { isPickEvt, isReturnEvt } from "./availability.js";
+import { isPickEvt, isReturnEvt, isLostEvt, isVoidEvt } from "./checkoutState.js";
 
 // Events for one equipment item, newest first, optionally limited to [from..to]
 // (YYYY-MM-DD, inclusive, in the given IANA timezone). Returns { rows, total }
-// where rows is the first `limit` (0 = all) of the filtered list.
+// where rows is the first `limit` (0 = all) of the filtered list. Void tombstones
+// (an undone pick, see checkoutState.voidEvent) are not history and are skipped.
 export function filterHistory(checkouts, eqId, { from, to, limit = 20, tz } = {}) {
   const dayOf = (ts) => {
     try { return new Intl.DateTimeFormat("en-CA", { timeZone: tz || undefined }).format(new Date(ts)); }
     catch { return new Date(ts).toISOString().slice(0, 10); }
   };
-  const all = (checkouts || []).filter(c => c && c.eqId === eqId).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const all = (checkouts || []).filter(c => c && c.eqId === eqId && !isVoidEvt(c.type)).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const filtered = all.filter(c => {
     if (!from && !to) return true;
     const d = dayOf(c.ts || 0);
@@ -21,7 +22,7 @@ export function filterHistory(checkouts, eqId, { from, to, limit = 20, tz } = {}
 
 const csvCell = (v) => { const s = v === null || v === undefined ? "" : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 
-// CSV of history rows: Date,Time,Type,Job,Employee,Qty,GPS
+// CSV of history rows: Date,Time,Type,Equipment,Job,Employee,Qty,Condition,Note,GPS
 export function historyCsv(rows, { eqName = "", tz } = {}) {
   const fmt = (ts) => {
     const d = new Date(ts || 0);
@@ -29,13 +30,13 @@ export function historyCsv(rows, { eqName = "", tz } = {}) {
       return [new Intl.DateTimeFormat("en-CA", { timeZone: tz || undefined }).format(d), new Intl.DateTimeFormat("en-GB", { timeZone: tz || undefined, hour: "2-digit", minute: "2-digit" }).format(d)];
     } catch { return [d.toISOString().slice(0, 10), d.toISOString().slice(11, 16)]; }
   };
-  const head = ["Date", "Time", "Type", "Equipment", "Job", "Employee", "Qty", "GPS"];
+  const head = ["Date", "Time", "Type", "Equipment", "Job", "Employee", "Qty", "Condition", "Note", "GPS"];
   const lines = [head.join(",")];
   for (const c of rows || []) {
     const [date, time] = fmt(c.ts);
-    const type = isPickEvt(c.type) ? "Pick" : isReturnEvt(c.type) ? "Return" : (c.type || "");
+    const type = isPickEvt(c.type) ? "Pick" : isReturnEvt(c.type) ? "Return" : isLostEvt(c.type) ? "Lost" : (c.type || "");
     const gps = c.location && c.location.lat != null ? `${c.location.lat},${c.location.lng}` : "";
-    lines.push([date, time, type, eqName, c.jobName || "", c.employeeName || "", c.qty ?? 1, gps].map(csvCell).join(","));
+    lines.push([date, time, type, eqName, c.jobName || "", c.employeeName || "", c.qty ?? 1, c.condition || "", c.note || "", gps].map(csvCell).join(","));
   }
   return lines.join("\n");
 }

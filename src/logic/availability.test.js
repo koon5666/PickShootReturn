@@ -66,11 +66,29 @@ describe("stillOutUnits (count-based, per lane)", () => {
       { jobId: "jA", eqId: "x", qty: 2, type: "barcode_pick", ts: 2 },
     ];
     expect(stillOutUnits(both)[0].qty).toBe(2);
+    expect(stillOutUnits(both)[0].lanes).toEqual({ photo: 2, barcode: 2 }); // both lanes open: Receive must close both
+    // Same counting core as the checkout screens (checkoutState.itemCounts): out =
+    // max(picked per lane) - max(returned per lane), so ONE lane's return brings the
+    // gear back (it is physically on the shelf) and a mode switch mid-job cannot
+    // strand a unit as "out" forever.
     const returnedPhotoOnly = [...both, { jobId: "jA", eqId: "x", qty: 2, type: "return", ts: 3 }];
-    expect(stillOutUnits(returnedPhotoOnly)[0].qty).toBe(2); // barcode lane still open
-    expect(stillOutUnits(returnedPhotoOnly)[0].lanes).toEqual({ photo: 0, barcode: 2 });
-    const returnedBoth = [...returnedPhotoOnly, { jobId: "jA", eqId: "x", qty: 2, type: "barcode_return", ts: 4 }];
-    expect(stillOutUnits(returnedBoth)).toEqual([]);
+    expect(stillOutUnits(returnedPhotoOnly)).toEqual([]);
+    const returnedBarcodeOnly = [...both, { jobId: "jA", eqId: "x", qty: 2, type: "barcode_return", ts: 3 }];
+    expect(stillOutUnits(returnedBarcodeOnly)).toEqual([]);
+  });
+  it("lost / written-off units leave still-out; void tombstones (qty 0) count nothing", () => {
+    const log = [
+      { id: "p1", jobId: "jA", eqId: "x", qty: 3, type: "pick", ts: 1, employeeName: "Nong" },
+      { id: "r1", jobId: "jA", eqId: "x", qty: 1, type: "return", ts: 2, condition: "damaged" },
+      { id: "l1", jobId: "jA", eqId: "x", qty: 1, type: "lost", ts: 3, by: "admin", condition: "written_off" },
+    ];
+    const u = stillOutUnits(log);
+    expect(u).toHaveLength(1);
+    expect(u[0]).toMatchObject({ qty: 1, missing: true, pickedBy: "Nong", lanes: { photo: 1, barcode: 0 } });
+    expect(unitsOutForEquipment(log, "x")).toBe(1);
+    const undone = [{ id: "p2", jobId: "jB", eqId: "y", qty: 0, type: "void", voidedType: "pick", ts: 4 }];
+    expect(stillOutUnits(undone)).toEqual([]);
+    expect(unitsOutForJob([...log, ...undone], "jB")).toBe(0);
   });
   it("handles daily mode (pick/return every day) and request holders", () => {
     const daily = [

@@ -11,3 +11,4 @@ tests/.smoke-shots/
 .wrangler-prod/
 .wrangler-*/
 tests/.walk-shots/
+tests/.checkout-shots/
