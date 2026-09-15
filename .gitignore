@@ -3,3 +3,7 @@ dist/
 .wrangler/
 .env
 *.local
+tests/.smoke-shots/
+.wrangler-local/
+.dev.vars
+.DS_Store

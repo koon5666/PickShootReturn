@@ -1,3 +1,5 @@
+import { stripPhoto, mergePhotoArray, mergeById } from "../_lib/merge.js";
+
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
@@ -20,14 +22,7 @@ const FIELDS = [
 // with a `hasPhoto` flag; the base64 stays in KV and is fetched lazily via
 // /api/photo?field=..&id=... . Pending admin-request photos are kept inline
 // because the default Approvals view renders them immediately.
-const isDataUri = (s) => typeof s === "string" && s.startsWith("data:");
-function stripPhoto(entry) {
-  if (entry && isDataUri(entry.photo)) {
-    const { photo, ...rest } = entry;
-    return { ...rest, photo: null, hasPhoto: true };
-  }
-  return entry;
-}
+// isDataUri / stripPhoto: functions/_lib/merge.js
 function leanCheckouts(arr) {
   return Array.isArray(arr) ? arr.map(stripPhoto) : arr;
 }
@@ -61,22 +56,7 @@ const PHOTO_ARRAYS = new Set(["checkouts", "adminRequests"]);
 // On PUT: incoming entries win for shared IDs, KV-only IDs are preserved.
 const MERGE_ARRAYS = new Set(["equipmentRequests"]);
 
-// Merge an incoming photo-bearing array against KV, preserving each entry's
-// photo when the incoming copy is absent/stripped (loaded lean). A real data:
-// URI in the incoming entry always wins (new capture / re-shot photo).
-function mergePhotoArray(incoming, existing) {
-  const exMap = new Map((existing || []).map(e => [e.id, e]));
-  const incomingIds = new Set(incoming.map(e => e.id));
-  const merged = incoming.map(inc => {
-    const kv = exMap.get(inc.id);
-    const photo = isDataUri(inc.photo) ? inc.photo : ((kv && kv.photo) ?? inc.photo ?? null);
-    const { hasPhoto, ...rest } = inc; // never persist the transient lean marker
-    return { ...rest, photo };
-  });
-  // keep KV-only entries (added by another session, not in this payload)
-  for (const e of (existing || [])) if (!incomingIds.has(e.id)) merged.push(e);
-  return merged;
-}
+// mergePhotoArray / mergeById: functions/_lib/merge.js (unit-tested there).
 
 export async function onRequestPut({ request, env }) {
   const body = await request.json();
@@ -125,9 +105,7 @@ export async function onRequestPut({ request, env }) {
       // Read-merge-write: keep KV entries whose IDs aren't in the incoming set so that
       // a session with stale state doesn't silently erase another session's additions.
       const existing = (await env.KV.get(k, "json")) || [];
-      const incomingIds = new Set(body[k].map(e => e.id));
-      const merged = [...body[k], ...existing.filter(e => !incomingIds.has(e.id))];
-      ops.push(env.KV.put(k, JSON.stringify(merged)));
+      ops.push(env.KV.put(k, JSON.stringify(mergeById(body[k], existing))));
       continue;
     }
 
