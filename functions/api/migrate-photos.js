@@ -1,4 +1,4 @@
-// POST /api/migrate-photos { adminPin, limit? }  (P0-1)
+// POST /api/migrate-photos { limit? }  (P0-1; admin session, P0-2)
 // Moves inline base64 photos out of the field arrays into their own keys
 // (photo:<field>:<id>, functions/_lib/photos.js). Idempotent, batched and
 // resumable: each call moves up to `limit` photos (default 20) and reports what
@@ -8,7 +8,9 @@
 // GET /api/migrate-photos -> progress only (no writes).
 import { migrateField, readField, PHOTO_FIELD_NAMES } from "../_lib/store.js";
 import { countInline } from "../_lib/photos.js";
-import { requireAdmin, readJson, CORS_ANY as CORS } from "../_lib/auth.js";
+import { requireAdmin, readJson } from "../_lib/auth.js";
+
+const CORS = {};
 
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS });
@@ -23,14 +25,17 @@ async function progress(env) {
   return out;
 }
 
-export async function onRequestGet({ env }) {
-  return Response.json({ ok: true, fields: await progress(env) }, { headers: CORS });
+export async function onRequestGet(context) {
+  const auth = await requireAdmin(context);
+  if (!auth.ok) return auth.response;
+  return Response.json({ ok: true, fields: await progress(context.env) }, { headers: CORS });
 }
 
-export async function onRequestPost({ env, request }) {
-  const body = await readJson(request);
-  const auth = await requireAdmin(env, body);
+export async function onRequestPost(context) {
+  const auth = await requireAdmin(context);
   if (!auth.ok) return auth.response;
+  const { env, request } = context;
+  const body = await readJson(request);
   const limit = Math.max(1, Math.min(100, parseInt(body.limit, 10) || 20));
   const results = [];
   let budget = limit;

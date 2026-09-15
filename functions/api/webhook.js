@@ -1,7 +1,8 @@
 // Verify LINE's X-Line-Signature = base64(HMAC-SHA256(channelSecret, rawBody)).
-// Enforced only when LINE_CHANNEL_SECRET is configured, so setting the secret in
-// the Pages dashboard turns on webhook authenticity without any code change and
-// its absence never breaks the existing group-id capture.
+// LINE_CHANNEL_SECRET is REQUIRED (P0-2): without it anyone could POST here and
+// point every notification at their own group. Set it as a Pages secret (LINE
+// Developers console > Messaging API > Channel secret); until then the webhook
+// answers 500 and LINE's "Verify" button fails loudly instead of silently trusting.
 async function signatureValid(secret, rawBody, header) {
   if (!header) return false;
   try {
@@ -19,11 +20,12 @@ async function signatureValid(secret, rawBody, header) {
 
 export async function onRequestPost({ request, env }) {
   try {
-    const raw = await request.text();
-    if (env.LINE_CHANNEL_SECRET) {
-      const ok = await signatureValid(env.LINE_CHANNEL_SECRET, raw, request.headers.get("X-Line-Signature"));
-      if (!ok) return new Response("OK", { status: 200 }); // reject forged events, but LINE needs 200
+    if (!env.LINE_CHANNEL_SECRET) {
+      return Response.json({ ok: false, error: "LINE_CHANNEL_SECRET not configured: set it as a Pages secret before connecting the LINE webhook" }, { status: 500 });
     }
+    const raw = await request.text();
+    const ok = await signatureValid(env.LINE_CHANNEL_SECRET, raw, request.headers.get("X-Line-Signature"));
+    if (!ok) return new Response("bad signature", { status: 403 });
     const body = JSON.parse(raw);
     for (const event of (body.events || [])) {
       const groupId = event.source?.groupId;

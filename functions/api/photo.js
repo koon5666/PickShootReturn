@@ -6,12 +6,9 @@
 // as a fallback. Scoped to two fields so it is NOT an arbitrary KV-read primitive.
 import { readField } from "../_lib/store.js";
 import { photoKey, isDataUri } from "../_lib/photos.js";
+import { requireSession } from "../_lib/auth.js";
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+const CORS = {};
 
 const ALLOWED = new Set(["checkouts", "adminRequests"]);
 
@@ -19,7 +16,10 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-export async function onRequestGet({ env, request }) {
+export async function onRequestGet(context) {
+  const auth = await requireSession(context);
+  if (!auth.ok) return auth.response;
+  const { env, request } = context;
   const url = new URL(request.url);
   const field = url.searchParams.get("field");
   if (!ALLOWED.has(field)) {
@@ -43,6 +43,6 @@ export async function onRequestGet({ env, request }) {
     }
   }
   return Response.json({ photos }, {
-    headers: { ...CORS, "Cache-Control": "public, max-age=86400" },
+    headers: { ...CORS, "Cache-Control": "private, max-age=86400" },
   });
 }
