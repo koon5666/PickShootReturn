@@ -1084,7 +1084,6 @@ function buildInvoiceHTML({ invoice, employee, profileInfo, promptPayQR, idCard,
   <div class="hdr">
     <div>
       <div style="font-size:20px;font-weight:800;letter-spacing:.01em">${esc(headerText)}</div>
-      ${fromTaxId && headerText ? `<div style="font-size:9.5px;color:#555;margin-top:2px">เลขประจำตัวผู้เสียภาษี / Tax ID: ${esc(fromTaxId)}</div>` : ""}
     </div>
     <div style="text-align:right">
       <div style="font-size:15px;font-weight:800;letter-spacing:.02em">${title.th}</div>
@@ -1473,8 +1472,8 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
           ))}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ ...S.badge(existingInvoice ? "blue" : "amber"), fontSize: 10 }}>{existingInvoice ? t("docEditTitle") : "DRAFT"}</span>
-          <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{existingInvoice ? "" : t("docDraftNo") + " · "}{t("docNextNo")}: <strong style={{ fontFamily: "monospace", color: "var(--text,#16324A)" }}>{previewNo}</strong></span>
+          <span style={{ ...S.badge(existingInvoice ? "blue" : "amber"), fontSize: 10 }}>{existingInvoice ? ({ quotation: "QUO", receipt: "RTX" }[docType] || "INV") : "DRAFT"}</span>
+          <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{existingInvoice ? "" : t("docDraftNo") + " · "}{existingInvoice ? t("docNo") : t("docNextNo")}: <strong style={{ fontFamily: "monospace", color: "var(--text,#16324A)" }}>{previewNo}</strong></span>
         </div>
         <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.04)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.15)" }}>
           <p style={S.sectionTitle}>{t("docJobInfo")}</p>
@@ -1704,8 +1703,8 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
               return (
                 <div key={it.id} className={"psr-line" + (vatEnabled ? " vat" : "")}>
                   <input className="f-desc" style={{ ...S.input, fontSize: 12, padding: "7px 10px" }} value={it.description} onChange={e => updateItem(it.id, "description", e.target.value)} placeholder={t("docDescription")} />
-                  <input className="f-qty" style={{ ...S.input, fontSize: 12, padding: "7px 6px", textAlign: "right" }} type="number" min="0" step="0.5" inputMode="decimal" value={it.qty} onChange={e => updateItem(it.id, "qty", e.target.value)} placeholder={t("docQty")} />
-                  <input className="f-rate" style={{ ...S.input, fontSize: 12, padding: "7px 8px", textAlign: "right" }} type="number" min="0" inputMode="decimal" value={it.rate} onChange={e => updateItem(it.id, "rate", e.target.value)} placeholder={t("docRate")} />
+                  <input className="f-qty" style={{ ...S.input, fontSize: 12, padding: "7px 6px", textAlign: "right" }} type="number" min="0" step="0.5" inputMode="decimal" value={it.qty} onChange={e => updateItem(it.id, "qty", e.target.value)} placeholder="1" />
+                  <input className="f-rate" style={{ ...S.input, fontSize: 12, padding: "7px 8px", textAlign: "right" }} type="number" min="0" inputMode="decimal" value={it.rate} onChange={e => updateItem(it.id, "rate", e.target.value)} placeholder="฿ 0" />
                   <div className="f-total" style={{ color: lineTotal > 0 ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)" }}>
                     {lineTotal > 0 ? money(lineTotal) : "—"}
                   </div>
@@ -3855,7 +3854,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         const field = (key, label, ph, extra = {}) => (
           <div>
             <label style={S.label}>{label}</label>
-            <input style={{ ...S.input, ...(readOnly ? { background: "var(--surface2,#EAF0F7)", color: "var(--text-muted,#5F7A91)" } : {}) }} value={adminReqForm[key] || ""} readOnly={readOnly} onChange={e => setAdminReqForm(p => ({ ...p, [key]: e.target.value }))} placeholder={ph} {...extra} />
+            <input style={{ ...S.input, ...(readOnly ? { background: "var(--surface2,#EAF0F7)", color: "var(--text-muted,#5F7A91)" } : {}) }} value={adminReqForm[key] || ""} readOnly={readOnly} onChange={e => setAdminReqForm(p => ({ ...p, [key]: e.target.value }))} placeholder={readOnly ? "" : ph} {...extra} />
           </div>
         );
         return (
@@ -4832,8 +4831,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </div>
             </div>
 
-            {/* Save Profile */}
-            <div style={{ position: "sticky", bottom: 16, zIndex: 10 }}>
+            {/* Save Profile: sticks ABOVE the 70px bottom nav (was bottom:16 = hidden behind it until fully scrolled) */}
+            <div style={{ position: "sticky", bottom: 88, zIndex: 10 }}>
               <button
                 style={{ ...S.btn(profileSaveStatus === "saved" ? "success" : profileSaveStatus === "error" ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, opacity: profileSaveStatus === "saving" ? 0.75 : 1, boxShadow: "0 4px 24px rgba(22,50,74,0.17)" }}
                 disabled={profileSaveStatus === "saving"}
@@ -4898,6 +4897,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {tab === "invoice" && (() => {
           const confirmedJobs = jobs.filter(j => j.status === "Confirmed").sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1);
           const allMyInvoices = invoices.filter(inv => inv.employeeId === employee.id && !inv._deleted);
+          // Revenue = invoices only: a quotation is not income and a receipt repeats its invoice's amount.
+          const revenueDocs = allMyInvoices.filter(inv => inv.status !== "Void" && (inv.docType === "invoice" || !inv.docType));
           const filteredInvoices = allMyInvoices
             .filter(inv => (invFilter === "all" || (inv.status || "Pending") === invFilter) && (invDocType === "all" || (inv.docType || "invoice") === invDocType))
             .sort((a, b) => invSort === "amount" ? calcTotal(b) - calcTotal(a) : b.updatedAt - a.updatedAt);
@@ -4965,8 +4966,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
               {/* Revenue Summary */}
               {(() => {
-                const allYears = [...new Set(allMyInvoices.map(inv => new Date(inv.createdAt || inv.updatedAt).getFullYear().toString()))].sort((a,b)=>b-a);
-                const revInvs = allMyInvoices.filter(inv => {
+                const allYears = [...new Set(revenueDocs.map(inv => new Date(inv.createdAt || inv.updatedAt).getFullYear().toString()))].sort((a,b)=>b-a);
+                const revInvs = revenueDocs.filter(inv => {
                   const d = new Date(inv.createdAt || inv.updatedAt);
                   if (revPeriod === "year") return d.getFullYear().toString() === revYear;
                   if (revPeriod === "custom") {
@@ -6547,18 +6548,16 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   const liveAdminDoc = (jobId, kind) => invoices.find(i => !i._deleted && i.jobId === jobId && i.employeeId === "admin" && (kind === "invoice" ? (i.docType === "invoice" || !i.docType) : i.docType === kind) && i.status !== "Void");
   const houseHeader = () => (adminProfileInfo.showCompanyName !== false ? companyName : adminEmployee.name);
   // Explicit house documents (P0-8): open the modal pre-filled; the number is reserved on Save.
+  // With a house position set, the modal's auto-fill builds the labour line from it (position × days),
+  // so the draft carries no items of its own (a pre-filled line would print twice).
   const openQuoteFromJob = (job) => {
-    const defItems = adminPositions.length > 0
-      ? [{ id: `al-${job.id}`, description: `${adminPositions[0].name} (${adminPositions[0].hoursPerDay || 12}hr)`, qty: (job.dates || []).length || 1, rate: String(adminPositions[0].dayRate || ""), vat: true }]
-      : DEFAULT_ITEMS.map(it => ({ ...it, id: `${it.id}-${job.id}` }));
+    const defItems = adminPositions.length > 0 ? [] : DEFAULT_ITEMS.map(it => ({ ...it, id: `${it.id}-${job.id}` }));
     setAdminDraft({ id: `quo-${job.id}-${Date.now()}`, docType: "quotation", jobId: job.id, jobName: job.name || "", productionCompany: job.production || "", shootDates: job.dates || [], position: adminPositions[0]?.name || "", status: job.status === "Confirmed" ? "Confirmed" : "Pending", items: defItems, callWrap: {}, invoiceHeader: houseHeader(), showWatermark: false, vatEnabled: false, vatType: "exclusive" });
     setAdminEditInvoice(null); setAdminCreateModal(true);
   };
   const openInvoiceFromJob = (job) => {
     const quo = liveAdminDoc(job.id, "quotation");
-    const items = quo ? quo.items.map(it => ({ ...it })) : (adminPositions.length > 0
-      ? [{ id: `al-${job.id}-inv`, description: `${adminPositions[0].name} (${adminPositions[0].hoursPerDay || 12}hr)`, qty: (job.dates || []).length || 1, rate: String(adminPositions[0].dayRate || ""), vat: true }]
-      : DEFAULT_ITEMS.map(it => ({ ...it, id: `${it.id}-${job.id}-inv` })));
+    const items = quo ? quo.items.map(it => ({ ...it })) : (adminPositions.length > 0 ? [] : DEFAULT_ITEMS.map(it => ({ ...it, id: `${it.id}-${job.id}-inv` })));
     setAdminDraft({ id: `inv-${job.id}-${Date.now()}`, docType: "invoice", jobId: job.id, jobName: job.name || "", productionCompany: quo?.productionCompany || job.production || "", shootDates: quo?.shootDates || job.dates || [], position: quo?.position || adminPositions[0]?.name || "", status: "Pending", items, callWrap: quo?.callWrap || {}, invoiceHeader: quo?.invoiceHeader ?? houseHeader(), showWatermark: quo?.showWatermark || false, vatEnabled: quo?.vatEnabled || false, vatType: quo?.vatType || "exclusive", whtEnabled: quo?.whtEnabled || false, termsDays: quo?.termsDays ?? null, dueDate: null, includeIdCard: false, includeSignature: quo?.includeSignature !== false, includeBank: quo?.includeBank !== false, linkedQuoId: quo?.id || null });
     setAdminEditInvoice(null); setAdminCreateModal(true);
   };
@@ -6875,7 +6874,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             // ── Monthly income summary + month buckets (RTX only) ────────────
             const monthSummary = activeTab === "rtx" ? (() => {
               const map = {};
-              filtered.forEach(inv => {
+              filtered.filter(inv => inv.status !== "Void").forEach(inv => {
                 let key, label;
                 if (inv.paidDate) {
                   const d = new Date(inv.paidDate + "T00:00:00");
@@ -6907,7 +6906,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 }
                 if (!map[key]) map[key] = { key, label, groups: [], subtotal: 0, vatAmount: 0, total: 0 };
                 map[key].groups.push(group);
-                group.docs.forEach(inv => {
+                group.docs.filter(inv => inv.status !== "Void").forEach(inv => {
                   const { subtotal, vatAmount, total } = calcVatBreakdown(inv);
                   map[key].subtotal += subtotal; map[key].vatAmount += vatAmount; map[key].total += total;
                 });
@@ -6929,7 +6928,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                       {empNames ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{empNames}</p> : null}
                     </div>
                     {groupMissingAdminInv && (
-                      <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px", flexShrink: 0 }} onClick={() => handleRegenerateInv(group.key)} title="Recreate the admin INV for this job">Regen INV</button>
+                      <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px", flexShrink: 0 }} onClick={() => handleRegenerateInv(group.key)}>{t("createInvoiceFromJob")}</button>
                     )}
                   </div>
                   {group.docs.map((inv, idx, arr) => {
@@ -6962,7 +6961,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                           </>}
                           {inv.docType === "quotation" && st === "Confirmed" && (() => {
                             const hasActiveInv = invoices.some(i => !i._deleted && i.jobId === inv.jobId && (i.docType === "invoice" || !i.docType) && i.employeeId === "admin");
-                            return !hasActiveInv ? <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleRegenerateInv(inv.jobId)} title="Recreate the admin INV from this QUO">Regen INV</button> : null;
+                            return !hasActiveInv ? <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleRegenerateInv(inv.jobId)}>{t("createInvoiceFromQuote")}</button> : null;
                           })()}
                           {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? t("markPending") : t("markPaid")}</button>}
                           {(inv.docType === "invoice" || !inv.docType) && isPaid && !liveReceiptFor(inv) && <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => issueReceipt(inv)}>🧾 {t("issueReceipt")}</button>}

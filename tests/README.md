@@ -72,3 +72,18 @@ New UI strings go in `src/i18n/tracks/<track>.js` (see `src/i18n/tracks/README.m
 
 `npm run build && npm test && npm run i18n:check && npm run smoke -- $PORT`, then stop your
 server with `node tests/local-server.mjs stop <stateDir>`.
+
+## 5. Documents track walk-through
+
+```sh
+node tests/walk-documents.mjs $PORT   # needs a FRESH default seed (it creates documents)
+```
+
+Crew (390x844, Nong): profile helper text / prefix / tax ID / OT example + flat ฿/h,
+Create Document (own-name header, next-number preview, two-row line items, WHT 3%,
+attachments, save validation, toast), printed HTML (bilingual titles, WHT + net, no ID
+card), Mark Paid dialog + Issue receipt + Undo paid (voids the receipt), shared production
+house read-only vs own editable (tax ID + branch), 72 h share link + view counter + revoke,
+Thai modal. Admin (1280x900): nothing minted on mount, Create quote from job, Create invoice
+from quote, paid dialog, Issue receipt, void, Companies tax ID, Presets Save, positions OT
+example, and the same modal at 390px. Screenshots in `tests/.walk-shots/`.
