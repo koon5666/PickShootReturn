@@ -386,6 +386,30 @@ try {
     console.log(`  ok  foreign writes: invoices ${res.r1} (dropped), employees ${res.r2}, profile ${res.r3}, forged checkout ${res.r4} (dropped)`);
   });
 
+  // ── offline: cached session + cached data still give a read-only view ────
+  await step("offline boot: cached session (no PIN) + cache -> Offline banner, reads still work", async () => {
+    await newPage({ width: 390, height: 844, isMobile: true }, { keepStorage: true }); // the reload below must keep localStorage
+    await waitText("Crew / ทีมงาน");
+    await clickText("Crew / ทีมงาน", "button", false);
+    // Ploy (PIN reset to 4444 above); Arthit may still be inside his 60 s lockout from step 2.
+    await clickText("Select account", "button", false); await waitText("Ploy", 5_000); await clickText("Ploy", "span");
+    await pin("4444");
+    await waitText("Today's Jobs");
+    const stored = await page.evaluate(() => localStorage.getItem("psr_user") || "");
+    if (!stored || /pin/i.test(stored)) fail("psr_user missing or carries a pin: " + stored);
+    const errMark = errors.length;
+    await page.setRequestInterception(true);
+    const abortApi = (r) => { if (/\/api\//.test(r.url())) r.abort("failed"); else r.continue(); };
+    page.on("request", abortApi);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await waitText("Offline", 30_000);
+    if (!(await hasText("Today's Jobs"))) fail("offline view lost the cached data");
+    await shot("offline-cached");
+    page.off("request", abortApi);
+    await page.setRequestInterception(false);
+    errors.splice(errMark); // the aborted /api calls are the point of this step
+  });
+
   const bad = errors.filter(e => !ALLOW.some(rx => rx.test(e)));
   if (bad.length) { console.error("\nUnexpected errors:\n  " + bad.join("\n  ")); fail(`${bad.length} unexpected page/console error(s)`); }
   console.log(`\nAUTH WALK PASSED (${shotN} screenshots in ${SHOTS})`);

@@ -9360,8 +9360,13 @@ export default function App() {
   const [calendarToken, setCalendarToken] = useState(null);
   useEffect(() => {
     setActor(user);
-    try { user ? localStorage.setItem(SESSION_KEY, JSON.stringify({ role: user.role, id: user.id, name: user.name || "", staffId: user.staffId, staffRole: user.staffRole })) : localStorage.removeItem(SESSION_KEY); } catch {}
-  }, [user]);
+    // Never clear the cached session during boot (user is null until /api/me
+    // answers): the offline path needs it when the server is unreachable.
+    try {
+      if (user) localStorage.setItem(SESSION_KEY, JSON.stringify({ role: user.role, id: user.id, name: user.name || "", staffId: user.staffId, staffRole: user.staffRole }));
+      else if (booted) localStorage.removeItem(SESSION_KEY);
+    } catch {}
+  }, [user, booted]);
   const [activePage, setActivePage] = useState("dashboard");
   const [eqInitialTab, setEqInitialTab] = useState(null); // opens Equipment page straight to a tab (e.g. reports)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
