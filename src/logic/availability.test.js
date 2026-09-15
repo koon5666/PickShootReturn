@@ -68,6 +68,7 @@ describe("stillOutUnits (count-based, per lane)", () => {
     expect(stillOutUnits(both)[0].qty).toBe(2);
     const returnedPhotoOnly = [...both, { jobId: "jA", eqId: "x", qty: 2, type: "return", ts: 3 }];
     expect(stillOutUnits(returnedPhotoOnly)[0].qty).toBe(2); // barcode lane still open
+    expect(stillOutUnits(returnedPhotoOnly)[0].lanes).toEqual({ photo: 0, barcode: 2 });
     const returnedBoth = [...returnedPhotoOnly, { jobId: "jA", eqId: "x", qty: 2, type: "barcode_return", ts: 4 }];
     expect(stillOutUnits(returnedBoth)).toEqual([]);
   });
@@ -234,7 +235,7 @@ describe("jobConflicts (P1-9)", () => {
 
 describe("stillOutList (P1-11 / P1-12)", () => {
   it("rows carry qty, due date, overdue days, crew and job, sorted overdue first", () => {
-    const rows = stillOutList({ checkouts, jobs: ctx.jobs, equipment, today: T, now: at(0, 12) });
+    const rows = stillOutList({ checkouts, jobs: ctx.jobs, equipment, today: T, tz: "Asia/Bangkok" });
     expect(rows.map(r => r.eqId)).toEqual(["eq_vmount", "eq_fx6"]); // both overdue 2d, latest pick first
     const fx6 = rows.find(r => r.eqId === "eq_fx6");
     expect(fx6).toMatchObject({ qty: 1, jobName: "TVC Toyota", pickedBy: "Nong", pickedById: "e_nong", dueDate: day(-2), overdue: true, daysOverdue: 2, dueToday: false, jobGone: false });

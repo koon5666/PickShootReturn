@@ -94,16 +94,17 @@ export function stillOutUnits(checkouts) {
   const out = [];
   for (const e of map.values()) {
     const qty = Math.max(0, e.photo, e.barcode);
-    if (qty > 0) out.push({ holder: e.holder, jobId: e.jobId, requestId: e.requestId, eqId: e.eqId, qty, pickedAt: e.pickedAt, pickedBy: e.pickedBy, pickedById: e.pickedById, jobName: e.jobName });
+    if (qty > 0) out.push({ holder: e.holder, jobId: e.jobId, requestId: e.requestId, eqId: e.eqId, qty, lanes: { photo: Math.max(0, e.photo), barcode: Math.max(0, e.barcode) }, pickedAt: e.pickedAt, pickedBy: e.pickedBy, pickedById: e.pickedById, jobName: e.jobName });
   }
   return out;
 }
 
 // Dashboard "Not Returned" rows: still-out units joined to the job / request /
 // equipment records when they exist (a deleted or Cancelled job still lists).
-export function stillOutList({ checkouts, jobs = [], equipment = [], equipmentRequests = [], today: todayStr, now } = {}) {
+export function stillOutList({ checkouts, jobs = [], equipment = [], equipmentRequests = [], today: todayStr, tz } = {}) {
   const t = todayStr || localToday();
-  const nowMs = now || Date.now();
+  // Calendar day of a timestamp in the app timezone (falls back to local time).
+  const dayOf = (ts) => { try { return new Intl.DateTimeFormat("en-CA", { timeZone: tz || undefined }).format(new Date(ts)); } catch { return new Date(ts).toISOString().slice(0, 10); } };
   const rows = stillOutUnits(checkouts).map(u => {
     const job = u.jobId ? jobs.find(j => j.id === u.jobId) || null : null;
     const req = u.requestId ? equipmentRequests.find(r => r.id === u.requestId) || null : null;
@@ -117,7 +118,7 @@ export function stillOutList({ checkouts, jobs = [], equipment = [], equipmentRe
       jobGone: !!u.jobId && !job,
       dueDate, overdue, dueToday: !!dueDate && dueDate === t,
       daysOverdue: overdue ? daysBetween(dueDate, t) : 0,
-      daysOut: u.pickedAt ? Math.max(0, Math.floor((nowMs - u.pickedAt) / 86400000)) : 0,
+      daysOut: u.pickedAt ? Math.max(0, daysBetween(dayOf(u.pickedAt), t)) : 0,
     };
   });
   return rows.sort((a, b) => (b.overdue ? 1 : 0) - (a.overdue ? 1 : 0) || (b.daysOverdue - a.daysOverdue) || b.pickedAt - a.pickedAt);
