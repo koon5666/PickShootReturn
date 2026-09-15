@@ -9,3 +9,4 @@ tests/.smoke-shots/
 .DS_Store
 .wrangler-prod/
 .wrangler-*/
+node_modules
