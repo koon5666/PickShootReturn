@@ -9,9 +9,14 @@
 //   changed(key)   = safeSave AND reference !== lastSaved[key]
 //   invoices       = an employee sends only their own; admin sends all
 //   lineGroupId    = null means "leave KV alone"
+//   employee       = only the fields the server lets a crew session write
+//                    (functions/_lib/roles.js EMPLOYEE_PUT_FIELDS, the same list
+//                    the server enforces: one stray field would 403 the whole PUT
+//                    and take the allowed ones down with it)
 // Pure; unit-tested in offline.test.js.
+import { EMPLOYEE_PUT_FIELDS } from "../../functions/_lib/roles.js";
 
-export const SAVE_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "adminPin", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled", "theme"];
+export const SAVE_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled", "theme"];
 
 // state: { field: value } (may include lineGroupId). Returns { payload, sent }:
 // payload is what to PUT, sent the per-field values to record in lastSaved once
@@ -19,13 +24,14 @@ export const SAVE_FIELDS = ["equipment", "jobs", "checkouts", "employees", "repo
 export function buildSavePayload(state, { lastSaved = {}, kvLoaded = new Set(), snapshot = null, user = null } = {}) {
   const safeSave = (key, val) => kvLoaded.has(key) || (snapshot !== null && val !== snapshot[key]);
   const changed = (key, val) => safeSave(key, val) && lastSaved[key] !== val;
+  const isEmployee = user != null && user.role !== "admin";
   const payload = {}, sent = {};
   for (const key of SAVE_FIELDS) {
     if (!(key in state)) continue;
+    if (isEmployee && !EMPLOYEE_PUT_FIELDS.has(key)) continue; // server-rejected for a crew session
     const val = state[key];
     if (!changed(key, val)) continue;
     if (key === "invoices") {
-      const isEmployee = user != null && user.role !== "admin";
       payload.invoices = isEmployee ? (val || []).filter(inv => inv.employeeId === user.id) : val;
       payload._invoiceEmployeeId = isEmployee ? user.id : "admin";
     } else {
@@ -33,7 +39,7 @@ export function buildSavePayload(state, { lastSaved = {}, kvLoaded = new Set(), 
     }
     sent[key] = val;
   }
-  if ("lineGroupId" in state && state.lineGroupId !== null && changed("lineGroupId", state.lineGroupId)) {
+  if (!isEmployee && "lineGroupId" in state && state.lineGroupId !== null && changed("lineGroupId", state.lineGroupId)) {
     payload.lineGroupId = state.lineGroupId;
     sent.lineGroupId = state.lineGroupId;
   }

@@ -31,6 +31,20 @@ describe("buildSavePayload", () => {
     const adm = buildSavePayload({ invoices: inv, lineGroupId: "G" }, { kvLoaded, user: { role: "admin" } });
     expect(adm.payload).toEqual({ invoices: inv, _invoiceEmployeeId: "admin", lineGroupId: "G" });
   });
+  it("employee never sends a field the server forbids (theme, jobs, lineGroupId), even when it looks dirty", () => {
+    // Crew boot: KV has no theme yet, so lastSaved.theme is undefined while state
+    // holds the cached default object. Before this guard the Save button PUT it
+    // and the server 403'd the whole request (checkout Save failed for every crew).
+    const theme = { style: "flat", palette: "white-blue" };
+    const kvLoaded = new Set(["jobs", "checkouts", "lineGroupId"]);
+    const state = { jobs, checkouts: [{ id: "c1" }], theme, lineGroupId: "G" };
+    const emp = buildSavePayload(state, { lastSaved: { jobs: [] }, kvLoaded, user: { role: "employee", id: "e1" } });
+    expect(emp.payload).toEqual({ checkouts: state.checkouts });
+    expect(emp.sent).toEqual({ checkouts: state.checkouts });
+    // admin still sends them all
+    const adm = buildSavePayload(state, { lastSaved: { jobs: [] }, kvLoaded, snapshot: { theme: {} }, user: { role: "admin" } });
+    expect(Object.keys(adm.payload).sort()).toEqual(["checkouts", "jobs", "lineGroupId", "theme"]);
+  });
   it("dirtyFields names the pending delta; theme is a known field", () => {
     expect(SAVE_FIELDS).toContain("theme");
     const kvLoaded = new Set(["equipment", "theme"]);
