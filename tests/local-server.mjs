@@ -7,7 +7,7 @@
 // - Refuses a port that is already listening (never reclaims another session's server).
 // - State (local KV) lives in <stateDir> (--persist-to), so nothing touches the real KV.
 // - Writes <stateDir>/wrangler.pid + <stateDir>/wrangler.log, waits until
-//   GET /api/data answers 200, prints the PID, exits (the server keeps running).
+//   GET /api/public answers 200, prints the PID, exits (the server keeps running).
 // - --session <name> registers the server in /tmp/claude-dev-servers.json; `stop`
 //   kills ONLY the PID recorded in <stateDir>/wrangler.pid (its process group) and
 //   removes that registry entry.
@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync, unlinkSyn
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createConnection } from "node:net";
+import { randomBytes } from "node:crypto";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REGISTRY = "/tmp/claude-dev-servers.json";
@@ -73,6 +74,14 @@ if (!noBuild || !existsSync(join(ROOT, "dist", "index.html"))) {
   console.log("building dist (vite build)…");
   execFileSync(join(ROOT, "node_modules", ".bin", "vite"), ["build"], { cwd: ROOT, stdio: "inherit" });
 }
+// Auth (P0-2): the functions refuse to run without SESSION_SECRET. Locally it
+// comes from .dev.vars (gitignored); create one with a random secret if missing.
+const devVars = join(ROOT, ".dev.vars");
+if (!existsSync(devVars) || !/^SESSION_SECRET=\S+/m.test(readFileSync(devVars, "utf8"))) {
+  const existing = existsSync(devVars) ? readFileSync(devVars, "utf8").replace(/\s*$/, "\n") : "";
+  writeFileSync(devVars, `${existing}SESSION_SECRET=${randomBytes(32).toString("hex")}\n`);
+  console.log(`wrote SESSION_SECRET to ${devVars} (local only; prod uses the Pages secret)`);
+}
 mkdirSync(stateDir, { recursive: true });
 const logPath = join(stateDir, "wrangler.log");
 const logFd = openSync(logPath, "a");
@@ -92,12 +101,12 @@ while (Date.now() < deadline) {
   let alive = true; try { process.kill(child.pid, 0); } catch { alive = false; }
   if (!alive) { console.error("wrangler exited early, see " + logPath); process.exit(1); }
   try {
-    const r = await fetch(base + "/api/data");
+    const r = await fetch(base + "/api/public");
     if (r.status === 200) { ok = true; break; }
   } catch {}
   await sleep(500);
 }
-if (!ok) { console.error("timed out waiting for GET /api/data 200, see " + logPath); process.exit(1); }
+if (!ok) { console.error("timed out waiting for GET /api/public 200, see " + logPath); process.exit(1); }
 
 if (session) {
   const list = readRegistry().filter(e => e.pid !== child.pid);

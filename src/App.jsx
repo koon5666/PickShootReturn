@@ -19,8 +19,29 @@ const SHOOT_TIMES = ["Day", "Night", "Half Day / Half Night", "Half Night / Half
 const LOCATIONS = ["Local (Bangkok)", "Out of Town", "Overseas"];
 
 // ─── CLOUD API ───────────────────────────────────────────────────────────────
+// Every call is same-origin and rides on the httpOnly session cookie the server
+// sets at /api/login (P0-2); nothing here ever carries a PIN except the login /
+// PIN-change calls themselves. `j(r)` = status + parsed body, never throws on HTTP errors.
+const j = (r) => r.json().catch(() => ({})).then(b => ({ status: r.status, ...b }));
+const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 const api = {
-  getData: () => fetch("/api/data").then(r => { if (!r.ok) throw new Error("load failed"); return r.json(); }),
+  // session
+  me: () => fetch("/api/me", { cache: "no-store" }).then(r => r.status === 401 ? null : r.ok ? r.json().then(d => d.user || null) : r.json().catch(() => ({})).then(d => Promise.reject(Object.assign(new Error(d.error || "me failed"), { status: r.status, server: true })))),
+  login: (body) => post("/api/login", body).then(j),
+  logout: () => post("/api/logout").catch(() => {}),
+  publicInfo: () => fetch("/api/public", { cache: "no-store" }).then(r => { if (!r.ok) throw new Error("public failed"); return r.json(); }),
+  register: (body) => post("/api/register", body).then(j),
+  changePin: (oldPin, newPin) => post("/api/pin", { oldPin, newPin }).then(j),
+  setEmployeePin: (id, pin, name) => post(`/api/employees/${encodeURIComponent(id)}/pin`, name ? { pin, name } : { pin }).then(j),
+  approveMember: (requestId, approve) => post("/api/approve-member", { requestId, approve }).then(j),
+  staffAdd: (body) => post("/api/staff", body).then(j),
+  staffRename: (id, name) => fetch(`/api/staff/${encodeURIComponent(id)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }).then(j),
+  staffRemove: (id) => fetch(`/api/staff/${encodeURIComponent(id)}`, { method: "DELETE" }).then(j),
+  staffPin: (id, pin) => post(`/api/staff/${encodeURIComponent(id)}/pin`, { pin }).then(j),
+  calendarToken: (rotate) => post("/api/calendar-token", { rotate: !!rotate }).then(j),
+  audit: (entry) => post("/api/audit", entry).catch(() => {}),
+  // data
+  getData: () => fetch("/api/data").then(r => { if (!r.ok) { const e = new Error("load failed"); e.status = r.status; throw e; } return r.json(); }),
   putData: (body) => fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
   getProfile: (empId) => fetch(`/api/profile/${empId}`).then(r => r.ok ? r.json() : null),
   putProfile: (empId, profileObj) => fetch(`/api/profile/${empId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profileObj) }),
@@ -36,24 +57,35 @@ const api = {
   // Dated backup versions (P2-7): list, download one, restore one server-side.
   listBackups: () => fetch("/api/backup?list=1").then(r => r.ok ? r.json() : { backups: [] }).then(d => d.backups || []).catch(() => []),
   getBackupById: (id) => fetch(`/api/backup?id=${encodeURIComponent(id)}`).then(r => r.ok ? r.json() : null),
-  restoreBackup: (id, adminPin) => fetch("/api/backup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, adminPin }) }).then(r => r.json().then(j => ({ status: r.status, ...j }))),
+  restoreBackup: (id) => post("/api/backup", { id }).then(j),
   // Server-side deletes that stick (P0-5): a tombstone for one record, or the
   // whole pickup/return history (takes a safety backup first).
-  deleteRecord: (field, id, adminPin) => fetch("/api/tombstone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ field, id, adminPin }) }).then(r => r.json().then(j => ({ status: r.status, ...j }))),
-  clearHistory: (adminPin) => fetch("/api/history-clear", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminPin }) }).then(r => r.json().then(j => ({ status: r.status, ...j }))),
+  deleteRecord: (field, id) => post("/api/tombstone", { field, id }).then(j),
+  clearHistory: () => post("/api/history-clear").then(j),
   // Photo storage migration (P0-1): progress + one batch.
   migrateStatus: () => fetch("/api/migrate-photos").then(r => r.ok ? r.json() : null).catch(() => null),
-  migratePhotos: (adminPin, limit = 20) => fetch("/api/migrate-photos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminPin, limit }) }).then(r => r.json().then(j => ({ status: r.status, ...j }))),
+  migratePhotos: (limit = 20) => post("/api/migrate-photos", { limit }).then(j),
   // Lazy per-entry verification photos (boot payload ships them stripped). Scoped
   // server-side to checkouts + adminRequests. Returns { [id]: dataUrl }.
   getPhotos: (field, ids) => fetch(`/api/photo?field=${encodeURIComponent(field)}&ids=${ids.map(encodeURIComponent).join(",")}`)
     .then(r => r.ok ? r.json() : { photos: {} }).then(d => d.photos || {}).catch(() => ({})),
 };
 
+// Who is acting (P2-6): the signed-in session, set by App whenever `user`
+// changes. Event writers stamp `by: actorName()` so an approval, return, KPI
+// deduction or delete carries the staff member's name, not a bare "admin".
+let ACTOR = { role: null, id: null, name: "" };
+export function setActor(u) { ACTOR = u ? { role: u.role, id: u.id, name: u.name || (u.role === "admin" ? "Admin" : "") } : { role: null, id: null, name: "" }; }
+export const actorName = () => ACTOR.name || (ACTOR.role === "admin" ? "Admin" : "");
+const SESSION_KEY = "psr_user";     // cached session view (role/id/name only, never a PIN) for the offline path
+const PENDING_KEY = "psr_pending";  // name of the member-register request sent from this device (P2-8)
+
 const CACHE_KEY = "psr_cache"; // localStorage key for offline fallback cache
 
-// Top-level fields persisted to KV (mirrors functions/api/data.js FIELDS).
-const DATA_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "adminPin", "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled"];
+// Top-level fields the client persists to KV (the server FIELDS list in
+// functions/_lib/store.js also holds the server-owned adminPinHash / staff /
+// calendarToken / auditLog, which the client only reads).
+const DATA_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled"];
 
 // Replace inline base64 verification photos with a lightweight marker before a
 // snapshot is cached. Keeps the localStorage cache well under quota (the full
@@ -757,7 +789,11 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
     // erase the only record that this gear is unaccounted for.
     const out = unitsOutForEquipment(checkouts, id);
     if (out > 0) { window.alert(t("eqDeleteBlocked").replace("{n}", out)); return; }
-    if (window.confirm(t("eqDeleteConfirm"))) setEquipment(p => p.filter(e => e.id !== id));
+    if (window.confirm(t("eqDeleteConfirm"))) {
+      const eq = equipment.find(e => e.id === id);
+      setEquipment(p => p.filter(e => e.id !== id));
+      api.audit({ action: "equipment.delete", recordId: id, name: eq ? eq.name : "" }); // actor stamp (P2-6)
+    }
   };
 
   // P3-5: full per-item log, newest first, date-filterable, paged 20 at a time.
@@ -2281,7 +2317,11 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
       }
       return;
     }
-    if (window.confirm(t("jobDeleteConfirm"))) setJobs(p => p.filter(j => j.id !== id));
+    if (window.confirm(t("jobDeleteConfirm"))) {
+      const job = jobs.find(j => j.id === id);
+      setJobs(p => p.filter(j => j.id !== id));
+      api.audit({ action: "job.delete", recordId: id, name: job ? job.name : "", detail: job ? (job.dates || []).join(",") : "" }); // actor stamp (P2-6)
+    }
   };
 
   const openAssign = (job) => {
@@ -3466,9 +3506,9 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                       {req.address ? ` · ${req.address}` : ""}
                       {req.category ? ` · ${req.category}` : ""}
                       {req.total && req.type === "equipment" ? ` · ×${req.total}` : ""}
-                      {req.requestedPin && req.type === "member-register" ? ` · PIN: ${req.requestedPin}` : ""}
+                      {req.contact && req.type === "member-register" ? ` · ${t("dashContact")}: ${req.contact}` : ""}
                     </p>
-                    <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
+                    <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}{req.approvedBy ? ` · ${t("dashByLabel")} ${req.approvedBy}` : ""}</p>
                     <LazyPhoto field="adminRequests" id={req.id} photo={req.photo} hasPhoto={req.hasPhoto} alt="preview" style={{ width: 60, maxWidth: 60, height: 60, objectFit: "cover", borderRadius: 5, marginTop: 6, border: "1px solid var(--border-color,#D8E1EC)" }} />
                     {req.status === "pending" && (
                       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -3528,7 +3568,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, setProductionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, setProductionCompanies, companyName, setLang, onLogout, calendarToken, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | gear | invoice
@@ -3536,7 +3576,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [showGearRequest, setShowGearRequest] = useState(false);
   const [gearReqForm, setGearReqForm] = useState({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
   const [gearReqCalMonth, setGearReqCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
-  const [pinChangeForm, setPinChangeForm] = useState({ newPin: "", confirmPin: "" });
+  const [pinChangeForm, setPinChangeForm] = useState({ oldPin: "", newPin: "", confirmPin: "" });
+  const [pinChangeBusy, setPinChangeBusy] = useState(false);
   const [pinChangeMsg, setPinChangeMsg] = useState(null);
   const [selectedJob, setSelectedJob] = useState(null);
   const [checkedItems, setCheckedItems] = useState({});
@@ -5120,10 +5161,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </div>
             </div>
 
-            {/* PIN Change */}
+            {/* PIN Change: verified + written server-side (P0-2); nothing about the PIN stays in state */}
             <div style={S.card}>
               <p style={S.sectionTitle}>{t("changePasscode")}</p>
               <div style={S.col}>
+                <div>
+                  <label style={S.label}>{t("settingsCurrentPinLabel")}</label>
+                  <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={pinChangeForm.oldPin} onChange={e => setPinChangeForm(p => ({ ...p, oldPin: e.target.value.replace(/\D/g, "") }))} />
+                </div>
                 <div>
                   <label style={S.label}>{t("newPinLabel")}</label>
                   <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={pinChangeForm.newPin} onChange={e => setPinChangeForm(p => ({ ...p, newPin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 5678" />
@@ -5133,14 +5178,18 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={pinChangeForm.confirmPin} onChange={e => setPinChangeForm(p => ({ ...p, confirmPin: e.target.value.replace(/\D/g, "") }))} placeholder="Re-enter PIN" />
                 </div>
                 {pinChangeMsg && <p style={{ fontSize: 12, color: pinChangeMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{pinChangeMsg.text}</p>}
-                <button style={{ ...S.btn("primary"), alignSelf: "flex-end" }} onClick={() => {
-                  const { newPin, confirmPin } = pinChangeForm;
-                  if (!/^\d{4,6}$/.test(newPin)) { setPinChangeMsg({ ok: false, text: "PIN must be 4–6 digits." }); return; }
-                  if (newPin !== confirmPin) { setPinChangeMsg({ ok: false, text: "PINs do not match." }); return; }
-                  setEmployees(p => p.map(e => e.id === employee.id ? { ...e, pin: newPin } : e));
-                  setPinChangeForm({ newPin: "", confirmPin: "" });
-                  setPinChangeMsg({ ok: true, text: "Passcode updated!" });
-                  setTimeout(() => setPinChangeMsg(null), 3000);
+                <button style={{ ...S.btn("primary"), alignSelf: "flex-end", opacity: pinChangeBusy ? 0.6 : 1 }} disabled={pinChangeBusy} onClick={async () => {
+                  const { oldPin, newPin, confirmPin } = pinChangeForm;
+                  if (!/^\d{4,6}$/.test(oldPin)) { setPinChangeMsg({ ok: false, text: t("settingsPinWrong") }); return; }
+                  if (!/^\d{4,6}$/.test(newPin)) { setPinChangeMsg({ ok: false, text: t("loginPinDigits") }); return; }
+                  if (newPin !== confirmPin) { setPinChangeMsg({ ok: false, text: t("loginPinMatch") }); return; }
+                  setPinChangeBusy(true);
+                  const r = await api.changePin(oldPin, newPin).catch(() => ({ status: 0 }));
+                  setPinChangeBusy(false);
+                  if (r.ok) { setPinChangeForm({ oldPin: "", newPin: "", confirmPin: "" }); setPinChangeMsg({ ok: true, text: t("pinResetDone") }); setTimeout(() => setPinChangeMsg(null), 3000); return; }
+                  if (r.status === 401) { setPinChangeMsg({ ok: false, text: t("settingsPinWrong") }); return; }
+                  if (r.status === 429) { setPinChangeMsg({ ok: false, text: t("loginTooManyAttempts") + (r.retryAfter || 60) + t("loginSeconds") }); return; }
+                  setPinChangeMsg({ ok: false, text: r.error || t("pinSaveFailed") });
                 }}>{t("updatePasscode")}</button>
               </div>
             </div>
@@ -5159,9 +5208,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   3. Paste the URL below → <strong>Next → Save</strong>
                 </div>
                 <code style={{ background: "rgba(var(--accent-rgb,37,99,235),0.1)", color: "var(--accent,#2563EB)", padding: "6px 10px", borderRadius: 6, fontSize: 11, wordBreak: "break-all" }}>
-                  https://pickshootreturn.pages.dev/api/calendar
+                  {calendarToken ? calendarUrl(calendarToken) : "…"}
                 </code>
-                <button style={{ ...S.btn("ghost"), alignSelf: "flex-start", fontSize: 12 }} onClick={() => navigator.clipboard?.writeText("https://pickshootreturn.pages.dev/api/calendar")}>
+                <p style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("settingsCalTokenHint")}</p>
+                <button style={{ ...S.btn("ghost"), alignSelf: "flex-start", fontSize: 12 }} disabled={!calendarToken} onClick={() => navigator.clipboard?.writeText(calendarUrl(calendarToken))}>
                   📋 Copy URL
                 </button>
               </div>
@@ -5290,7 +5340,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           };
 
           const delInvoice = (id) => {
-            if (window.confirm("Delete this invoice?")) setInvoices(p => p.map(i => i.id === id ? { ...i, _deleted: true } : i));
+            if (window.confirm("Delete this invoice?")) setInvoices(p => p.map(i => i.id === id ? { ...i, _deleted: true, deletedAt: Date.now(), deletedBy: actorName() } : i));
           };
 
           return (
@@ -5870,18 +5920,37 @@ function AdminReportsPage({ reports, setReports, equipment, jobs, productionComp
 }
 
 // ─── LOGIN ────────────────────────────────────────────────────────────────────
-function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAdminRequests }) {
+// Server-side login (P0-2): the PIN goes to POST /api/login and never touches
+// local state after the request; the lockout countdown is the SERVER's 429
+// Retry-After, so a reload does not reset it. Crew is the primary action and
+// admin a small link (P2-10); registration asks for a contact and this device
+// remembers the request so the screen can say "waiting for approval" (P2-8).
+// `info` = GET /api/public: { companyName, employees:[{id,name}], staff:[{id,name,role}], ownerName, pendingRegistrations:[{name}] }.
+function Login({ onLogin, info, refreshInfo, setLang }) {
   const t = useT();
   const [mode, setMode] = useState("choose"); // choose | admin | employee | register
+  // Names + pending registrations can change while this screen is open (an
+  // approval on the admin side): refresh whenever the chooser is shown again.
+  const firstShow = useRef(true);
+  useEffect(() => {
+    if (mode !== "choose" || !refreshInfo) return;
+    if (firstShow.current) { firstShow.current = false; return; }
+    refreshInfo();
+  }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
   const [pin, setPin] = useState("");
   const [selectedEmp, setSelectedEmp] = useState(null);
+  const [selectedStaff, setSelectedStaff] = useState("owner");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const [ddOpen, setDdOpen] = useState(false);
-  const [regForm, setRegForm] = useState({ name: "", pin: "", confirm: "" });
+  const [regForm, setRegForm] = useState({ name: "", contact: "", pin: "", confirm: "" });
   const [regMsg, setRegMsg] = useState(null);
-  const failedAttempts = useRef([]); // timestamps of recent failures
   const [lockUntil, setLockUntil] = useState(0);
   const [lockSecsLeft, setLockSecsLeft] = useState(0);
+  const [pendingName, setPendingName] = useState(() => { try { return localStorage.getItem(PENDING_KEY) || ""; } catch { return ""; } });
+  const employees = (info && info.employees) || [];
+  const staffList = (info && info.staff) || [];
+  const companyName = info && info.companyName;
 
   useEffect(() => {
     if (lockUntil <= Date.now()) return;
@@ -5896,154 +5965,183 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
 
   const isLocked = Date.now() < lockUntil;
 
-  const recordFailure = () => {
-    const now = Date.now();
-    failedAttempts.current = [...failedAttempts.current, now].filter(t => now - t < 60000);
-    if (failedAttempts.current.length >= 5) {
-      const lockEnd = failedAttempts.current[0] + 60000;
-      setLockUntil(lockEnd);
-      failedAttempts.current = [];
-    }
-  };
-
-  const tryLogin = () => {
-    if (isLocked) return;
-    if (mode === "admin") {
-      if (pin === adminPin) { onLogin({ role: "admin", id: "admin" }); }
-      else { recordFailure(); setError(t("loginIncorrectPin")); setPin(""); }
-    } else if (mode === "employee" && selectedEmp) {
-      const emp = employees.find(e => e.id === selectedEmp);
-      if (pin === emp.pin) { onLogin({ role: "employee", ...emp }); }
-      else { recordFailure(); setError(t("loginIncorrectPin")); setPin(""); }
-    }
+  const tryLogin = async () => {
+    if (isLocked || busy) return;
+    if (!/^\d{4,6}$/.test(pin)) { setError(t("loginPinDigits")); return; }
+    const body = mode === "admin" ? { role: "admin", staffId: selectedStaff || "owner", pin } : { role: "employee", empId: selectedEmp, pin };
+    if (mode === "employee" && !selectedEmp) return;
+    setBusy(true);
+    let r;
+    try { r = await api.login(body); } catch { r = { status: 0 }; }
+    setBusy(false);
+    if (r.ok && r.user) { setPin(""); onLogin(r.user); return; }
+    setPin("");
+    if (r.status === 429) { setLockUntil(Date.now() + Math.max(1, +r.retryAfter || 60) * 1000); setError(""); return; }
+    if (r.status === 401) { setError(t("loginIncorrectPin") + (r.attemptsLeft != null && r.attemptsLeft <= 2 ? " " + t("loginAttemptsLeft").replace("{n}", r.attemptsLeft) : "")); return; }
+    if (r.status === 500) { setError(r.error || t("loginServerError")); return; }
+    setError(t("loginServerError"));
   };
 
   const addDigit = (d) => { if (!isLocked && pin.length < 6) setPin(p => p + d); setError(""); };
   const del = () => { if (!isLocked) setPin(p => p.slice(0, -1)); };
-
-  if (mode === "choose") return (
+  const shell = (children, width = 300) => (
     <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-      <div style={{ textAlign: "center", maxWidth: 340 }}>
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}><div style={{ width: 132, height: 132, borderRadius: 20, background: "var(--logo-bg,#16324A)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(22,50,74,0.18)" }}><img src="/logo.png" alt="" style={{ width: 120, height: 120, objectFit: "contain" }} /></div></div>
-        <h1 style={{ fontSize: 24, fontWeight: 800, color: "var(--text,#16324A)", marginBottom: 4 }}>{companyName || "GEAR DESK"}</h1>
-        <p style={{ color: "var(--text-muted,#5F7A91)", marginBottom: 40, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase" }}>{t("loginSystem")}</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("admin")}><Icon d={icons.lock} size={16} /> {t("loginAdmin")}</button>
-          <button style={{ ...S.btn("ghost"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("employee")}><Icon d={icons.user} size={16} /> {t("loginEmployee")}</button>
-          <button style={{ background: "none", border: "none", color: "var(--text-muted,#7B8FA3)", fontSize: 12, cursor: "pointer", marginTop: 8, textDecoration: "underline" }} onClick={() => { setMode("register"); setRegForm({ name: "", pin: "", confirm: "" }); setRegMsg(null); }}>{t("loginRegisterLink")}</button>
-        </div>
-      </div>
+      <div style={{ position: "absolute", top: 14, right: 14 }}><LangPill setLang={setLang} /></div>
+      <div style={{ width, maxWidth: "calc(100vw - 32px)" }}>{children}</div>
     </div>
   );
 
-  if (mode === "register") return (
-    <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-      <div style={{ width: 300 }}>
-        <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => setMode("choose")}><Icon d={icons.arrow_left} size={14} /> {t("back")}</button>
-        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{t("loginRegisterTitle")}</h2>
-        <p style={{ fontSize: 12, color: "var(--text-muted,#7B8FA3)", marginBottom: 20 }}>{t("loginRegisterDesc")}</p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div>
-            <label style={S.label}>{t("loginYourName")}</label>
-            <input style={S.input} value={regForm.name} onChange={e => setRegForm(p => ({ ...p, name: e.target.value }))} placeholder={t("loginFullName")} />
-          </div>
-          <div>
-            <label style={S.label}>{t("loginDesiredPin")}</label>
-            <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={regForm.pin} onChange={e => setRegForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 5678" />
-          </div>
-          <div>
-            <label style={S.label}>{t("settingsConfirmPin")}</label>
-            <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={regForm.confirm} onChange={e => setRegForm(p => ({ ...p, confirm: e.target.value.replace(/\D/g, "") }))} placeholder={t("settingsPinReEnter")} />
-          </div>
-          {regMsg && <p style={{ fontSize: 12, color: regMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{regMsg.text}</p>}
-          <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "13px" }} onClick={() => {
-            if (!regForm.name.trim()) { setRegMsg({ ok: false, text: t("loginEnterName") }); return; }
-            if (!/^\d{4,6}$/.test(regForm.pin)) { setRegMsg({ ok: false, text: t("loginPinDigits") }); return; }
-            if (regForm.pin !== regForm.confirm) { setRegMsg({ ok: false, text: t("loginPinMatch") }); return; }
-            const already = (adminRequests || []).some(r => r.type === "member-register" && r.status === "pending" && r.name.toLowerCase() === regForm.name.trim().toLowerCase());
-            if (already) { setRegMsg({ ok: false, text: t("loginPendingExists") }); return; }
-            setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type: "member-register", status: "pending", submittedAt: new Date().toISOString(), name: regForm.name.trim(), requestedPin: regForm.pin }]);
+  // Pending-approval state for the name this device registered (P2-8).
+  const pendingMatch = pendingName && (info?.pendingRegistrations || []).some(r => (r.name || "").toLowerCase() === pendingName.toLowerCase());
+  const approvedMatch = pendingName && !pendingMatch && employees.some(e => (e.name || "").toLowerCase() === pendingName.toLowerCase());
+  const clearPending = () => { setPendingName(""); try { localStorage.removeItem(PENDING_KEY); } catch {} };
+
+  if (mode === "choose") return shell(
+    <div style={{ textAlign: "center" }}>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}><div style={{ width: 132, height: 132, borderRadius: 20, background: "var(--logo-bg,#16324A)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(22,50,74,0.18)" }}><img src="/logo.png" alt="" style={{ width: 120, height: 120, objectFit: "contain" }} /></div></div>
+      <h1 style={{ fontSize: 24, fontWeight: 800, color: "var(--text,#16324A)", marginBottom: 4 }}>{companyName || "GEAR DESK"}</h1>
+      <p style={{ color: "var(--text-muted,#5F7A91)", marginBottom: 28, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase" }}>{t("loginSystem")}</p>
+      {info && info.unreachable && <p style={{ fontSize: 12, color: "#C53030", margin: "0 0 12px" }}>{t("loginServerError")}</p>}
+      {(pendingMatch || approvedMatch) && (
+        <div style={{ ...S.card, textAlign: "left", marginBottom: 16, padding: "12px 14px", background: approvedMatch ? "rgba(47,133,90,0.08)" : "rgba(var(--accent-rgb,37,99,235),0.06)", border: `1px solid ${approvedMatch ? "rgba(47,133,90,0.35)" : "rgba(var(--accent-rgb,37,99,235),0.25)"}` }}>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: approvedMatch ? "#2F855A" : "var(--accent,#2563EB)" }}>{approvedMatch ? t("loginApprovedTitle") : t("loginPendingTitle")}</p>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)", lineHeight: 1.5 }}>{(approvedMatch ? t("loginApprovedBody") : t("loginPendingBody")).replace("{name}", pendingName)}</p>
+          <button onClick={clearPending} style={{ background: "none", border: "none", color: "var(--text-muted,#7B8FA3)", fontSize: 11, cursor: "pointer", padding: 0, marginTop: 6, textDecoration: "underline" }}>{t("loginDismiss")}</button>
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "16px 24px", fontSize: 16 }} onClick={() => { setMode("employee"); setError(""); }}><Icon d={icons.user} size={17} /> {t("loginCrewBtn")}</button>
+        <p style={{ margin: "2px 0 8px", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("loginPinHint")}</p>
+        <button style={{ background: "none", border: "none", color: "var(--text-muted,#5F7A91)", fontSize: 13, cursor: "pointer", textDecoration: "underline", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }} onClick={() => { setMode("admin"); setError(""); setSelectedStaff("owner"); }}><Icon d={icons.lock} size={13} /> {t("loginAdminLink")}</button>
+        <button style={{ background: "none", border: "none", color: "var(--text-muted,#7B8FA3)", fontSize: 12, cursor: "pointer", marginTop: 4, textDecoration: "underline" }} onClick={() => { setMode("register"); setRegForm({ name: "", contact: "", pin: "", confirm: "" }); setRegMsg(null); }}>{t("loginRegisterLink")}</button>
+      </div>
+    </div>, 340);
+
+  if (mode === "register") return shell(
+    <div>
+      <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => setMode("choose")}><Icon d={icons.arrow_left} size={14} /> {t("back")}</button>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{t("loginRegisterTitle")}</h2>
+      <p style={{ fontSize: 12, color: "var(--text-muted,#7B8FA3)", marginBottom: 20 }}>{t("loginRegisterDesc")}</p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div>
+          <label style={S.label}>{t("loginYourName")}</label>
+          <input style={S.input} value={regForm.name} onChange={e => setRegForm(p => ({ ...p, name: e.target.value }))} placeholder={t("loginFullName")} />
+        </div>
+        <div>
+          <label style={S.label}>{t("loginContact")}</label>
+          <input style={S.input} value={regForm.contact} onChange={e => setRegForm(p => ({ ...p, contact: e.target.value }))} placeholder="08x-xxx-xxxx / LINE ID" />
+          <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>{t("loginContactHint")}</p>
+        </div>
+        <div>
+          <label style={S.label}>{t("loginDesiredPin")}</label>
+          <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={regForm.pin} onChange={e => setRegForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 5678" />
+        </div>
+        <div>
+          <label style={S.label}>{t("settingsConfirmPin")}</label>
+          <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={regForm.confirm} onChange={e => setRegForm(p => ({ ...p, confirm: e.target.value.replace(/\D/g, "") }))} placeholder={t("settingsPinReEnter")} />
+        </div>
+        {regMsg && <p style={{ fontSize: 12, color: regMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{regMsg.text}</p>}
+        <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "13px", opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={async () => {
+          const name = regForm.name.trim();
+          if (!name) { setRegMsg({ ok: false, text: t("loginEnterName") }); return; }
+          if (!regForm.contact.trim()) { setRegMsg({ ok: false, text: t("loginEnterContact") }); return; }
+          if (!/^\d{4,6}$/.test(regForm.pin)) { setRegMsg({ ok: false, text: t("loginPinDigits") }); return; }
+          if (regForm.pin !== regForm.confirm) { setRegMsg({ ok: false, text: t("loginPinMatch") }); return; }
+          setBusy(true);
+          let r; try { r = await api.register({ name, contact: regForm.contact.trim(), pin: regForm.pin }); } catch { r = { status: 0 }; }
+          setBusy(false);
+          if (r.ok) {
+            setPendingName(name); try { localStorage.setItem(PENDING_KEY, name); } catch {}
             setRegMsg({ ok: true, text: t("loginRequestSent") });
-            setRegForm({ name: "", pin: "", confirm: "" });
-          }}>{t("loginSendRequest")}</button>
-        </div>
+            setRegForm({ name: "", contact: "", pin: "", confirm: "" });
+            if (refreshInfo) refreshInfo();
+            return;
+          }
+          if (r.status === 409 && r.pending) { setRegMsg({ ok: false, text: t("loginPendingExists") }); setPendingName(name); try { localStorage.setItem(PENDING_KEY, name); } catch {} return; }
+          if (r.status === 409 && r.taken) { setRegMsg({ ok: false, text: t("loginNameTaken") }); return; }
+          if (r.status === 429) { setRegMsg({ ok: false, text: t("loginTooManyAttempts") + (r.retryAfter || 60) + t("loginSeconds") }); return; }
+          setRegMsg({ ok: false, text: r.error || t("loginServerError") });
+        }}>{t("loginSendRequest")}</button>
       </div>
-    </div>
-  );
+    </div>);
 
-  return (
-    <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-      <div style={{ width: 300 }}>
-        <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => { setMode("choose"); setPin(""); setError(""); setSelectedEmp(null); }}><Icon d={icons.arrow_left} size={14} /> {t("back")}</button>
-        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{mode === "admin" ? t("loginAdmin") : t("loginEmployee")}</h2>
-        {mode === "employee" && (() => {
-          const selEmp = employees.find(e => e.id === selectedEmp);
-          return (
-            <div style={{ marginBottom: 20, position: "relative" }}>
-              <label style={S.label}>{t("loginAccount")}</label>
-              <button
-                onClick={() => setDdOpen(o => !o)}
-                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 14px", background: "var(--surface,#FFFFFF)", border: `1px solid ${ddOpen ? "var(--accent,#2563EB)" : "var(--border-color,#D8E1EC)"}`, borderRadius: 10, color: selEmp ? "var(--text,#16324A)" : "var(--text-muted,#7B8FA3)", fontSize: 14, fontWeight: selEmp ? 600 : 400, cursor: "pointer", transition: "border-color .15s" }}>
-                <span>{selEmp ? selEmp.name : t("loginSelectAccount")}</span>
-                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ opacity: 0.5, transform: ddOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }}><path d="M6 9l6 6 6-6" /></svg>
-              </button>
-              {ddOpen && (
-                <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "var(--surface,#FFFFFF)", border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 10, overflow: "hidden", zIndex: 50, boxShadow: "0 8px 24px rgba(22,50,74,0.17)" }}>
-                  {employees.map((e, i) => (
-                    <div key={e.id} onClick={() => { setSelectedEmp(e.id); setDdOpen(false); }}
-                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", background: selectedEmp === e.id ? "rgba(var(--accent-rgb,37,99,235),0.1)" : "transparent", borderTop: i > 0 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
-                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: selectedEmp === e.id ? "rgba(var(--accent-rgb,37,99,235),0.15)" : "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: selectedEmp === e.id ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)" }}>{e.name[0].toUpperCase()}</span>
-                      </div>
-                      <span style={{ fontWeight: 600, color: selectedEmp === e.id ? "var(--accent,#2563EB)" : "var(--text,#16324A)", fontSize: 14 }}>{e.name}</span>
-                      {selectedEmp === e.id && <svg style={{ marginLeft: "auto" }} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--accent,#2563EB)" strokeWidth={3} strokeLinecap="round"><path d="M20 6L9 17l-5-5" /></svg>}
-                    </div>
-                  ))}
+  const dropdown = (items, selectedId, onPick, placeholder) => {
+    const sel = items.find(e => e.id === selectedId);
+    return (
+      <div style={{ marginBottom: 20, position: "relative" }}>
+        <label style={S.label}>{mode === "admin" ? t("loginStaffAccount") : t("loginAccount")}</label>
+        <button
+          onClick={() => setDdOpen(o => !o)}
+          style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 14px", background: "var(--surface,#FFFFFF)", border: `1px solid ${ddOpen ? "var(--accent,#2563EB)" : "var(--border-color,#D8E1EC)"}`, borderRadius: 10, color: sel ? "var(--text,#16324A)" : "var(--text-muted,#7B8FA3)", fontSize: 14, fontWeight: sel ? 600 : 400, cursor: "pointer", transition: "border-color .15s" }}>
+          <span>{sel ? sel.name : placeholder}</span>
+          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ opacity: 0.5, transform: ddOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }}><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+        {ddOpen && (
+          <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "var(--surface,#FFFFFF)", border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 10, overflow: "hidden", zIndex: 50, boxShadow: "0 8px 24px rgba(22,50,74,0.17)", maxHeight: 280, overflowY: "auto" }}>
+            {items.length === 0 && <p style={{ margin: 0, padding: "11px 14px", fontSize: 12, color: "var(--text-muted,#7B8FA3)" }}>{t("loginNoAccounts")}</p>}
+            {items.map((e, i) => (
+              <div key={e.id} onClick={() => { onPick(e.id); setDdOpen(false); }}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", background: selectedId === e.id ? "rgba(var(--accent-rgb,37,99,235),0.1)" : "transparent", borderTop: i > 0 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: selectedId === e.id ? "rgba(var(--accent-rgb,37,99,235),0.15)" : "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: selectedId === e.id ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)" }}>{(e.name || "?")[0].toUpperCase()}</span>
                 </div>
-              )}
-            </div>
-          );
-        })()}
-        <div style={{ marginBottom: 16 }}>
-          <label style={S.label}>PIN</label>
-          <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", height: 32, marginBottom: 16 }}>
-            {pin.length === 0
-              ? <span style={{ fontSize: 12, color: "var(--text-muted,#8CA2B5)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{t("loginPinPrompt")}</span>
-              : Array.from({ length: pin.length }).map((_, i) => (
-                  <div key={i} style={{ width: 11, height: 11, borderRadius: "50%", background: "var(--accent,#2563EB)" }} />
-                ))
-            }
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-            {[1,2,3,4,5,6,7,8,9,"","0","⌫"].map((d, i) => (
-              <button key={i} style={{ padding: "14px", borderRadius: 8, border: "1px solid var(--border-color,#D8E1EC)", background: d === "" ? "transparent" : "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", fontSize: 18, fontWeight: 600, cursor: d === "" ? "default" : "pointer" }}
-                onClick={() => { if (d === "⌫") del(); else if (d !== "") addDigit(String(d)); }}>
-                {d}
-              </button>
+                <span style={{ fontWeight: 600, color: selectedId === e.id ? "var(--accent,#2563EB)" : "var(--text,#16324A)", fontSize: 14 }}>{e.name}</span>
+                {e.role && <span style={{ ...S.badge(e.role === "owner" ? "green" : "gray"), marginLeft: "auto" }}>{e.role === "owner" ? t("settingsStaffOwner") : t("settingsStaffCounter")}</span>}
+                {selectedId === e.id && !e.role && <svg style={{ marginLeft: "auto" }} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--accent,#2563EB)" strokeWidth={3} strokeLinecap="round"><path d="M20 6L9 17l-5-5" /></svg>}
+              </div>
             ))}
           </div>
-        </div>
-        {isLocked
-          ? <p style={{ color: "#C53030", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{t("loginTooManyAttempts")}{lockSecsLeft}{t("loginSeconds")}</p>
-          : error && <p style={{ color: "#C53030", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{error}</p>
-        }
-        <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", padding: "12px", opacity: isLocked ? 0.5 : 1 }} onClick={tryLogin} disabled={isLocked || (mode === "employee" && !selectedEmp)}>
-          {isLocked ? `${t("loginLocked")} (${lockSecsLeft}${t("loginSeconds")})` : t("loginUnlock")}
-        </button>
-
+        )}
       </div>
-    </div>
-  );
+    );
+  };
+  const staffItems = [{ id: "owner", name: (info && info.ownerName) || t("loginOwner"), role: "owner" }, ...staffList.filter(s => s.id !== "owner")];
+
+  return shell(
+    <div>
+      <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => { setMode("choose"); setPin(""); setError(""); setSelectedEmp(null); }}><Icon d={icons.arrow_left} size={14} /> {t("back")}</button>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{mode === "admin" ? t("loginAdminTitle") : t("loginCrewTitle")}</h2>
+      {mode === "employee" && dropdown(employees, selectedEmp, setSelectedEmp, t("loginSelectAccount"))}
+      {mode === "admin" && staffList.length > 0 && dropdown(staffItems, selectedStaff, setSelectedStaff, t("loginSelectAccount"))}
+      <div style={{ marginBottom: 16 }}>
+        <label style={S.label}>PIN</label>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", height: 32, marginBottom: 16 }}>
+          {pin.length === 0
+            ? <span style={{ fontSize: 12, color: "var(--text-muted,#8CA2B5)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{t("loginPinPrompt")}</span>
+            : Array.from({ length: pin.length }).map((_, i) => (
+                <div key={i} style={{ width: 11, height: 11, borderRadius: "50%", background: "var(--accent,#2563EB)" }} />
+              ))
+          }
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+          {[1,2,3,4,5,6,7,8,9,"","0","⌫"].map((d, i) => (
+            <button key={i} style={{ padding: "14px", borderRadius: 8, border: "1px solid var(--border-color,#D8E1EC)", background: d === "" ? "transparent" : "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", fontSize: 18, fontWeight: 600, cursor: d === "" ? "default" : "pointer" }}
+              onClick={() => { if (d === "⌫") del(); else if (d !== "") addDigit(String(d)); }}>
+              {d}
+            </button>
+          ))}
+        </div>
+      </div>
+      {isLocked
+        ? <p style={{ color: "#C53030", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{t("loginTooManyAttempts")}{lockSecsLeft}{t("loginSeconds")}</p>
+        : error && <p style={{ color: "#C53030", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{error}</p>
+      }
+      <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", padding: "12px", opacity: isLocked || busy ? 0.5 : 1 }} onClick={tryLogin} disabled={isLocked || busy || (mode === "employee" && !selectedEmp)}>
+        {isLocked ? `${t("loginLocked")} (${lockSecsLeft}${t("loginSeconds")})` : t("loginUnlock")}
+      </button>
+      {mode === "employee" && <p style={{ margin: "14px 0 0", fontSize: 12, color: "var(--text-muted,#7B8FA3)", textAlign: "center" }}>{t("loginPinHint")}</p>}
+    </div>);
 }
 
 // ─── TEAM PAGE ────────────────────────────────────────────────────────────────
-function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, kpiConfig, setKpiConfig, kpiEvents, setKpiEvents, punishments, setPunishments, deleteRecord }) {
+function TeamPage({ employees, setEmployees, setEmployeePin, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, kpiConfig, setKpiConfig, kpiEvents, setKpiEvents, punishments, setPunishments, deleteRecord }) {
   const t = useT();
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
-  const [form, setForm] = useState({ name: "", pin: "" });
+  const [form, setForm] = useState({ name: "", pin: "", confirm: "" });
   const [formErr, setFormErr] = useState("");
-  const [showPin, setShowPin] = useState({});
+  const [formBusy, setFormBusy] = useState(false);
+  const [pinTarget, setPinTarget] = useState(null); // employee whose PIN is being reset (never shown, P0-2)
   const [profileTarget, setProfileTarget] = useState(null);
   const [profileData, setProfileData] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -6074,29 +6172,44 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
     if (deleteRecord && !(await deleteRecord("equipmentRequests", req.id))) return; // server tombstone first
     setEquipmentRequests(p => p.filter(r => r.id !== req.id));
   };
-  const openAdd = () => { setForm({ name: "", pin: "" }); setEditTarget(null); setFormErr(""); setModal("add"); };
-  const openEdit = (emp) => { setForm({ name: emp.name, pin: emp.pin }); setEditTarget(emp); setFormErr(""); setModal("edit"); };
+  const openAdd = () => { setForm({ name: "", pin: "", confirm: "" }); setEditTarget(null); setFormErr(""); setModal("add"); };
+  const openEdit = (emp) => { setForm({ name: emp.name, pin: "", confirm: "" }); setEditTarget(emp); setFormErr(""); setModal("edit"); };
+  const openPin = (emp) => { setPinTarget(emp); setForm({ name: emp.name, pin: "", confirm: "" }); setFormErr(""); setModal("pin"); };
 
-  const validate = () => {
-    if (!form.name.trim()) return t("teamNameRequired");
-    if (!form.pin.trim()) return t("teamPinRequired");
-    if (!/^\d{4,6}$/.test(form.pin)) return t("teamPinInvalid");
+  const validate = (needPin) => {
+    if (modal !== "pin" && !form.name.trim()) return t("teamNameRequired");
+    if (needPin) {
+      if (!form.pin.trim()) return t("teamPinRequired");
+      if (!/^\d{4,6}$/.test(form.pin)) return t("teamPinInvalid");
+      if (form.pin !== form.confirm) return t("settingsPinMismatch");
+    }
     return null;
   };
 
-  const saveEmployee = () => {
-    const err = validate();
+  // Add: name + PIN go to /api/employees/:id/pin (the server creates the member
+  // and hashes the PIN; the employees array in state never carries a PIN).
+  // Edit: name only. Reset PIN: the same endpoint on an existing member.
+  const saveEmployee = async () => {
+    const err = validate(modal !== "edit");
     if (err) { setFormErr(err); return; }
-    if (modal === "add") {
-      setEmployees(p => [...p, { id: "e" + Date.now(), name: form.name.trim(), pin: form.pin }]);
-    } else {
-      setEmployees(p => p.map(e => e.id === editTarget.id ? { ...e, name: form.name.trim(), pin: form.pin } : e));
+    if (modal === "edit") {
+      setEmployees(p => p.map(e => e.id === editTarget.id ? { ...e, name: form.name.trim() } : e));
+      setModal(null);
+      return;
     }
+    setFormBusy(true);
+    const id = modal === "add" ? "e" + Date.now() : pinTarget.id;
+    const r = await setEmployeePin(id, form.pin, modal === "add" ? form.name.trim() : undefined);
+    setFormBusy(false);
+    if (!r.ok) { setFormErr(r.status === 401 ? t("authSessionEnded") : t("pinSaveFailed")); return; }
+    setForm({ name: "", pin: "", confirm: "" });
     setModal(null);
   };
 
-  const delEmployee = (id) => {
-    if (window.confirm(t("teamRemoveConfirm"))) setEmployees(p => p.filter(e => e.id !== id));
+  const delEmployee = (emp) => {
+    if (!window.confirm(t("teamRemoveConfirm"))) return;
+    setEmployees(p => p.filter(e => e.id !== emp.id));
+    api.audit({ action: "employee.delete", recordId: emp.id, name: emp.name });
   };
 
   return (
@@ -6126,18 +6239,13 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
                     <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{st.toFixed(1)}</span>
                   </div>
                 ); })()}
-                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)", display: "flex", alignItems: "center", gap: 6 }}>
-                  PIN:&nbsp;
-                  <span style={{ fontFamily: "monospace", letterSpacing: 2 }}>{showPin[e.id] ? e.pin : "•".repeat(e.pin.length)}</span>
-                  <button onClick={() => setShowPin(p => ({ ...p, [e.id]: !p[e.id] }))} style={{ background: "none", border: "none", color: "var(--text-muted,#7B8FA3)", cursor: "pointer", fontSize: 11, padding: 0 }}>
-                    {showPin[e.id] ? t("teamPinHide") : t("teamPinShow")}
-                  </button>
-                </p>
+                {e.contact && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{e.contact}</p>}
               </div>
-              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <button style={{ ...S.btn("ghost"), padding: "5px 9px", fontSize: 12 }} onClick={() => openPin(e)} title={t("pinResetTitle")}><Icon d={icons.lock} size={12} /> {t("pinResetTitle")}</button>
                 <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openProfile(e)} title="View Profile"><Icon d={icons.user} size={13} /></button>
                 <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} onClick={() => openEdit(e)}><Icon d={icons.edit} size={13} /></button>
-                <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => delEmployee(e.id)}><Icon d={icons.trash} size={13} /></button>
+                <button style={{ ...S.btn("danger"), padding: "5px 9px" }} onClick={() => delEmployee(e)}><Icon d={icons.trash} size={13} /></button>
               </div>
             </div>
           ))}
@@ -6178,21 +6286,30 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
         })}
       </div>
 
-      {(modal === "add" || modal === "edit") && (
-        <Modal title={modal === "add" ? t("teamAddTitle") : t("teamEditTitle")} onClose={() => setModal(null)}>
+      {(modal === "add" || modal === "edit" || modal === "pin") && (
+        <Modal title={modal === "add" ? t("teamAddTitle") : modal === "edit" ? t("teamEditTitle") : t("pinResetTitle")} onClose={() => setModal(null)}>
           <div style={S.col}>
-            <div>
-              <label style={S.label}>{t("teamNameLabel")}</label>
-              <input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Somchai" autoFocus />
-            </div>
-            <div>
-              <label style={S.label}>{t("teamPinLabel")}</label>
-              <input style={S.input} type="text" inputMode="numeric" maxLength={6} value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 1234" />
-            </div>
+            {modal === "pin"
+              ? <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("pinResetFor").replace("{name}", pinTarget ? pinTarget.name : "")}</p>
+              : <div>
+                  <label style={S.label}>{t("teamNameLabel")}</label>
+                  <input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Somchai" autoFocus />
+                </div>}
+            {modal !== "edit" && (<>
+              <div>
+                <label style={S.label}>{t("teamPinLabel")}</label>
+                <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 1234" autoFocus={modal === "pin"} />
+              </div>
+              <div>
+                <label style={S.label}>{t("settingsConfirmPin")}</label>
+                <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={form.confirm} onChange={e => setForm(p => ({ ...p, confirm: e.target.value.replace(/\D/g, "") }))} placeholder={t("settingsPinReEnter")} />
+              </div>
+              <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>{t("teamPinNeverShown")}</p>
+            </>)}
             {formErr && <p style={{ fontSize: 12, color: "#C53030", margin: 0 }}>{formErr}</p>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button style={S.btn("ghost")} onClick={() => setModal(null)}>{t("cancel")}</button>
-              <button style={S.btn("primary")} onClick={saveEmployee}>{modal === "add" ? t("teamAddMemberBtn") : t("teamSaveChanges")}</button>
+              <button style={{ ...S.btn("primary"), opacity: formBusy ? 0.6 : 1 }} disabled={formBusy} onClick={saveEmployee}>{modal === "add" ? t("teamAddMemberBtn") : modal === "edit" ? t("teamSaveChanges") : t("pinResetTitle")}</button>
             </div>
           </div>
         </Modal>
@@ -6211,7 +6328,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
               const pts = parseFloat(kpiForm.points) || 0;
               if (pts <= 0) { setKpiMsg({ ok: false, text: t("teamKpiErrPoints") }); return; }
               if (!kpiForm.reason.trim()) { setKpiMsg({ ok: false, text: t("teamKpiErrReason") }); return; }
-              setKpiEvents(p => [...(p || []), { id: "kpi" + Date.now(), employeeId: profileTarget.id, points: pts, reason: kpiForm.reason.trim(), punishmentId: kpiForm.punishmentId || null, ts: Date.now(), by: "admin" }]);
+              setKpiEvents(p => [...(p || []), { id: "kpi" + Date.now(), employeeId: profileTarget.id, points: pts, reason: kpiForm.reason.trim(), punishmentId: kpiForm.punishmentId || null, ts: Date.now(), by: actorName() }]);
               setKpiForm({ punishmentId: "", points: "", reason: "" });
               setKpiMsg({ ok: true, text: t("teamKpiDeductedMsg").replace("{pts}", pts) });
               setTimeout(() => setKpiMsg(null), 3000);
@@ -6346,11 +6463,25 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
 }
 
 // ─── SETTINGS PANEL ───────────────────────────────────────────────────────────
-function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, clearHistory, migratePhotos, timezone, setTimezone, timeFormat, setTimeFormat, saveSettingsNow, verificationConfig, setVerificationConfig, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, navOrder, setNavOrder, checkoutsCount, setCheckouts, invoicePresets, setInvoicePresets, chatEnabled, setChatEnabled, onClose }) {
+// Calendar feed URL with the per-tenant token (P0-2). Same host as the page so
+// a local run points at the local server.
+const calendarUrl = (token) => `${window.location.origin}/api/calendar${token ? `?token=${encodeURIComponent(token)}` : ""}`;
+
+function SettingsPage({ companyName, setCompanyName, user, onUserUpdate, staff, setStaff, calendarToken, setCalendarToken, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, clearHistory, migratePhotos, timezone, setTimezone, timeFormat, setTimeFormat, saveSettingsNow, verificationConfig, setVerificationConfig, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, navOrder, setNavOrder, checkoutsCount, setCheckouts, invoicePresets, setInvoicePresets, chatEnabled, setChatEnabled, onClose }) {
   useEffect(() => { document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, []);
   const t = useT();
-  const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
+  const [apForm, setApForm] = useState({ oldPin: "", newPin: "", confirmPin: "" });
   const [apMsg, setApMsg] = useState(null);
+  const [apBusy, setApBusy] = useState(false);
+  const isOwner = !user || (user.staffRole || "owner") === "owner";
+  // Staff accounts (P2-6): owner-only management; PINs are set / reset server-side, never displayed.
+  const [staffForm, setStaffForm] = useState({ name: "", role: "counter", pin: "", confirm: "" });
+  const [staffMsg, setStaffMsg] = useState(null);
+  const [staffBusy, setStaffBusy] = useState(false);
+  const [staffPinTarget, setStaffPinTarget] = useState(null); // { id, name } being reset
+  const [ownerName, setOwnerName] = useState(() => (staff || []).find(x => x.id === "owner")?.name || "");
+  useEffect(() => { setOwnerName((staff || []).find(x => x.id === "owner")?.name || ""); }, [staff]);
+  const [calBusy, setCalBusy] = useState(false);
   const [lineTest, setLineTest] = useState(null); // null | "sending" | { ok, text }
   const [backupStatus, setBackupStatus] = useState(null);
   const [lastBackupAt, setLastBackupAt] = useState(() => { try { return localStorage.getItem("psr_last_backup"); } catch { return null; } });
@@ -6720,20 +6851,34 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             1. Open <strong>Settings → Calendar → Accounts → Add Account → Other</strong><br />
             2. Tap <strong>Add Subscribed Calendar</strong><br />
             3. Paste this URL:<br />
-            <code style={{ background: "rgba(var(--accent-rgb,37,99,235),0.1)", color: "var(--accent,#2563EB)", padding: "2px 8px", borderRadius: 4, display: "inline-block", margin: "4px 0", fontSize: 11 }}>https://pickshootreturn.pages.dev/api/calendar</code><br />
+            <code style={{ background: "rgba(var(--accent-rgb,37,99,235),0.1)", color: "var(--accent,#2563EB)", padding: "2px 8px", borderRadius: 4, display: "inline-block", margin: "4px 0", fontSize: 11, wordBreak: "break-all" }}>{calendarToken ? calendarUrl(calendarToken) : "…"}</code><br />
             4. Tap <strong>Next</strong> → <strong>Save</strong>
           </div>
-          <button style={{ ...S.btn("ghost"), alignSelf: "flex-start", fontSize: 12 }} onClick={() => { navigator.clipboard?.writeText("https://pickshootreturn.pages.dev/api/calendar"); }}>
-            {t("settingsCopyCalUrl")}
-          </button>
+          <p style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("settingsCalTokenHint")}</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button style={{ ...S.btn("ghost"), fontSize: 12 }} disabled={!calendarToken} onClick={() => { navigator.clipboard?.writeText(calendarUrl(calendarToken)); }}>
+              {t("settingsCopyCalUrl")}
+            </button>
+            <button style={{ ...S.btn("ghost"), fontSize: 12, opacity: calBusy ? 0.6 : 1 }} disabled={calBusy} onClick={async () => {
+              if (!window.confirm(t("settingsCalRotateConfirm"))) return;
+              setCalBusy(true);
+              const r = await api.calendarToken(true).catch(() => ({}));
+              setCalBusy(false);
+              if (r && r.ok && r.token) setCalendarToken(r.token);
+            }}>{t("settingsCalRotate")}</button>
+          </div>
         </div>
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>{t("settingsAdminPin")}</p>
+        <p style={S.sectionTitle}>{t("settingsMyPin")}</p>
         <div style={S.col}>
-          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("settingsCurrPin")}: <strong style={{ color: "var(--accent,#2563EB)", fontFamily: "monospace" }}>{adminPin}</strong></p>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{user && user.name ? `${user.name} · ` : ""}{isOwner ? t("settingsStaffOwner") : t("settingsStaffCounter")} · {t("settingsPinHintNoShow")}</p>
           <div style={S.row}>
+            <div style={{ flex: 1 }}>
+              <label style={S.label}>{t("settingsCurrentPinLabel")}</label>
+              <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={apForm.oldPin} onChange={e => setApForm(p => ({ ...p, oldPin: e.target.value.replace(/\D/g, "") }))} />
+            </div>
             <div style={{ flex: 1 }}>
               <label style={S.label}>{t("settingsNewPin")}</label>
               <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={apForm.newPin} onChange={e => setApForm(p => ({ ...p, newPin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 9999" />
@@ -6745,16 +6890,101 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
           </div>
           {apMsg && <p style={{ fontSize: 12, color: apMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{apMsg.text}</p>}
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <button style={S.btn("primary")} onClick={() => {
-              const { newPin, confirmPin } = apForm;
+            <button style={{ ...S.btn("primary"), opacity: apBusy ? 0.6 : 1 }} disabled={apBusy} onClick={async () => {
+              const { oldPin, newPin, confirmPin } = apForm;
+              if (!/^\d{4,6}$/.test(oldPin)) { setApMsg({ ok: false, text: t("settingsPinWrong") }); return; }
               if (!/^\d{4,6}$/.test(newPin)) { setApMsg({ ok: false, text: t("settingsPinInvalid") }); return; }
               if (newPin !== confirmPin) { setApMsg({ ok: false, text: t("settingsPinMismatch") }); return; }
-              setAdminPin(newPin);
-              setApForm({ newPin: "", confirmPin: "" });
-              setApMsg({ ok: true, text: t("settingsPinUpdated") });
-              setTimeout(() => setApMsg(null), 3000);
+              setApBusy(true);
+              const r = await api.changePin(oldPin, newPin).catch(() => ({ status: 0 }));
+              setApBusy(false);
+              if (r.ok) { setApForm({ oldPin: "", newPin: "", confirmPin: "" }); setApMsg({ ok: true, text: t("settingsPinUpdated") }); setTimeout(() => setApMsg(null), 3000); return; }
+              if (r.status === 401) { setApMsg({ ok: false, text: t("settingsPinWrong") }); return; }
+              if (r.status === 429) { setApMsg({ ok: false, text: t("loginTooManyAttempts") + (r.retryAfter || 60) + t("loginSeconds") }); return; }
+              setApMsg({ ok: false, text: r.error || t("pinSaveFailed") });
             }}>{t("settingsChangePin")}</button>
           </div>
+        </div>
+      </div>
+
+      <div style={{ ...S.card, marginBottom: 20 }}>
+        <p style={S.sectionTitle}>{t("settingsStaff")}</p>
+        <div style={S.col}>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.6 }}>{t("settingsStaffDesc")}</p>
+          {!isOwner && <p style={{ fontSize: 12, color: "var(--text-muted,#7B8FA3)", margin: 0 }}>{t("settingsStaffOnlyOwner")}</p>}
+          <div style={S.col}>
+            {[{ id: "owner", name: ownerName || t("loginOwner"), role: "owner" }, ...(staff || []).filter(x => x.id !== "owner")].map((st, i, arr) => (
+              <div key={st.id} style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+                <span style={S.badge(st.role === "owner" ? "green" : "gray")}>{st.role === "owner" ? t("settingsStaffOwner") : t("settingsStaffCounter")}</span>
+                <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{st.name}{user && user.staffId === st.id ? <span style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)", fontWeight: 400 }}> · {t("settingsStaffYou")}</span> : null}</span>
+                {isOwner && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button style={{ ...S.btn("ghost"), padding: "5px 9px", fontSize: 12 }} onClick={() => { setStaffPinTarget(st); setStaffForm(f => ({ ...f, pin: "", confirm: "" })); setStaffMsg(null); }}>{t("settingsStaffResetPin")}</button>
+                    {st.id !== "owner" && <button style={{ ...S.btn("danger"), padding: "5px 9px" }} title={t("settingsStaffRemove")} onClick={async () => {
+                      if (!window.confirm(t("settingsStaffRemoveConfirm"))) return;
+                      const r = await api.staffRemove(st.id).catch(() => ({}));
+                      if (r && r.ok) setStaff(r.staff || []); else setStaffMsg({ ok: false, text: r.error || t("pinSaveFailed") });
+                    }}><Icon d={icons.trash} size={13} /></button>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {isOwner && staffPinTarget && (
+            <div style={{ ...S.card, background: "var(--surface2,#EAF0F7)", padding: 12 }}>
+              <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 700 }}>{t("pinResetFor").replace("{name}", staffPinTarget.name)}</p>
+              <div style={S.row}>
+                <input style={{ ...S.input, flex: 1 }} type="password" inputMode="numeric" maxLength={6} value={staffForm.pin} onChange={e => setStaffForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, "") }))} placeholder={t("teamPinLabel")} />
+                <input style={{ ...S.input, flex: 1 }} type="password" inputMode="numeric" maxLength={6} value={staffForm.confirm} onChange={e => setStaffForm(f => ({ ...f, confirm: e.target.value.replace(/\D/g, "") }))} placeholder={t("settingsPinReEnter")} />
+                <button style={{ ...S.btn("primary"), opacity: staffBusy ? 0.6 : 1 }} disabled={staffBusy} onClick={async () => {
+                  if (!/^\d{4,6}$/.test(staffForm.pin)) { setStaffMsg({ ok: false, text: t("settingsPinInvalid") }); return; }
+                  if (staffForm.pin !== staffForm.confirm) { setStaffMsg({ ok: false, text: t("settingsPinMismatch") }); return; }
+                  setStaffBusy(true);
+                  const r = await api.staffPin(staffPinTarget.id, staffForm.pin).catch(() => ({}));
+                  setStaffBusy(false);
+                  if (r && r.ok) { setStaffPinTarget(null); setStaffForm(f => ({ ...f, pin: "", confirm: "" })); setStaffMsg({ ok: true, text: t("pinResetDone") }); setTimeout(() => setStaffMsg(null), 3000); }
+                  else setStaffMsg({ ok: false, text: (r && r.error) || t("pinSaveFailed") });
+                }}>{t("pinResetTitle")}</button>
+                <button style={S.btn("ghost")} onClick={() => setStaffPinTarget(null)}>{t("cancel")}</button>
+              </div>
+            </div>
+          )}
+          {isOwner && (<>
+            <div style={S.row}>
+              <div style={{ flex: 2 }}>
+                <label style={S.label}>{t("settingsOwnerName")}</label>
+                <input style={S.input} value={ownerName} onChange={e => setOwnerName(e.target.value)} placeholder={t("loginOwner")} onBlur={async () => {
+                  const nm = ownerName.trim();
+                  const cur = (staff || []).find(x => x.id === "owner")?.name || "";
+                  if (!nm || nm === cur) return;
+                  const r = await api.staffRename("owner", nm).catch(() => ({}));
+                  if (r && r.ok) { setStaff(r.staff || []); if (r.user && onUserUpdate) onUserUpdate(r.user); }
+                }} />
+                <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>{t("settingsOwnerNameHint")}</p>
+              </div>
+            </div>
+            <p style={{ ...S.label, marginTop: 4 }}>{t("settingsStaffAdd")}</p>
+            <div style={{ ...S.row, flexWrap: "wrap" }}>
+              <input style={{ ...S.input, flex: 2, minWidth: 140 }} value={staffForm.name} onChange={e => setStaffForm(f => ({ ...f, name: e.target.value }))} placeholder={t("settingsStaffName")} />
+              <select style={{ ...S.select, flex: 1, minWidth: 120 }} value={staffForm.role} onChange={e => setStaffForm(f => ({ ...f, role: e.target.value }))}>
+                <option value="counter">{t("settingsStaffCounter")}</option>
+                <option value="owner">{t("settingsStaffOwner")}</option>
+              </select>
+              <input style={{ ...S.input, flex: 1, minWidth: 110 }} type="password" inputMode="numeric" maxLength={6} value={staffPinTarget ? "" : staffForm.pin} onChange={e => setStaffForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, "") }))} placeholder={t("teamPinLabel")} disabled={!!staffPinTarget} />
+              <input style={{ ...S.input, flex: 1, minWidth: 110 }} type="password" inputMode="numeric" maxLength={6} value={staffPinTarget ? "" : staffForm.confirm} onChange={e => setStaffForm(f => ({ ...f, confirm: e.target.value.replace(/\D/g, "") }))} placeholder={t("settingsPinReEnter")} disabled={!!staffPinTarget} />
+              <button style={{ ...S.btn("primary"), opacity: staffBusy ? 0.6 : 1 }} disabled={staffBusy || !!staffPinTarget} onClick={async () => {
+                if (!staffForm.name.trim()) { setStaffMsg({ ok: false, text: t("teamNameRequired") }); return; }
+                if (!/^\d{4,6}$/.test(staffForm.pin)) { setStaffMsg({ ok: false, text: t("settingsPinInvalid") }); return; }
+                if (staffForm.pin !== staffForm.confirm) { setStaffMsg({ ok: false, text: t("settingsPinMismatch") }); return; }
+                setStaffBusy(true);
+                const r = await api.staffAdd({ name: staffForm.name.trim(), role: staffForm.role, pin: staffForm.pin }).catch(() => ({}));
+                setStaffBusy(false);
+                if (r && r.ok) { setStaff(r.staff || []); setStaffForm({ name: "", role: "counter", pin: "", confirm: "" }); setStaffMsg({ ok: true, text: t("settingsStaffAdded") }); setTimeout(() => setStaffMsg(null), 3000); }
+                else setStaffMsg({ ok: false, text: (r && r.error) || t("pinSaveFailed") });
+              }}><Icon d={icons.plus} size={14} /> {t("settingsStaffAdd")}</button>
+            </div>
+          </>)}
+          {staffMsg && <p style={{ fontSize: 12, color: staffMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{staffMsg.text}</p>}
         </div>
       </div>
 
@@ -7168,7 +7398,11 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   };
 
   const del = (id) => {
-    if (window.confirm("Remove this production company?")) setProductionCompanies(p => p.filter(c => c.id !== id));
+    if (window.confirm("Remove this production company?")) {
+      const co = productionCompanies.find(c => c.id === id);
+      setProductionCompanies(p => p.filter(c => c.id !== id));
+      api.audit({ action: "company.delete", recordId: id, name: co ? co.name : "" }); // actor stamp (P2-6)
+    }
   };
 
   return (
@@ -7327,7 +7561,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                               <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
                               <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
                               <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => setInvoices(p => p.map(i => i.id === inv.id ? { ...i, status: "Pending", updatedAt: Date.now() } : i))}>Restore</button>
-                              <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={11} /></button>
+                              <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true, deletedAt: Date.now(), deletedBy: actorName() } : i)); }}><Icon d={icons.trash} size={11} /></button>
                             </div>
                           </div>
                         </div>
@@ -7483,7 +7717,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                           })()}
                           {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? t("markPending") : t("markPaid")}</button>}
                           {(inv.docType === "invoice" || !inv.docType) && isPaid && !liveReceiptFor(inv) && <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => issueReceipt(inv)}>🧾 {t("issueReceipt")}</button>}
-                          <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={11} /></button>
+                          <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true, deletedAt: Date.now(), deletedBy: actorName() } : i)); }}><Icon d={icons.trash} size={11} /></button>
                         </div>
                         {st === "Void" && inv.voidReason && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#C53030", width: "100%" }}>{t("receiptVoided")}: {inv.voidReason}</p>}
                       </div>
@@ -7591,7 +7825,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                           <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
                         </>}
                         {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? t("markPending") : t("markPaid")}</button>}
-                        <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true } : i)); }}><Icon d={icons.trash} size={11} /></button>
+                        <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true, deletedAt: Date.now(), deletedBy: actorName() } : i)); }}><Icon d={icons.trash} size={11} /></button>
                       </div>
                     </div>
                   );
@@ -8434,7 +8668,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
       const note = (details?.note || "").trim();
       extra = { condition, ...(note ? { note } : {}) };
     }
-    setCheckouts(p => [...p, { id: "co" + now + ae.eqId, ...evtRefOf(selectedJob), jobName: selectedJob.name, eqId: ae.eqId, qty, employeeId: "admin", employeeName: "Admin", type, ts: now, photo: dataUrl || null, location: loc || null, adminApproved: true, by: "admin", ...extra }]);
+    setCheckouts(p => [...p, { id: "co" + now + ae.eqId, ...evtRefOf(selectedJob), jobName: selectedJob.name, eqId: ae.eqId, qty, employeeId: "admin", employeeName: actorName(), type, ts: now, photo: dataUrl || null, location: loc || null, adminApproved: true, by: actorName(), ...extra }]);
     setItemResults(r => ({ ...r, [ae.eqId]: "ok" }));
     setTouched(x => ({ ...x, [ae.eqId]: true }));
   };
@@ -8450,7 +8684,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
       const note = (details?.note || "").trim();
       extra = { condition, ...(note ? { note } : {}) };
     }
-    setCheckouts(p => [...p, { id: "bc" + now + ae.eqId, ...evtRefOf(selectedJob), jobName: selectedJob.name, eqId: ae.eqId, qty, employeeId: "admin", employeeName: "Admin", type, ts: now, photo: null, location: loc || null, adminApproved: true, by: "admin", ...extra }]);
+    setCheckouts(p => [...p, { id: "bc" + now + ae.eqId, ...evtRefOf(selectedJob), jobName: selectedJob.name, eqId: ae.eqId, qty, employeeId: "admin", employeeName: actorName(), type, ts: now, photo: null, location: loc || null, adminApproved: true, by: actorName(), ...extra }]);
     setBarcodeResults(r => ({ ...r, [ae.eqId]: true }));
     setTouched(x => ({ ...x, [ae.eqId]: true }));
   };
@@ -8461,7 +8695,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
     const now = Date.now();
     const outstanding = outstandingQty(getState(selectedJob), ae.eqId);
     const q = Math.max(1, Math.min(outstanding, qty || 1));
-    setCheckouts(p => [...p, { id: "lost" + now + ae.eqId, ...evtRefOf(selectedJob), jobName: selectedJob.name, eqId: ae.eqId, qty: q, employeeId: "admin", employeeName: "Admin", type: "lost", condition: condition === "written_off" ? "written_off" : "lost", ...(note ? { note: note.trim() } : {}), ts: now, photo: null, location: null, adminApproved: true, by: "admin" }]);
+    setCheckouts(p => [...p, { id: "lost" + now + ae.eqId, ...evtRefOf(selectedJob), jobName: selectedJob.name, eqId: ae.eqId, qty: q, employeeId: "admin", employeeName: actorName(), type: "lost", condition: condition === "written_off" ? "written_off" : "lost", ...(note ? { note: note.trim() } : {}), ts: now, photo: null, location: null, adminApproved: true, by: actorName() }]);
     setTouched(x => ({ ...x, [ae.eqId]: true }));
   };
 
@@ -9115,9 +9349,19 @@ function getDeviceLabel() {
 
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  // Persist the signed-in user so a page refresh / pull-to-refresh keeps the session.
-  const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem("psr_user") || "null"); } catch { return null; } });
-  useEffect(() => { try { user ? localStorage.setItem("psr_user", JSON.stringify(user)) : localStorage.removeItem("psr_user"); } catch {} }, [user]);
+  // The signed-in user = the server session (GET /api/me at boot, P0-2). A
+  // refresh keeps the httpOnly cookie, so nothing secret lives in the browser;
+  // psr_user only caches { role, id, name } for the offline (cache-only) path.
+  const [user, setUser] = useState(null);
+  const [booted, setBooted] = useState(false); // session check done (login screen may show before data loads)
+  const [loginInfo, setLoginInfo] = useState(null); // GET /api/public: names for the login pickers
+  const [bootError, setBootError] = useState("");    // a server-side config error (e.g. SESSION_SECRET missing), shown verbatim
+  const [staff, setStaff] = useState([]);           // admin accounts, credential-free (P2-6)
+  const [calendarToken, setCalendarToken] = useState(null);
+  useEffect(() => {
+    setActor(user);
+    try { user ? localStorage.setItem(SESSION_KEY, JSON.stringify({ role: user.role, id: user.id, name: user.name || "", staffId: user.staffId, staffRole: user.staffRole })) : localStorage.removeItem(SESSION_KEY); } catch {}
+  }, [user]);
   const [activePage, setActivePage] = useState("dashboard");
   const [eqInitialTab, setEqInitialTab] = useState(null); // opens Equipment page straight to a tab (e.g. reports)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
@@ -9131,7 +9375,6 @@ export default function App() {
   const [companyName, setCompanyName] = useState("GEAR DESK");
   const [equipmentRequests, setEquipmentRequests] = useState([]);
   const [adminRequests, setAdminRequests] = useState([]);
-  const [adminPin, setAdminPin] = useState("1234");
   const [lineGroupId, setLineGroupId] = useState(null);
   const [timezone, setTimezone] = useState("Asia/Bangkok");
   const [timeFormat, setTimeFormat] = useState("24"); // "12" | "24"
@@ -9328,7 +9571,7 @@ export default function App() {
     }
     const userId = user.id || (user.role === "admin" ? "admin" : null);
     if (!userId) return;
-    const userName = user.role === "admin" ? "Admin" : (user.name || "User");
+    const userName = user.name || (user.role === "admin" ? "Admin" : "User");
     let active = true;
 
     function connectChat() {
@@ -9372,7 +9615,7 @@ export default function App() {
   const sendChatMessage = useCallback((text) => {
     if (!chatWsRef.current || chatWsRef.current.readyState !== WebSocket.OPEN) return;
     const myId = user?.id || (user?.role === "admin" ? "admin" : null);
-    const myName = user?.role === "admin" ? "Admin" : (user?.name || "User");
+    const myName = user?.name || (user?.role === "admin" ? "Admin" : "User");
     const msg = {
       id: typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       senderId: myId,
@@ -9414,7 +9657,8 @@ export default function App() {
     if (d.companyName != null) { setCompanyName(d.companyName); kl.add("companyName"); }
     if (d.equipmentRequests) { setEquipmentRequests(d.equipmentRequests); kl.add("equipmentRequests"); }
     if (d.adminRequests) { setAdminRequests(d.adminRequests); kl.add("adminRequests"); }
-    if (d.adminPin) { setAdminPin(d.adminPin); kl.add("adminPin"); }
+    if (Array.isArray(d.staff)) setStaff(d.staff);
+    if (typeof d.calendarToken === "string") setCalendarToken(d.calendarToken);
     if (d.lineGroupId) { setLineGroupId(d.lineGroupId); kl.add("lineGroupId"); }
     if (d.timezone) { setTimezone(d.timezone); kl.add("timezone"); }
     if (d.timeFormat) { setTimeFormat(d.timeFormat); kl.add("timeFormat"); }
@@ -9452,53 +9696,94 @@ export default function App() {
     return () => clearInterval(iv);
   }, [loaded]);
 
-  // Load all data from cloud on mount — up to 3 attempts with back-off.
-  // On success: write a full-state cache to localStorage (Phase 1 cache write).
-  // On total failure: fall back to localStorage cache so the app stays usable offline.
+  // Boot (P0-2). 1) GET /api/me says whether a session cookie is valid.
+  // 2) With a session: load the data (up to 3 attempts with back-off) exactly as
+  //    before. 3) Without one: fetch the public login info (names only) and show
+  //    the Login screen; the data loads right after a successful login.
+  // 4) Server unreachable: the cached session + cached data give the read-only
+  //    offline mode (cloudSynced stays false so nothing is written).
   // If all fields come back null, we block auto-save and require the admin
   // to explicitly confirm initialization (prevents mistaking a KV outage
   // for a brand-new empty account and overwriting real data).
-  useEffect(() => {
-    (async () => {
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          const d = await api.getData();
-          applyData(d);
-          // Phase 1: write fresh KV data to localStorage cache on every successful load
-          writeCache(d);
-          if (kvLoadedRef.current.size === 0) {
-            // All fields null — show explicit init screen; do NOT set cloudSynced.
-            setNeedsInit(true);
-          } else {
-            setCloudSynced(true);
-          }
-          setLoaded(true);
+  const dataLoadStartedRef = useRef(false);
+  const showLoginScreen = useCallback(() => {
+    setUser(null);
+    setBooted(true);
+    api.publicInfo().then(setLoginInfo).catch(() => setLoginInfo({ employees: [], staff: [], pendingRegistrations: [], unreachable: true }));
+  }, []);
+  const loadCloud = useCallback(async () => {
+    if (dataLoadStartedRef.current) return;
+    dataLoadStartedRef.current = true;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const d = await api.getData();
+        applyData(d);
+        // Phase 1: write fresh KV data to localStorage cache on every successful load
+        writeCache(d);
+        if (kvLoadedRef.current.size === 0) {
+          // All fields null — show explicit init screen; do NOT set cloudSynced.
+          setNeedsInit(true);
+        } else {
+          setCloudSynced(true);
+        }
+        setLoaded(true);
+        return;
+      } catch (e) {
+        if (e && (e.status === 401 || e.status === 403)) {
+          // The session ended between /api/me and the data load: back to Login.
+          dataLoadStartedRef.current = false;
+          showLoginScreen();
           return;
-        } catch {
-          if (attempt < 3) {
-            await new Promise(r => setTimeout(r, 1200 * attempt));
-          } else {
-            // All 3 KV attempts failed — try loading from localStorage cache.
-            try {
-              const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-              if (cached && typeof cached === "object") {
-                applyData(cached);
-                if (kvLoadedRef.current.size > 0) {
-                  // Cache had real data — go to offline mode (cloudSynced stays false)
-                  setOfflineMode(true);
-                  setLoaded(true);
-                  return;
-                }
+        }
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 1200 * attempt));
+        } else {
+          // All 3 KV attempts failed — try loading from localStorage cache.
+          try {
+            const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+            if (cached && typeof cached === "object") {
+              applyData(cached);
+              if (kvLoadedRef.current.size > 0) {
+                // Cache had real data — go to offline mode (cloudSynced stays false)
+                setOfflineMode(true);
+                setLoaded(true);
+                return;
               }
-            } catch {}
-            // No cache either — show the hard error screen
-            setLoadError(true);
-            setLoaded(true);
-          }
+            }
+          } catch {}
+          // No cache either — show the hard error screen
+          setLoadError(true);
+          setLoaded(true);
         }
       }
+    }
+  }, [applyData, showLoginScreen]);
+
+  useEffect(() => {
+    (async () => {
+      let me;
+      try { me = await api.me(); }
+      catch (e) {
+        if (e && e.server) { setBootError(e.message || "server error"); setBooted(true); setLoadError(true); setLoaded(true); return; }
+        // Server unreachable. A cached session + cached data = offline read-only;
+        // no cached session = the hard error screen (nothing to show safely).
+        let cachedUser = null;
+        try { cachedUser = JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch {}
+        if (cachedUser && cachedUser.role) { setUser(cachedUser); setBooted(true); await loadCloud(); return; }
+        setBooted(true); setLoadError(true); setLoaded(true);
+        return;
+      }
+      if (me) { setUser(me); setBooted(true); await loadCloud(); }
+      else showLoginScreen();
     })();
-  }, [applyData]);
+  }, [loadCloud, showLoginScreen]);
+
+  // Login screen -> session -> data.
+  const onLogin = (u) => { setUser(u); loadCloud(); };
+  const refreshLoginInfo = () => { api.publicInfo().then(setLoginInfo).catch(() => {}); };
+  // Logout clears the cookie server-side, then reloads so every view starts
+  // clean (no state from the previous role lingers in memory).
+  const onLogout = () => { api.logout().finally(() => { try { localStorage.removeItem(SESSION_KEY); } catch {} window.location.reload(); }); };
 
   // Capture a reference snapshot of all state right after the initial KV load settles.
   // Runs once when both loaded and cloudSynced first become true (before the save effect below).
@@ -9507,7 +9792,7 @@ export default function App() {
   useEffect(() => {
     if (!loaded || !cloudSynced || snapTakenRef.current) return;
     snapTakenRef.current = true;
-    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
+    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
   }, [loaded, cloudSynced]); // intentionally omits data deps — captures post-load state once
 
   // Phase 1 reconnect loop: when offlineMode is active, poll every 20s and on the
@@ -9569,7 +9854,6 @@ export default function App() {
       if (changed("companyName", companyName)) savePayload.companyName = companyName;
       if (changed("equipmentRequests", equipmentRequests)) savePayload.equipmentRequests = equipmentRequests;
       if (changed("adminRequests", adminRequests)) savePayload.adminRequests = adminRequests;
-      if (changed("adminPin", adminPin)) savePayload.adminPin = adminPin;
       if (changed("timezone", timezone)) savePayload.timezone = timezone;
       if (changed("timeFormat", timeFormat)) savePayload.timeFormat = timeFormat;
       if (changed("kpiConfig", kpiConfig)) savePayload.kpiConfig = kpiConfig;
@@ -9585,7 +9869,7 @@ export default function App() {
 
       if (Object.keys(savePayload).length === 0) return;
       // Phase 1: build a full-state snapshot for the cache (saved on every success)
-      const fullSnapshot = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
+      const fullSnapshot = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
       const onSuccess = (r) => {
         setSaveErr(false);
         pendingSaveRef.current = null;
@@ -9626,7 +9910,7 @@ export default function App() {
             .then(onSuccess)
             .catch(onFail));
     }, 1500);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, loaded, cloudSynced]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, loaded, cloudSynced]);
 
   // Phase 2: when a save has failed, retry automatically when the browser comes back online
   // or every 30 seconds. This drains without user action and clears the ⚠ SYNC indicator.
@@ -9646,7 +9930,7 @@ export default function App() {
   }, [saveErr]);
 
   // Setters the conflict path needs to drop a merged field back into state.
-  const FIELD_SETTERS = { equipment: setEquipment, jobs: setJobs, employees: setEmployees, reports: setReports, productionCompanies: setProductionCompanies, companyName: setCompanyName, adminPin: setAdminPin, timezone: setTimezone, timeFormat: setTimeFormat, kpiConfig: setKpiConfig, punishments: setPunishments, kpiEvents: setKpiEvents, photoVerification: setPhotoVerification, navOrder: setNavOrder, verificationConfig: setVerificationConfig, invoicePresets: setInvoicePresets, chatEnabled: setChatEnabled };
+  const FIELD_SETTERS = { equipment: setEquipment, jobs: setJobs, employees: setEmployees, reports: setReports, productionCompanies: setProductionCompanies, companyName: setCompanyName, timezone: setTimezone, timeFormat: setTimeFormat, kpiConfig: setKpiConfig, punishments: setPunishments, kpiEvents: setKpiEvents, photoVerification: setPhotoVerification, navOrder: setNavOrder, verificationConfig: setVerificationConfig, invoicePresets: setInvoicePresets, chatEnabled: setChatEnabled };
 
   // PUT with optimistic versions (P1-13). Sends `_v` for the whole-value fields in
   // the payload; on 409 (another device wrote one of them first) it re-GETs, keeps
@@ -9681,10 +9965,12 @@ export default function App() {
     }
     if (!res.ok) {
       const info = await res.json().catch(() => ({}));
+      if (res.status === 401) showToast("error", "authSessionEnded");
+      else if (res.status === 403) showToast("error", "authForbidden");
       return { ok: false, status: res.status, error: info.error || `HTTP ${res.status}`, field: info.field, bytes: info.bytes };
     }
-    const j = await res.json().catch(() => ({}));
-    if (j && j._v) Object.assign(versionsRef.current, j._v);
+    const jr = await res.json().catch(() => ({}));
+    if (jr && jr._v) Object.assign(versionsRef.current, jr._v);
     return { ok: true, sent: sent || undefined };
   };
 
@@ -9695,7 +9981,7 @@ export default function App() {
   const saveSettingsNow = async () => {
     if (!loaded || !cloudSynced) return { ok: false, error: "Still syncing with the cloud — wait a moment, then try again." };
     const ls = lastSavedRef.current;
-    const state = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, chatEnabled };
+    const state = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, chatEnabled };
     const payload = {}, sent = {};
     for (const [k, v] of Object.entries(state)) if (ls[k] !== v) { payload[k] = v; sent[k] = v; }
     if (lineGroupId !== null && ls.lineGroupId !== lineGroupId) { payload.lineGroupId = lineGroupId; sent.lineGroupId = lineGroupId; }
@@ -9724,7 +10010,7 @@ export default function App() {
     const kl = kvLoadedRef.current;
     const payload = {
       equipment, jobs, checkouts, employees, reports, productionCompanies, invoices,
-      companyName, equipmentRequests, adminRequests, adminPin,
+      companyName, equipmentRequests, adminRequests,
       timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets,
     };
     try {
@@ -9794,25 +10080,54 @@ export default function App() {
     unresolvedCount > 0 && { label: _tRoot("notifDamageReports"), count: unresolvedCount, color: "#C53030", icon: icons.alert, onClick: () => { setEqInitialTab("reports"); setActivePage("equipment"); } },
   ].filter(Boolean);
 
+  // Member registration is resolved SERVER-side (P2-8): the requested PIN only
+  // ever exists as a hash on the request, so the employee has to be created by
+  // /api/approve-member. The response carries the fresh employees +
+  // adminRequests arrays and their versions; applyData adopts them as saved.
+  const resolveMember = async (req, approve) => {
+    const r = await api.approveMember(req.id, approve);
+    if (!r.ok) {
+      if (r.status === 409) { // already resolved elsewhere: pull the truth
+        api.getData().then(d => { applyData(d); writeCache(d); }).catch(() => {});
+        return;
+      }
+      showToast("error", r.status === 401 ? "authSessionEnded" : "approveFailed");
+      return;
+    }
+    applyData({ employees: r.employees, adminRequests: r.adminRequests, _v: r._v });
+    notifyOthers();
+  };
+
   const approveAdminRequest = (req) => {
+    const by = actorName();
+    if (req.type === "member-register") { resolveMember(req, true); return; }
     if (req.type === "production-house") {
-      setProductionCompanies(p => [...p, { id: "co" + Date.now(), name: req.name.trim(), address: req.address || "" }]);
+      setProductionCompanies(p => [...p, { id: "co" + Date.now(), name: req.name.trim(), address: req.address || "", approvedBy: by }]);
     } else if (req.type === "equipment") {
       setEquipment(p => [...p, { id: "eq" + Date.now(), name: req.name.trim(), category: req.category || "", total: +req.total || 1, photo: req.photo || null, notes: req.notes || "" }]);
-    } else if (req.type === "member-register") {
-      setEmployees(p => [...p, { id: "e" + Date.now(), name: req.name.trim(), pin: req.requestedPin }]);
     } else if (req.type === "geo-return") {
       // Partial returns (P1-1): the request carries the units coming back + condition + note.
       const qty = Number.isFinite(+req.qty) ? +req.qty : 1;
-      setCheckouts(p => [...p, { id: "co" + Date.now() + req.eqId, jobId: req.jobId, requestId: req.requestId || null, jobName: req.jobName, eqId: req.eqId, qty, employeeId: req.employeeId, employeeName: req.employeeName, type: "return", ts: Date.now(), photo: req.photo || null, location: req.returnLocation || null, adminApproved: true, by: "admin", condition: req.condition || "ok", ...(req.note ? { note: req.note } : {}) }]);
+      setCheckouts(p => [...p, { id: "co" + Date.now() + req.eqId, jobId: req.jobId, requestId: req.requestId || null, jobName: req.jobName, eqId: req.eqId, qty, employeeId: req.employeeId, employeeName: req.employeeName, type: "return", ts: Date.now(), photo: req.photo || null, location: req.returnLocation || null, adminApproved: true, by, condition: req.condition || "ok", ...(req.note ? { note: req.note } : {}) }]);
     }
-    setAdminRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: new Date().toISOString() } : r));
+    setAdminRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: new Date().toISOString(), approvedBy: by } : r));
     notifyRequester(req, "approved");
   };
 
   const rejectAdminRequest = (req) => {
-    setAdminRequests(p => p.map(r => r.id === req.id ? { ...r, status: "rejected", resolvedAt: new Date().toISOString() } : r));
+    if (req.type === "member-register") { resolveMember(req, false); return; }
+    setAdminRequests(p => p.map(r => r.id === req.id ? { ...r, status: "rejected", resolvedAt: new Date().toISOString(), approvedBy: actorName() } : r));
     notifyRequester(req, "rejected");
+  };
+
+  // Team > Add Member / Reset PIN (P0-2): the PIN goes straight to the server
+  // (hashed there), never through the employees array or React state. The
+  // server answers with the credential-free list + version, adopted as saved.
+  const setEmployeePinAndAdopt = async (id, pin, name) => {
+    const r = await api.setEmployeePin(id, pin, name);
+    if (!r.ok) return { ok: false, status: r.status, error: r.error };
+    if (Array.isArray(r.employees)) { applyData({ employees: r.employees, _v: r._v }); notifyOthers(); }
+    return { ok: true, created: !!r.created };
   };
 
   // Tell the crew member the outcome of a geo-gated return (P1-5): LINE push to the
@@ -9841,7 +10156,8 @@ export default function App() {
     const item = (eq && eq.name) || extra.eqName || eqId;
     const qty = Math.max(1, +extra.qty || 1);
     if (!window.confirm(_tRoot("dashReceiveConfirm").replace("{n}", qty).replace("{item}", item).replace("{job}", extra.jobName || jobId || ""))) return;
-    const events = buildReceiveEvents({ jobId, requestId: extra.requestId, jobName: extra.jobName, eqId, qty, lanes: extra.lanes, receivedFor: extra.employeeName || null });
+    const by = actorName();
+    const events = buildReceiveEvents({ jobId, requestId: extra.requestId, jobName: extra.jobName, eqId, qty, lanes: extra.lanes, receivedFor: extra.employeeName || null, employeeName: by }).map(ev => ({ ...ev, by }));
     setCheckouts(p => [...p, ...events]);
   };
 
@@ -9860,8 +10176,8 @@ export default function App() {
   // re-syncs). The page reloads afterwards so every view starts from KV.
   const restoreBackup = async (id) => {
     if (!id) return null;
-    const r = await api.restoreBackup(id, adminPin);
-    if (r.status === 403) throw new Error(_tRoot("adminPinRejected"));
+    const r = await api.restoreBackup(id);
+    if (r.status === 401 || r.status === 403) throw new Error(_tRoot(r.status === 401 ? "authSessionEnded" : "authOwnerOnly"));
     if (!r.ok) throw new Error(r.error || `HTTP ${r.status}`);
     notifyOthers();
     return r.savedAt || Date.now();
@@ -9871,8 +10187,8 @@ export default function App() {
   // KV checkouts = [] and every checkout photo key removed. Local state adopts
   // the empty list as already-saved so the save effect does not re-send.
   const clearHistory = async () => {
-    const r = await api.clearHistory(adminPin);
-    if (r.status === 403) throw new Error(_tRoot("adminPinRejected"));
+    const r = await api.clearHistory();
+    if (r.status === 401 || r.status === 403) throw new Error(_tRoot(r.status === 401 ? "authSessionEnded" : "authForbidden"));
     if (!r.ok) throw new Error(r.error || `HTTP ${r.status}`);
     const empty = [];
     setCheckouts(empty);
@@ -9887,7 +10203,7 @@ export default function App() {
   // the caller may drop it from local state.
   const deleteRecord = async (field, id) => {
     try {
-      const r = await api.deleteRecord(field, id, adminPin);
+      const r = await api.deleteRecord(field, id);
       if (!r.ok) throw new Error(r.error || `HTTP ${r.status}`);
       if (r._v) Object.assign(versionsRef.current, r._v);
       notifyOthers();
@@ -9903,8 +10219,8 @@ export default function App() {
   const migratePhotos = async (onProgress) => {
     let total = 0;
     for (let i = 0; i < 200; i++) {
-      const r = await api.migratePhotos(adminPin, 20);
-      if (r.status === 403) throw new Error(_tRoot("adminPinRejected"));
+      const r = await api.migratePhotos(20);
+      if (r.status === 401 || r.status === 403) throw new Error(_tRoot(r.status === 401 ? "authSessionEnded" : "authForbidden"));
       if (!r.ok) throw new Error(r.error || `HTTP ${r.status}`);
       total += r.moved || 0;
       if (onProgress) onProgress(total, r.remaining || 0);
@@ -9917,7 +10233,7 @@ export default function App() {
   return (
     <LangCtx.Provider value={lang}>
     <ToastProvider bottom={isMobile ? 92 : 24}>
-      {!loaded ? (
+      {!booted || (user && !loaded) ? (
         <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 32 }}>
           {/* Logo spins in following the circular-arrow direction of the mark */}
           <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -9947,12 +10263,16 @@ export default function App() {
       ) : loadError ? (
         <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
           <div style={{ fontSize: 40 }}>⚠️</div>
-          <p style={{ color: "#C53030", fontSize: 17, fontWeight: 700, textAlign: "center" }}>Could Not Connect to Cloud Storage</p>
+          <p style={{ color: "#C53030", fontSize: 17, fontWeight: 700, textAlign: "center" }}>{bootError ? "Server configuration error" : "Could Not Connect to Cloud Storage"}</p>
           <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13, textAlign: "center", maxWidth: 320, lineHeight: 1.6 }}>
-            The app tried 3 times and could not reach the server. Your data has <strong style={{ color: "var(--accent,#2563EB)" }}>not been changed</strong>. Check your internet connection and try again.
+            {bootError
+              ? <>{bootError}</>
+              : <>The app tried 3 times and could not reach the server. Your data has <strong style={{ color: "var(--accent,#2563EB)" }}>not been changed</strong>. Check your internet connection and try again.</>}
           </p>
           <button onClick={() => window.location.reload()} style={{ marginTop: 8, padding: "12px 28px", background: "var(--accent,#2563EB)", color: "#0e0e08", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Retry</button>
         </div>
+      ) : !user ? (
+        <Login onLogin={onLogin} info={loginInfo} refreshInfo={refreshLoginInfo} setLang={setLang} />
       ) : needsInit && user?.role === "admin" ? (
         <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
           <div style={{ fontSize: 40 }}>🗄️</div>
@@ -9965,15 +10285,13 @@ export default function App() {
           <button onClick={initializeAccount} style={{ padding: "12px 28px", background: "var(--accent,#2563EB)", color: "#0e0e08", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Initialize Fresh Account</button>
           {saveErr && <p style={{ color: "#C53030", fontSize: 12 }}>Save failed — check your connection and try again.</p>}
         </div>
-      ) : !user ? (
-        <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={onLogout} calendarToken={calendarToken} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
       ) : (
         <div id="admin-layout" style={S.app}>
           {isMobile ? (
             <AdminTopBar
-              onLogout={() => setUser(null)}
+              onLogout={onLogout}
               saveErr={saveErr}
               offlineMode={offlineMode}
               companyName={companyName}
@@ -9991,7 +10309,7 @@ export default function App() {
               navOrder={navOrder}
               companyName={companyName}
               onOpenSettings={() => setSettingsPanelOpen(true)}
-              onLogout={() => setUser(null)}
+              onLogout={onLogout}
               saveErr={saveErr}
               offlineMode={offlineMode}
               notifItems={notifItems}
@@ -10018,11 +10336,11 @@ export default function App() {
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} equipmentRequests={equipmentRequests} productionCompanies={productionCompanies} initialTab={eqInitialTab} onConsumeInitialTab={() => setEqInitialTab(null)} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} equipmentRequests={equipmentRequests} reports={reports} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} jobs={jobs} setJobs={setJobs} adminRequests={adminRequests} saveNow={saveSettingsNow} />}
-            {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} deleteRecord={deleteRecord} />}
+            {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} setEmployeePin={setEmployeePinAndAdopt} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} deleteRecord={deleteRecord} />}
             {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} equipmentRequests={equipmentRequests} />}
           </main>
           {isMobile && <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} navOrder={navOrder} />}
-          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} clearHistory={clearHistory} migratePhotos={migratePhotos} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} chatEnabled={chatEnabled} setChatEnabled={setChatEnabled} onClose={() => setSettingsPanelOpen(false)} />}
+          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} user={user} onUserUpdate={setUser} staff={staff} setStaff={setStaff} calendarToken={calendarToken} setCalendarToken={setCalendarToken} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} clearHistory={clearHistory} migratePhotos={migratePhotos} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} chatEnabled={chatEnabled} setChatEnabled={setChatEnabled} onClose={() => setSettingsPanelOpen(false)} />}
         </div>
       )}
       {/* Global chat window — visible across admin and employee views */}
