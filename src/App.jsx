@@ -10,6 +10,9 @@ import { derivePrefix, sanitizePrefix, nextDocNo, rtxNoFromInv, fmtDocNo } from 
 import { printableItems, validateDocument, docTotals, snapshotBillTo, resolveBillTo, canEditCompany, dateInTz, dueDateFrom, canMarkPaid, embedFlags, docTitle, WHT_DEFAULT_RATE } from "./logic/invoiceDoc.js";
 import { roleOptions, DEFAULT_POSITION_NAMES } from "./logic/positions.js";
 import { ToastProvider, useToast } from "./components/toast.jsx";
+import { Dialog } from "./components/dialog.jsx";
+import { formatDate, formatDateTime, formatDay, formatLongDay, setFormatLang, tCount, shootTimeLabel, locationLabel, statusLabel } from "./i18n/format.js";
+import { kpiMax, kpiPeriod as kpiPeriodAt, kpiScore as kpiScoreAt, kpiStars, kpiEventsInPeriod as kpiEventsInPeriodAt, kpiDelta, isKpiAdd, buildKpiEvent, visibleKpiRules } from "./logic/kpi.js";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const JOB_STATUSES = ["Pencil", "Confirmed", "Cancelled", "Declined"];
@@ -108,8 +111,8 @@ function buildThemeCss(style, palette) {
 }
 
 // ─── ICON COMPONENTS ─────────────────────────────────────────────────────────
-const Icon = ({ d, size = 18, color = "currentColor", fill = "none", strokeW = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color} strokeWidth={strokeW} strokeLinecap="round" strokeLinejoin="round">
+const Icon = ({ d, size = 18, color = "currentColor", fill = "none", strokeW = 1.8, ...rest }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color} strokeWidth={strokeW} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" {...rest}>
     {Array.isArray(d) ? d.map((p, i) => <path key={i} d={p} />) : <path d={d} />}
   </svg>
 );
@@ -140,6 +143,21 @@ const icons = {
   qr: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h3v3h-3z M17 17h3v3h-3z M14 20h3 M20 14v3",
   chat: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   send: "M22 2L11 13 M22 2L15 22l-4-9-9-4 22-7z",
+  save: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z M17 21v-8H7v8 M7 3v5h8",
+  star: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z",
+  clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2",
+  eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  print: "M6 9V2h12v7 M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2 M6 14h12v8H6z",
+  link: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+  copy: "M20 9h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2z M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
+  flag: "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7",
+  receipt: "M4 2v20l3-2 3 2 3-2 3 2 3-2 3 2V2l-3 2-3-2-3 2-3-2-3 2z M8 8h8 M8 12h8 M8 16h5",
+  hourglass: "M5 22h14 M5 2h14 M17 22v-4.17a2 2 0 0 0-.59-1.42L12 12l-4.41 4.41A2 2 0 0 0 7 17.83V22 M7 2v4.17a2 2 0 0 0 .59 1.42L12 12l4.41-4.41A2 2 0 0 0 17 6.17V2",
+  chevron_right: "M9 18l6-6-6-6",
+  chevron_down: "M6 9l6 6 6-6",
+  chevron_up: "M18 15l-6-6-6 6",
+  undo: "M3 7v6h6 M21 17a9 9 0 0 0-15-6.7L3 13",
+  palette: "M12 22a10 10 0 1 1 0-20c5.5 0 10 3.6 10 8a5 5 0 0 1-5 5h-2a2 2 0 0 0-1.5 3.3c.3.4.5.9.5 1.4a2 2 0 0 1-2 2.3z M7.5 10.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M12 7.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M16.5 10.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2z",
 };
 
 // ─── UTILITY: Date / time helpers ────────────────────────────────────────────
@@ -184,36 +202,16 @@ const TIMEZONES = [
 ];
 
 const haversineMeters = (lat1, lon1, lat2, lon2) => { const R=6371000,φ1=lat1*Math.PI/180,φ2=lat2*Math.PI/180,Δφ=(lat2-lat1)*Math.PI/180,Δλ=(lon2-lon1)*Math.PI/180,a=Math.sin(Δφ/2)**2+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2; return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); };
-const formatDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-const formatDateTime = (ts) => new Date(ts).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+// formatDate / formatDateTime / formatDay live in src/i18n/format.js (locale follows the app language, P1-6)
 const addDaysStr = (ds, n) => { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 // jobFirstDate / jobLastDate / effPickupDate / effReturnDate live in src/logic/availability.js
 
 // ─── KPI scoring ─────────────────────────────────────────────────────────────
-const KPI_MAX_DEFAULT = 100; // 100 pts == 5 stars
-const kpiAddMonths = (d, m) => { const x = new Date(d); x.setMonth(x.getMonth() + m); return x; };
-const kpiMax = (config) => parseFloat(config && config.maxPoints) || KPI_MAX_DEFAULT;
-// Current scoring window [start, end) from config.startDate (default Jan 1) + resetMonths.
-function kpiPeriod(config) {
-  const startStr = (config && config.startDate) || `${new Date().getFullYear()}-01-01`;
-  const start = new Date(startStr + "T00:00:00");
-  const months = Math.max(1, parseInt(config && config.resetMonths) || 12);
-  const now = new Date(today() + "T00:00:00");
-  if (now < start) return { start, end: kpiAddMonths(start, months) };
-  let s = new Date(start), guard = 0;
-  while (guard++ < 4000) { const e = kpiAddMonths(s, months); if (now < e) return { start: s, end: e }; s = e; }
-  return { start, end: kpiAddMonths(start, months) };
-}
-// Points remaining this period for an employee (max minus deductions).
-function kpiScore(employeeId, kpiEvents, config) {
-  const max = kpiMax(config);
-  const { start, end } = kpiPeriod(config);
-  const used = (kpiEvents || [])
-    .filter(ev => ev.employeeId === employeeId && ev.ts >= start.getTime() && ev.ts < end.getTime())
-    .reduce((s, ev) => s + (parseFloat(ev.points) || 0), 0);
-  return Math.max(0, Math.min(max, max - used));
-}
-const kpiStars = (score, config) => { const max = kpiMax(config); return max > 0 ? (score / max) * 5 : 0; };
+// Logic lives in src/logic/kpi.js (P3-2: deductions AND positive adjustments).
+// These wrappers pin "today" to the app timezone.
+const kpiPeriod = (config) => kpiPeriodAt(config, today());
+const kpiScore = (employeeId, kpiEvents, config) => kpiScoreAt(employeeId, kpiEvents, config, today());
+const kpiEventsInPeriod = (employeeId, kpiEvents, config) => kpiEventsInPeriodAt(employeeId, kpiEvents, config, today());
 
 // 5-star rating with fractional fill (0.1 resolution).
 function StarRating({ value, size = 18 }) {
@@ -264,12 +262,18 @@ const S = {
   navItem: (active) => ({ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", cursor: "pointer", color: active ? "var(--accent,#2563EB)" : "var(--text,#16324A)", background: active ? "rgba(var(--accent-rgb,37,99,235),0.07)" : "transparent", borderLeft: active ? "3px solid var(--accent,#2563EB)" : "3px solid transparent", fontSize: 14, fontWeight: active ? 700 : 400 }),
   card: { background: "var(--surface,#FFFFFF)", border: "var(--card-border,1px solid #D8E1EC)", borderRadius: "var(--card-radius,10px)", padding: 20, boxShadow: "var(--card-shadow,0 1px 2px rgba(22,50,74,0.06),0 4px 16px rgba(22,50,74,0.08))", backdropFilter: "var(--card-backdrop,none)" },
   cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 14 },
-  badge: (color) => ({ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", ...(color === "green" ? { background: "rgba(47,133,90,0.12)", color: "#2F855A" } : color === "amber" ? { background: "rgba(var(--accent-rgb,37,99,235),0.12)", color: "var(--accent,#2563EB)" } : color === "red" ? { background: "rgba(197,48,48,0.12)", color: "#C53030" } : color === "blue" ? { background: "rgba(37,99,235,0.12)", color: "#2563EB" } : color === "gray" ? { background: "rgba(148,163,184,0.1)", color: "#7B8794" } : {}) }),
-  input: { width: "100%", background: "var(--input-bg,#FFFFFF)", border: "var(--input-border,1px solid #D8E1EC)", boxShadow: "var(--input-shadow,none)", borderRadius: "var(--btn-radius,7px)", padding: "9px 12px", color: "var(--text,#16324A)", fontSize: 13, outline: "none", boxSizing: "border-box" },
-  select: { width: "100%", background: "var(--input-bg,#FFFFFF)", border: "var(--input-border,1px solid #D8E1EC)", boxShadow: "var(--input-shadow,none)", borderRadius: "var(--btn-radius,7px)", padding: "9px 12px", color: "var(--text,#16324A)", fontSize: 13, outline: "none", boxSizing: "border-box", cursor: "pointer" },
+  // Status badges: sm (default, inline text) / md (readable on phones). Chips = tappable badges, 32px min.
+  badge: (color, size = "sm") => ({ display: "inline-flex", alignItems: "center", gap: 4, boxSizing: "border-box", borderRadius: 20, fontWeight: 600, letterSpacing: "0.04em", whiteSpace: "nowrap",
+    ...(size === "md" ? { padding: "4px 10px", fontSize: 12, minHeight: 24 } : size === "chip" ? { padding: "6px 12px", fontSize: 12, minHeight: 32, cursor: "pointer", border: "none", fontFamily: "inherit" } : { padding: "2px 8px", fontSize: 11 }), ...(color === "green" ? { background: "rgba(47,133,90,0.12)", color: "#2F855A" } : color === "amber" ? { background: "rgba(var(--accent-rgb,37,99,235),0.12)", color: "var(--accent,#2563EB)" } : color === "red" ? { background: "rgba(197,48,48,0.12)", color: "#C53030" } : color === "blue" ? { background: "rgba(37,99,235,0.12)", color: "#2563EB" } : color === "gray" ? { background: "rgba(148,163,184,0.1)", color: "#7B8794" } : {}) }),
+  input: { width: "100%", background: "var(--input-bg,#FFFFFF)", border: "var(--input-border,1px solid #D8E1EC)", boxShadow: "var(--input-shadow,none)", borderRadius: "var(--btn-radius,7px)", padding: "9px 12px", color: "var(--text,#16324A)", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" },
+  select: { width: "100%", background: "var(--input-bg,#FFFFFF)", border: "var(--input-border,1px solid #D8E1EC)", boxShadow: "var(--input-shadow,none)", borderRadius: "var(--btn-radius,7px)", padding: "9px 12px", color: "var(--text,#16324A)", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", cursor: "pointer" },
   label: { display: "block", marginBottom: 5, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", color: "var(--section-title-color,#4E6B84)", textTransform: "uppercase" },
-  btn: (variant = "primary") => ({
-    display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: "var(--btn-radius,7px)", fontSize: 13, fontWeight: 600, cursor: "pointer", border: "none", transition: "all 0.15s",
+  // Three control sizes (P2-12): sm 28px (dense admin rows), md 36px (default),
+  // lg 44px (anything a crew member taps on Today / Checkout).
+  btn: (variant = "primary", size = "md") => ({
+    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, boxSizing: "border-box", fontFamily: "inherit",
+    ...(size === "sm" ? { minHeight: 28, padding: "3px 10px", fontSize: 12 } : size === "lg" ? { minHeight: 44, padding: "10px 18px", fontSize: 14 } : { minHeight: 36, padding: "7px 14px", fontSize: 13 }),
+    borderRadius: "var(--btn-radius,7px)", fontWeight: 600, cursor: "pointer", border: "none", transition: "all 0.15s",
     ...(variant === "primary" ? { background: "var(--btn-primary-bg,#2563EB)", color: "var(--btn-primary-color,#FFFFFF)", boxShadow: "var(--btn-shadow,none)" } : variant === "ghost" ? { background: "transparent", color: "var(--text-muted,#4E6B84)", border: "var(--input-border,1px solid #D8E1EC)" } : variant === "danger" ? { background: "rgba(197,48,48,0.12)", color: "#C53030", border: "1px solid rgba(197,48,48,0.2)" } : variant === "success" ? { background: "rgba(47,133,90,0.12)", color: "#2F855A", border: "1px solid rgba(47,133,90,0.2)" } : {})
   }),
   sectionTitle: { fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--section-title-color,#4E6B84)", marginBottom: 16 },
@@ -279,20 +283,21 @@ const S = {
   row: { display: "flex", alignItems: "center", gap: 12 },
   col: { display: "flex", flexDirection: "column", gap: 12 },
   tag: { display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, background: "var(--tag-bg,#D8E1EC)", color: "var(--tag-color,#4E6B84)", fontWeight: 500 },
+  // Filter / sort chip (P2-12): >= 32px tall, 12px label, one look everywhere.
+  chip: (active) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4, boxSizing: "border-box", minHeight: 32, padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit", transition: "all .12s",
+    ...(active ? { background: "var(--accent,#2563EB)", color: "var(--accent-text,#FFFFFF)", border: "1px solid var(--accent,#2563EB)" } : { background: "var(--surface,#FFFFFF)", color: "var(--text-muted,#4E6B84)", border: "1px solid var(--border-color,#D8E1EC)" }) }),
 };
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
-function Modal({ title, onClose, children, wide }) {
+// Thin wrapper over the portal-rendered Dialog primitive (src/components/dialog.jsx,
+// P2-13): role=dialog, aria-modal, Esc + backdrop close (with a discard confirm
+// when `dirty`), focus trap and focus return. Callers keep using <Modal>.
+function Modal({ title, onClose, children, wide, dirty }) {
+  const t = useT();
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(22,50,74,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div style={{ background: "var(--surface,#FFFFFF)", border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 12, width: "100%", maxWidth: wide ? 700 : 480, maxHeight: "90vh", overflow: "auto" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{title}</h3>
-          <button onClick={onClose} style={{ ...S.btn("ghost"), padding: "4px 8px" }}><Icon d={icons.x} size={16} /></button>
-        </div>
-        <div style={{ padding: 24 }}>{children}</div>
-      </div>
-    </div>
+    <Dialog title={title} onClose={onClose} wide={wide} dirty={dirty} confirmText={t("dialogDiscardConfirm")} closeLabel={t("dialogClose")} icon={<Icon d={icons.x} size={16} />}>
+      {children}
+    </Dialog>
   );
 }
 
@@ -594,7 +599,7 @@ function LangPill({ setLang }) {
   return (
     <div style={{ display: "flex", background: "var(--divider-color,#D8E1EC)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--border-color,#D8E1EC)", flexShrink: 0 }}>
       {["en", "th"].map(l => (
-        <button key={l} onClick={() => setLang(l)} style={{ background: lang === l ? "var(--accent,#2563EB)" : "transparent", color: lang === l ? "var(--accent-text,#FFFFFF)" : "var(--text-muted,#7B8FA3)", border: "none", padding: "4px 10px", fontSize: 10, fontWeight: 800, cursor: "pointer", letterSpacing: "0.05em" }}>
+        <button key={l} onClick={() => setLang(l)} aria-pressed={lang === l} style={{ background: lang === l ? "var(--accent,#2563EB)" : "transparent", color: lang === l ? "var(--accent-text,#FFFFFF)" : "var(--text-muted,#7B8FA3)", border: "none", minHeight: 34, minWidth: 40, padding: "6px 10px", fontSize: 11, fontWeight: 800, cursor: "pointer", letterSpacing: "0.05em", fontFamily: "inherit" }}>
           {l.toUpperCase()}
         </button>
       ))}
@@ -694,13 +699,13 @@ function printQRForItems(items, autoprint = true) {
 }
 
 const EQ_SORT_OPTIONS = [
-  { key: "name_az", label: "Name A→Z" },
-  { key: "name_za", label: "Name Z→A" },
-  { key: "cat",     label: "Category" },
-  { key: "qty_lo",  label: "Qty ↑" },
-  { key: "qty_hi",  label: "Qty ↓" },
-  { key: "latest",  label: "Latest Used" },
-  { key: "most",    label: "Most Used" },
+  { key: "name_az", label: "Name A→Z", labelKey: "sortNameAz" },
+  { key: "name_za", label: "Name Z→A", labelKey: "sortNameZa" },
+  { key: "cat",     label: "Category", labelKey: "sortCategory" },
+  { key: "qty_lo",  label: "Qty ↑", labelKey: "sortQtyLo" },
+  { key: "qty_hi",  label: "Qty ↓", labelKey: "sortQtyHi" },
+  { key: "latest",  label: "Latest Used", labelKey: "sortLatest" },
+  { key: "most",    label: "Most Used", labelKey: "sortMost" },
 ];
 
 function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setReports, equipmentRequests, productionCompanies, initialTab, onConsumeInitialTab }) {
@@ -1565,13 +1570,13 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
     });
   };
 
-  const fmtDay = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const fmtDay = (d) => formatDay(d);
   const money = (n) => "฿" + Math.round(n).toLocaleString();
   const money2 = (n) => "฿" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fromLine = [invoiceHeader || ownName, profileInfo?.phone].filter(Boolean).join(" · ");
 
   return (<>
-    <Modal title={existingInvoice ? t("docEditTitle") : t("docCreateTitle")} onClose={onClose} wide>
+    <Modal title={existingInvoice ? t("docEditTitle") : t("docCreateTitle")} onClose={onClose} wide dirty>
       <style>{LINE_ITEM_CSS}</style>
       <div style={S.col}>
         <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
@@ -1592,7 +1597,7 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
           <div style={S.col}>
             <div>
               <label style={S.label}>{t("docHeaderLabel")}</label>
-              <input style={S.input} value={invoiceHeader} onChange={e => setInvoiceHeader(e.target.value)} placeholder={headerDefault || "Your name or company"} />
+              <input style={S.input} value={invoiceHeader} onChange={e => setInvoiceHeader(e.target.value)} placeholder={headerDefault || t("docHeaderPh")} />
               <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "5px 0 0" }}>{t("docHeaderHint")} <strong style={{ color: "var(--text,#16324A)" }}>{t("docFromPreview")}: {fromLine || "—"}</strong></p>
               {!hasBank && includeBank && (
                 <p style={{ fontSize: 11, color: "#B7791F", margin: "5px 0 0", lineHeight: 1.5 }}>⚠ {isAdminCreator ? t("docMissingBankAdmin") : t("docMissingBank")}</p>
@@ -1681,7 +1686,7 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
               <optgroup label={t("docDeptGroup")}>{deptRoles.map(r => <option key={r.value} value={r.value}>{r.label}{lang === "th" ? ` (${r.value})` : ""} · {r.dept}</option>)}</optgroup>
               {position && !knownNames.has(position) && <option value={position}>{position}</option>}
             </select>
-            {selectedPos && <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", margin: "5px 0 0" }}>฿{(parseFloat(selectedPos.dayRate) || 0).toLocaleString()} / {parseFloat(selectedPos.hoursPerDay) || 12}hr, rates auto-filled below</p>}
+            {selectedPos && <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", margin: "5px 0 0" }}>{t("ratesAutoFilled").replace("{rate}", (parseFloat(selectedPos.dayRate) || 0).toLocaleString()).replace("{h}", parseFloat(selectedPos.hoursPerDay) || 12)}</p>}
             {positions.length === 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "5px 0 0" }}>{t("docPositionHint")}</p>}
           </div>
           {docType !== "receipt" && (
@@ -1689,12 +1694,12 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
               <label style={S.label}>{t("docStatus")}</label>
               <select style={S.select} value={status} onChange={e => setStatus(e.target.value)}>
                 {docType === "quotation" ? <>
-                  <option>Pending</option>
-                  <option>Confirmed</option>
-                  <option>Declined</option>
+                  <option value="Pending">{t("stPending")}</option>
+                  <option value="Confirmed">{t("stConfirmed")}</option>
+                  <option value="Declined">{t("stDeclined")}</option>
                 </> : <>
-                  <option>Pending</option>
-                  <option>Paid</option>
+                  <option value="Pending">{t("stPending")}</option>
+                  <option value="Paid">{t("stPaid")}</option>
                 </>}
               </select>
             </div>
@@ -1728,8 +1733,8 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
           <div>
             <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("docCallWrap")}</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-              {["Date", "Call", "Wrap"].map(h => (
-                <div key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)" }}>{h}</div>
+              {[t("colDate"), t("colCall"), t("colWrap")].map((h, i) => (
+                <div key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)" }}>{h}</div>
               ))}
               {shootDates.map(d => {
                 const cw = callWrap[d] || { call: "", wrap: "" };
@@ -1761,7 +1766,7 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
               <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("docOtAuto")}</p>
               {rows.map(r => (
                 <div key={r.d} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-muted,#6E8398)", padding: "2px 0" }}>
-                  <span>{fmtDay(r.d)} · {fmtH(r.wk)}h worked{r.otH > 0 ? ` · OT ${fmtH(r.otH)}h` : " · no OT"}</span>
+                  <span>{fmtDay(r.d)} · {t("otWorked").replace("{h}", fmtH(r.wk))}{r.otH > 0 ? ` · ${t("otHours").replace("{h}", fmtH(r.otH))}` : ` · ${t("otNone")}`}</span>
                   <span style={{ color: r.ot > 0 ? "var(--accent,#2563EB)" : "var(--text-muted,#7B8FA3)", fontWeight: 600 }}>{r.ot > 0 ? money(r.ot) : "—"}</span>
                 </div>
               ))}
@@ -1824,7 +1829,7 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
                   {vatEnabled && (
                     <button className="f-vat"
                       onClick={() => updateItem(it.id, "vat", !itemVat)}
-                      title={itemVat ? "VAT applied" : "No VAT"}
+                      title={itemVat ? t("vatApplied") : t("vatNone")}
                       style={{ width: "100%", minWidth: 26, height: 26, borderRadius: 5, border: `1px solid ${itemVat ? "rgba(var(--accent-rgb,37,99,235),0.35)" : "var(--border-color,#D8E1EC)"}`, background: itemVat ? "rgba(var(--accent-rgb,37,99,235),0.12)" : "transparent", cursor: "pointer", fontSize: 9, fontWeight: 800, color: itemVat ? "var(--accent,#2563EB)" : "var(--text-muted,#7B8FA3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       {itemVat ? "VAT" : "—"}
                     </button>
@@ -1852,12 +1857,12 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
               <span style={{ fontSize: 14, color: "var(--text,#16324A)" }}>{money2(totals.subtotal)}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("docVat")}{vatType === "inclusive" ? " (incl.)" : ""}</span>
+              <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("docVat")}{vatType === "inclusive" ? ` ${t("vatInclShort")}` : ""}</span>
               <span style={{ fontSize: 14, color: "var(--text,#16324A)" }}>{money2(totals.vatAmount)}</span>
             </div>
           </>)}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: vatEnabled ? "1px solid var(--divider-color,#D8E1EC)" : "none", paddingTop: vatEnabled ? 8 : 0 }}>
-            <span style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", fontWeight: 600 }}>{t("docTotal")}{vatEnabled ? " (incl. VAT)" : ""}</span>
+            <span style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", fontWeight: 600 }}>{t("docTotal")}{vatEnabled ? ` ${t("totalInclVat")}` : ""}</span>
             <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#2563EB)" }}>{money(totals.total)}</span>
           </div>
           {whtEnabled && (<>
@@ -1889,14 +1894,14 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
         (jobs || []).forEach(j => {
           const n = j.production?.trim(); if (!n) return;
           const key = n.toLowerCase();
-          if (!map.has(key)) map.set(key, { name: n, tag: "from booking" });
+          if (!map.has(key)) map.set(key, { name: n, tag: t("fromBooking") });
         });
         (adminRequests || []).filter(r => r.type === "production-house" && r.status === "approved").forEach(r => {
           const n = r.name?.trim(); if (!n) return;
           const key = n.toLowerCase();
-          const tag = `${r.employeeName || "Teammate"} added`;
+          const tag = t("addedByTag").replace("{name}", r.employeeName || t("teammate"));
           if (!map.has(key)) map.set(key, { name: n, tag });
-          else if (map.get(key).tag === "from booking") map.get(key).tag = tag;
+          else if (map.get(key).tag === t("fromBooking")) map.get(key).tag = tag;
         });
         return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, ["th", "en"], { sensitivity: "base" }));
       })();
@@ -1904,20 +1909,20 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
       const filtered = mergedCompanies.filter(c => !q || c.name.toLowerCase().includes(q));
       const customEntry = companySearch.trim() && !mergedCompanies.some(c => c.name.toLowerCase() === companySearch.trim().toLowerCase());
       return (
-        <Modal title="Production Company" onClose={() => setShowCompanyPicker(false)}>
+        <Modal title={t("companyPickerTitle")} onClose={() => setShowCompanyPicker(false)}>
           <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
             <div style={{ padding: "0 0 12px" }}>
               <input
                 autoFocus
                 style={{ ...S.input, width: "100%", boxSizing: "border-box" }}
-                placeholder="Search or type custom name…"
+                placeholder={t("companySearchPh")}
                 value={companySearch}
                 onChange={e => setCompanySearch(e.target.value)}
               />
             </div>
             <div style={{ maxHeight: "55vh", overflowY: "auto", margin: "0 -20px" }}>
               {filtered.length === 0 && !customEntry && (
-                <p style={{ color: "var(--text-muted,#7B8FA3)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>No companies found.</p>
+                <p style={{ color: "var(--text-muted,#7B8FA3)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>{t("noCompaniesFound")}</p>
               )}
               {filtered.map(co => (
                 <div
@@ -1926,7 +1931,7 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
                   style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 20px", borderBottom: "1px solid var(--divider-color,#D8E1EC)", cursor: "pointer", background: co.name === productionCompany ? "rgba(var(--accent-rgb,37,99,235),0.07)" : "transparent" }}
                 >
                   <span style={{ fontSize: 14, color: "var(--text,#16324A)", fontWeight: co.name === productionCompany ? 700 : 400 }}>{co.name}</span>
-                  {co.tag && <span style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)", background: "var(--surface,#FFFFFF)", border: "1px solid #2a2e3a", borderRadius: 4, padding: "2px 6px", flexShrink: 0, marginLeft: 10 }}>{co.tag}</span>}
+                  {co.tag && <span style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)", background: "var(--surface2,#EAF0F7)", border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 4, padding: "2px 6px", flexShrink: 0, marginLeft: 10 }}>{co.tag}</span>}
                 </div>
               ))}
               {customEntry && (
@@ -1935,7 +1940,7 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
                   style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 20px", borderBottom: "1px solid var(--divider-color,#D8E1EC)", cursor: "pointer" }}
                 >
                   <Icon d={icons.plus} size={14} color="var(--accent,#2563EB)" />
-                  <span style={{ fontSize: 14, color: "var(--accent,#2563EB)" }}>Use "{companySearch.trim()}"</span>
+                  <span style={{ fontSize: 14, color: "var(--accent,#2563EB)" }}>{t("useName").replace("{name}", companySearch.trim())}</span>
                 </div>
               )}
             </div>
@@ -3431,7 +3436,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                       <div style={{ marginTop: 10, paddingLeft: 10, borderLeft: "2px solid var(--divider-color,#D8E1EC)", display: "flex", flexDirection: "column", gap: 12 }}>
                         {g.items.map(req => (
                           <div key={req.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                            <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : req.status === "withdrawn" ? "gray" : "amber")}>{req.status}</span>
+                            <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : req.status === "withdrawn" ? "gray" : "amber", "md")}>{statusLabel(t, req.status)}</span>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.eqName || req.eqId}</p>
                               <p style={{ margin: "2px 0 0", fontSize: 11, color: req.distance !== null ? (req.distance > 50 ? "#C53030" : "#2F855A") : "var(--text-muted,#6E8398)" }}>
@@ -3456,7 +3461,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
               const req = row.req;
               return (
                 <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, ...divider }}>
-                  <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : req.status === "withdrawn" ? "gray" : "amber")}>{req.status}</span>
+                  <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : req.status === "withdrawn" ? "gray" : "amber", "md")}>{statusLabel(t, req.status)}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.name}</p>
                     <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>
@@ -3503,7 +3508,8 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
 
 // ─── STEP BAR (Pick → Shoot → Return) ────────────────────────────────────────
 function StepBar({ currentStep }) {
-  const steps = ["Pick Up", "Shoot", "Return"];
+  const t = useT();
+  const steps = [t("stepPickUp"), t("stepShoot"), t("stepReturn")];
   return (
     <div style={{ display: "flex", alignItems: "center", background: "var(--topbar-bg,#FFFFFF)", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
       {steps.map((label, i) => {
@@ -3517,7 +3523,7 @@ function StepBar({ currentStep }) {
                   ? <Icon d={icons.check} size={12} color="var(--accent-text,#FFFFFF)" strokeW={3} />
                   : <span style={{ fontSize: 10, fontWeight: 800, color: active ? "var(--accent-text,#FFFFFF)" : "var(--text-muted,#7B8FA3)" }}>{i + 1}</span>}
               </div>
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: done ? "#2F855A" : active ? "var(--accent,#2563EB)" : "var(--text-muted,#8CA2B5)" }}>{label}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: done ? "#2F855A" : active ? "var(--accent,#2563EB)" : "var(--text-muted,#8CA2B5)" }}>{label}</span>
             </div>
             {i < 2 && <div style={{ flex: 0, width: 20, height: 2, background: done ? "#2F855A" : "var(--divider-color,#D8E1EC)", marginBottom: 18, flexShrink: 0 }} />}
           </div>
@@ -3598,6 +3604,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [sessionEvents, setSessionEvents] = useState({}); // { [eqId]: [eventId] } picks made this session (undo)
 
   const todayStr = today();
+  // Role label under the name: the profile's own positions, never a hard-coded "Camera Crew" (P3-6)
+  const crewRoleLabel = positions.map(p => (p.name || "").trim()).filter(Boolean).slice(0, 2).join(" · ") || t("crewRoleFallback");
+  // Every tab / screen change starts at the top so the page title is visible (P2-15)
+  useEffect(() => { try { window.scrollTo(0, 0); } catch {} }, [tab, phase, captureAe, scanAe]);
   // Early pickup approved for me today → job becomes actionable even before its pickup day
   const earlyPickupApproved = (j) => (adminRequests || []).some(r => r.type === "early-pickup" && r.status === "approved" && r.jobId === j.id && r.employeeId === employee.id && r.requestedDate === todayStr);
   const earlyReturnApproved = (j) => (adminRequests || []).some(r => r.type === "early-return" && r.status === "approved" && r.jobId === j.id && r.employeeId === employee.id && r.requestedDate === todayStr);
@@ -3827,11 +3837,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
   // Force an immediate save of everything and report success/failure. Returns true on success.
   const doSaveCheckout = async () => {
-    if (!saveNow) { setCoSaveState({ error: "Save is unavailable on this screen." }); return false; }
+    if (!saveNow) { setCoSaveState({ error: t("coSaveUnavailable") }); return false; }
     setCoSaveState("saving");
     const res = await saveNow();
     if (res && res.ok) { setCoSaveState("saved"); setTimeout(() => setCoSaveState(s => s === "saved" ? null : s), 3000); return true; }
-    setCoSaveState({ error: (res && res.error) || "Save failed — check your connection and tap Save again." });
+    setCoSaveState({ error: (res && res.error) || t("coSaveFailedCheck") });
     return false;
   };
 
@@ -3901,7 +3911,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           </div>
           <QRScanner
             key={scanAe.eqId}
-            label={`Scan QR label on: ${eq?.name || ""}`}
+            label={t("coScanLabelOn").replace("{name}", eq?.name || "")}
             onScan={(scannedId, loc) => {
               if (scannedId === scanAe.eqId) {
                 if (isReturn) { setReturnDetails({ qty: outstandingOf(scanAe), condition: "ok", note: "" }); setDetailsAe({ ae: scanAe, loc, lane: "barcode" }); }
@@ -3916,7 +3926,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       );
     }
 
-    const modeLabel = vMode === "both" ? " · photo & scan required" : vMode === "photo" ? " · photo required" : vMode === "barcode" ? " · QR scan required" : "";
+    const modeLabel = vMode === "both" ? ` · ${t("coModePhotoScan")}` : vMode === "photo" ? ` · ${t("coModePhoto")}` : vMode === "barcode" ? ` · ${t("coModeScan")}` : "";
     return (
       <div style={{ ...S.main, maxWidth: 600 }}>
         {capture.input}
@@ -3924,7 +3934,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         <StepBar currentStep={isReturn ? 2 : 0} />
         <div style={{ ...S.card, marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{selectedJob.name}</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{selectedJob.production} · {selectedJob.location}{selectedJob.locationCity ? ` · ${selectedJob.locationCity}` : ""} · {selectedJob.shootTime}</p>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{selectedJob.production} · {locationLabel(t, selectedJob.location)}{selectedJob.locationCity ? ` · ${selectedJob.locationCity}` : ""} · {shootTimeLabel(t, selectedJob.shootTime)}</p>
           {(() => {
             const dates = selectedJob.dates || [];
             const td = today();
@@ -3932,15 +3942,15 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             return (
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "var(--accent,#2563EB)", background: "rgba(var(--accent-rgb,37,99,235),0.1)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", borderRadius: 8, padding: "4px 10px" }}>
-                  <Icon d={icons.calendar} size={13} /> Today · {formatDate(td)}
+                  <Icon d={icons.calendar} size={13} /> {t("coTodayLabel")} · {formatDate(td)}
                 </span>
                 {dates.length > 0 && (
                   <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>
-                    {multi ? `${dates.length}-day shoot: ` : "Shoot date: "}{dates.map(d => formatDate(d)).join(" · ")}
+                    {multi ? `${t("coShootDays").replace("{n}", dates.length)} ` : `${t("coShootDate")} `}{dates.map(d => formatDate(d)).join(" · ")}
                   </span>
                 )}
                 <span style={{ display: "inline-flex", alignItems: "center", fontSize: 10, fontWeight: 700, color: (selectedJob.checkoutMode || "span") === "daily" ? "#2563EB" : "var(--text-muted,#4E6B84)", background: (selectedJob.checkoutMode || "span") === "daily" ? "rgba(37,99,235,0.1)" : "rgba(22,50,74,0.04)", border: `1px solid ${(selectedJob.checkoutMode || "span") === "daily" ? "rgba(37,99,235,0.3)" : "var(--border-color,#D8E1EC)"}`, borderRadius: 6, padding: "3px 8px", letterSpacing: "0.04em" }}>
-                  {(selectedJob.checkoutMode || "span") === "daily" ? "Daily return" : "Return last day"}
+                  {(selectedJob.checkoutMode || "span") === "daily" ? t("jobDailyReturn") : t("coReturnLastDay")}
                 </span>
               </div>
             );
@@ -3949,13 +3959,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {(isReturn && (selectedJob.dates || []).length > 1 && (selectedJob.checkoutMode || "span") === "span") && (
           <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.05)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.18)", marginBottom: 16 }}>
             <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", display: "flex", gap: 8, alignItems: "center" }}>
-              <Icon d={icons.calendar} size={14} /> Multi-day shoot — gear stays checked out across all days. Only return it when you're done with the whole job.
+              <Icon d={icons.calendar} size={14} /> {t("coMultiDayNote")}
             </p>
           </div>
         )}
-        <p style={S.sectionTitle}>{isReturn ? "Tap each item to return" : "Tap each item to check out"}{modeLabel}</p>
+        <p style={S.sectionTitle}>{isReturn ? t("coTapToReturn") : t("coTapToCheckOut")}{modeLabel}</p>
         {items.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? "No gear out to return for this job." : "Nothing to check out."}</p>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? t("coNothingToReturn") : t("coNothingToPick")}</p>
         ) : (
           <div style={S.col}>
             {items.map(ae => {
@@ -3984,7 +3994,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         <p style={{ margin: 0, fontSize: 11, color: "#C53030", fontWeight: 600 }}>⚠ {t("geoSentForApproval")}</p>
                         {geo && <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)", lineHeight: 1.5 }}>{geoReasonText(geo)}</p>}
                         {myLanes.photo && vMode !== "none" && (
-                          <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11, marginTop: 6 }} onClick={() => onTapItem(ae, "photo")} title={t("geoRetryHint")}>
+                          <button style={{ ...S.btn("ghost", "lg"), marginTop: 6 }} onClick={() => onTapItem(ae, "photo")} title={t("geoRetryHint")}>
                             <Icon d={icons.camera} size={13} /> {t("geoRetryAtShop")}
                           </button>
                         )}
@@ -3993,36 +4003,36 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     {/* "Both" mode: show mini status for each lane */}
                     {vMode === "both" && (
                       <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                        <span style={{ fontSize: 10, color: barcodeDone ? "#2F855A" : "var(--text-muted,#7B8FA3)" }}>{barcodeDone ? "✓ Scanned" : "○ Scan"}</span>
-                        <span style={{ fontSize: 10, color: "var(--border-color,#D8E1EC)" }}>·</span>
-                        <span style={{ fontSize: 10, color: photoDone ? "#2F855A" : "var(--text-muted,#7B8FA3)" }}>{photoDone ? "✓ Photo" : "○ Photo"}</span>
+                        <span style={{ fontSize: 11, color: barcodeDone ? "#2F855A" : "var(--text-muted,#7B8FA3)" }}>{barcodeDone ? `✓ ${t("coScanned")}` : `○ ${t("coScanPending")}`}</span>
+                        <span style={{ fontSize: 11, color: "var(--border-color,#D8E1EC)" }}>·</span>
+                        <span style={{ fontSize: 11, color: photoDone ? "#2F855A" : "var(--text-muted,#7B8FA3)" }}>{photoDone ? `✓ ${t("coPhotoDone")}` : `○ ${t("coPhotoPending")}`}</span>
                       </div>
                     )}
                   </div>
                   {done ? (
                     <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-                      <span style={{ ...S.badge("green"), flexShrink: 0 }}>{isReturn ? "✓ Returned" : "✓ Out"}</span>
+                      <span style={{ ...S.badge("green", "md"), flexShrink: 0 }}>✓ {isReturn ? t("coReturnedBadge") : t("coOutBadge")}</span>
                       {canUndo && (
-                        <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => undoPick(ae)} title={t("undoPickHint")}>↶ {t("undoPick")}</button>
+                        <button style={S.btn("ghost", "lg")} onClick={() => undoPick(ae)} title={t("undoPickHint")}><Icon d={icons.undo} size={14} /> {t("undoPick")}</button>
                       )}
                     </div>
                   ) : pend ? (
-                    <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{t("geoPending")}</span>
+                    <span style={{ ...S.badge("amber", "md"), flexShrink: 0 }}>{t("geoPending")}</span>
                   ) : (
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                       {myLanes.barcode && !barcodeDone && (
-                        <button style={{ ...S.btn("ghost"), padding: "6px 10px", justifyContent: "center", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.4)" }} onClick={() => onTapItem(ae, "barcode")} aria-label={t("adminScanQr")}>
-                          <Icon d={icons.qr} size={15} />
+                        <button style={{ ...S.btn("ghost", "lg"), minWidth: 44, padding: "10px 12px", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.4)" }} onClick={() => onTapItem(ae, "barcode")} aria-label={t("adminScanQr")}>
+                          <Icon d={icons.qr} size={18} />
                         </button>
                       )}
                       {myLanes.photo && !photoDone && (
-                        <button style={{ ...S.btn("primary"), padding: "6px 10px", justifyContent: "center" }} onClick={() => onTapItem(ae, "photo")}>
-                          <Icon d={vMode === "none" ? icons.check : icons.camera} size={15} />
-                          {vMode === "none" ? (isReturn ? " Return" : " Out") : " Photo"}
+                        <button style={{ ...S.btn("primary", "lg"), minWidth: 44 }} onClick={() => onTapItem(ae, "photo")}>
+                          <Icon d={vMode === "none" ? icons.check : icons.camera} size={17} />
+                          {vMode === "none" ? (isReturn ? t("coBtnReturn") : t("coBtnOut")) : t("coBtnPhoto")}
                         </button>
                       )}
                       {myLanes.barcode && barcodeDone && !myLanes.photo && (
-                        <span style={{ ...S.badge("green"), flexShrink: 0 }}>✓ Scanned</span>
+                        <span style={{ ...S.badge("green", "md"), flexShrink: 0 }}>✓ {t("coScanned")}</span>
                       )}
                     </div>
                   )}
@@ -4033,31 +4043,31 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         )}
         {allDone && (
           <div style={{ ...S.card, background: "rgba(47,133,90,0.07)", border: "1px solid rgba(47,133,90,0.25)", marginTop: 16, textAlign: "center" }}>
-            <div style={{ fontSize: 38, marginBottom: 6 }}>{isReturn ? "🏁" : "✅"}</div>
-            <p style={{ margin: "0 0 12px", fontWeight: 700, color: "#2F855A" }}>{isReturn ? "All gear returned!" : "All gear checked out!"}</p>
-            <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", opacity: coSaveState === "saving" ? 0.7 : 1 }} disabled={coSaveState === "saving"} onClick={async () => { const ok = await doSaveCheckout(); if (ok) { setSelectedJob(null); setPhase("select"); setItemResults({}); setSessionEvents({}); } }}>{coSaveState === "saving" ? "Saving…" : `${t("backToJobs")}`}</button>
+            <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}><Icon d={isReturn ? icons.flag : icons.check} size={36} color="#2F855A" strokeW={2.2} /></div>
+            <p style={{ margin: "0 0 12px", fontWeight: 700, color: "#2F855A" }}>{isReturn ? t("coAllReturned") : t("coAllPicked")}</p>
+            <button style={{ ...S.btn("primary", "lg"), width: "100%", opacity: coSaveState === "saving" ? 0.7 : 1 }} disabled={coSaveState === "saving"} onClick={async () => { const ok = await doSaveCheckout(); if (ok) { setSelectedJob(null); setPhase("select"); setItemResults({}); setSessionEvents({}); } }}>{coSaveState === "saving" ? t("coSaving") : `${t("backToJobs")}`}</button>
           </div>
         )}
         {allSettled && pendingItems.length > 0 && (
           <div style={{ ...S.card, background: "rgba(183,121,31,0.07)", border: "1px solid rgba(183,121,31,0.3)", marginTop: 16, textAlign: "center" }} data-testid="pending-card">
-            <div style={{ fontSize: 30, marginBottom: 6 }}>⏳</div>
+            <div style={{ marginBottom: 8, display: "flex", justifyContent: "center" }}><Icon d={icons.hourglass} size={30} color="#B7791F" /></div>
             <p style={{ margin: "0 0 4px", fontWeight: 700, color: "#B7791F" }}>{t("allReturnedWaiting")}</p>
             <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("pendingCountLine").replace("{n}", pendingItems.length)}</p>
-            <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", opacity: coSaveState === "saving" ? 0.7 : 1 }} disabled={coSaveState === "saving"} onClick={async () => { const ok = await doSaveCheckout(); if (ok) { setSelectedJob(null); setPhase("select"); setItemResults({}); setSessionEvents({}); } }}>{coSaveState === "saving" ? "Saving…" : `${t("backToJobs")}`}</button>
+            <button style={{ ...S.btn("primary", "lg"), width: "100%", opacity: coSaveState === "saving" ? 0.7 : 1 }} disabled={coSaveState === "saving"} onClick={async () => { const ok = await doSaveCheckout(); if (ok) { setSelectedJob(null); setPhase("select"); setItemResults({}); setSessionEvents({}); } }}>{coSaveState === "saving" ? t("coSaving") : `${t("backToJobs")}`}</button>
           </div>
         )}
         {/* Explicit save — make sure everything reached the cloud */}
         {items.length > 0 && (
-          <div style={{ position: "sticky", bottom: 12, zIndex: 5, marginTop: 16 }}>
+          <div data-sticky-primary="checkout-save" style={{ position: "sticky", bottom: "calc(12px + env(safe-area-inset-bottom, 0px))", zIndex: 5, marginTop: 16 }}>
             <button
-              style={{ ...S.btn(coSaveState === "saved" ? "success" : (coSaveState && coSaveState.error) ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "14px", fontSize: 15, fontWeight: 700, boxShadow: "0 4px 24px rgba(22,50,74,0.17)", opacity: coSaveState === "saving" ? 0.75 : 1 }}
+              style={{ ...S.btn(coSaveState === "saved" ? "success" : (coSaveState && coSaveState.error) ? "danger" : "primary", "lg"), width: "100%", padding: "14px", fontSize: 15, fontWeight: 700, boxShadow: "0 4px 24px rgba(22,50,74,0.17)", opacity: coSaveState === "saving" ? 0.75 : 1 }}
               disabled={coSaveState === "saving"}
               onClick={doSaveCheckout}
             >
-              {coSaveState === "saving" ? "Saving…"
-                : coSaveState === "saved" ? "✓ All saved to cloud"
-                : (coSaveState && coSaveState.error) ? "Save Failed — tap to retry"
-                : "💾 Save"}
+              {coSaveState === "saving" ? t("coSaving")
+                : coSaveState === "saved" ? `✓ ${t("coSavedCloud")}`
+                : (coSaveState && coSaveState.error) ? t("coSaveFailedRetry")
+                : <><Icon d={icons.save} size={17} /> {t("coSave")}</>}
             </button>
             {coSaveState && coSaveState.error && (
               <p style={{ fontSize: 12, color: "#C53030", textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>⚠ {coSaveState.error}</p>
@@ -4097,7 +4107,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           }
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)", lineHeight: 1.2 }}>{employee.name}</div>
-            <div style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("crew")}</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", letterSpacing: "0.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>{crewRoleLabel}</div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -4114,17 +4124,17 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             </button>
           )}
           <LangPill setLang={setLang} />
-          <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={onLogout}>
-            <Icon d={icons.logout} size={13} /> {t("logout")}
+          <button style={{ ...S.btn("ghost", "md"), padding: "7px 10px", fontSize: 12 }} onClick={onLogout}>
+            <Icon d={icons.logout} size={14} /> {t("logout")}
           </button>
         </div>
       </header>
 
       {offlineMode && (
         <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", borderBottom: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13 }}>⚠️</span>
+          <Icon d={icons.alert} size={15} color="var(--accent,#2563EB)" />
           <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
-            <strong>Offline</strong> — cached data only. Checkouts will not save until connection returns.
+            <strong>{t("offlineBanner")}</strong>: {t("offlineBannerDesc")}
           </p>
         </div>
       )}
@@ -4152,11 +4162,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           </div>
         );
         return (
-        <Modal title={adminReqForm.id ? t("prodHouseEditTitle") : t("prodHouseAddTitle")} onClose={() => setShowAdminReqModal(null)}>
+        <Modal title={adminReqForm.id ? t("prodHouseEditTitle") : t("prodHouseAddTitle")} dirty={!readOnly && (editing ? ["name", "address", "taxId", "branch"].some(k => (adminReqForm[k] || "") !== (editing[k] || "")) : !!(adminReqForm.name || adminReqForm.address))} onClose={() => setShowAdminReqModal(null)}>
           <div style={S.col}>
             {readOnly && (
               <div style={{ ...S.card, padding: "10px 14px", background: "rgba(var(--accent-rgb,37,99,235),0.05)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)" }}>
-                <p style={{ margin: 0, fontSize: 12, color: "var(--text,#16324A)", lineHeight: 1.5 }}>🔒 {t("prodHouseReadOnly").replace("{name}", editing.addedByName || (editing.addedBy ? "a teammate" : companyName || "the house"))}</p>
+                <p style={{ margin: 0, fontSize: 12, color: "var(--text,#16324A)", lineHeight: 1.5, display: "flex", gap: 6, alignItems: "flex-start" }}><Icon d={icons.lock} size={14} style={{ flexShrink: 0, marginTop: 2 }} /> <span>{t("prodHouseReadOnly").replace("{name}", editing.addedByName || (editing.addedBy ? t("teammate") : companyName || t("theHouse")))}</span></p>
               </div>
             )}
             {field("name", t("prodHouseName"), "e.g. Thai Film Co.", { autoFocus: !adminReqForm.id })}
@@ -4193,7 +4203,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         );
       })()}
 
-      <div style={{ ...S.main, paddingBottom: 80 }}>
+      <div style={{ ...S.main, paddingBottom: "calc(62px + 28px + env(safe-area-inset-bottom, 0px))" }}>
         {/* TODAY TAB */}
         {tab === "today" && (() => {
           const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
@@ -4205,7 +4215,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           <div style={S.col}>
             <div>
               <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("todaysJobs")}</h1>
-              <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{new Date().toLocaleDateString(lang === "th" ? "th-TH" : "en-GB", { weekday: "long", day: "2-digit", month: "long" })}</p>
+              <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{formatLongDay(new Date(), { lang })}</p>
             </div>
 
             {/* Gear currently out — jobs + my approved gear requests */}
@@ -4215,7 +4225,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               if (outJobs.length === 0) return null;
               return (
                 <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.06)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)" }} data-testid="gear-out-card">
-                  <p style={{ ...S.sectionTitle, marginBottom: 10 }}>🎬 {t("gearOutTitle")}</p>
+                  <p style={{ ...S.sectionTitle, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><Icon d={icons.film} size={13} /> {t("gearOutTitle")}</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {outJobs.map(job => {
                       const jst = getJobCheckoutState(job);
@@ -4228,10 +4238,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       const erPending = isEarly && !canReturn && earlyReqPending("early-return", job.id);
                       return (
                         <div key={job.id} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", cursor: canReturn ? "pointer" : "default", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }} onClick={() => canReturn && selectJob(job, true)}>
-                          <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{outCount} {t("outBadge")}</span>
-                          {missingUnits > 0 && <span style={{ ...S.badge("red"), flexShrink: 0 }}>{t("missingN").replace("{n}", missingUnits)}</span>}
+                          <span style={{ ...S.badge("amber", "md"), flexShrink: 0 }}>{outCount} {t("outBadge")}</span>
+                          {missingUnits > 0 && <span style={{ ...S.badge("red", "md"), flexShrink: 0 }}>{t("missingN").replace("{n}", missingUnits)}</span>}
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}{job.__reqId ? <span style={{ ...S.badge("blue"), marginLeft: 6 }}>REQUEST</span> : null}</p>
+                            <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}{job.__reqId ? <span style={{ ...S.badge("blue"), marginLeft: 6 }}>{t("requestBadge")}</span> : null}</p>
                             <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
                             {(() => {
                               const due = job.__reqId ? jobLastDate(job) : effReturnDate(job);
@@ -4240,14 +4250,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                               if (due === todayStr) return <p style={{ margin: "2px 0 0", fontSize: 11, fontWeight: 700, color: "var(--accent,#2563EB)" }}>{t("dashDueToday")}</p>;
                               return <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#4E6B84)" }}>{t("crewDueLabel").replace("{date}", formatDate(due))}</p>;
                             })()}
-                            {canReturn && isEarly && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#2F855A" }}>Early return approved for today</p>}
+                            {canReturn && isEarly && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#2F855A" }}>{t("earlyReturnApprovedToday")}</p>}
                           </div>
                           {canReturn ? (
-                            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="var(--accent,#2563EB)" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
+                            <Icon d={icons.chevron_right} size={16} color="var(--accent,#2563EB)" strokeW={2} />
                           ) : erPending ? (
-                            <span style={{ ...S.badge("amber"), flexShrink: 0 }}>Return request pending</span>
+                            <span style={{ ...S.badge("amber", "md"), flexShrink: 0 }}>{t("returnReqPending")}</span>
                           ) : (
-                            <button style={{ ...S.btn("ghost"), padding: "6px 12px", fontSize: 12, flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); submitEarlyRequest("early-return", job); }}>Request early return</button>
+                            <button style={{ ...S.btn("ghost", "lg"), flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); submitEarlyRequest("early-return", job); }}>{t("requestEarlyReturn")}</button>
                           )}
                         </div>
                       );
@@ -4267,7 +4277,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               const statusOf = (r) => r.status === "pending" ? ["amber", t("geoPending")] : r.status === "approved" ? ["green", t("geoApproved")] : r.status === "withdrawn" ? ["gray", t("geoWithdrawn")] : ["red", t("geoRejected")];
               return (
                 <div style={{ ...S.card, background: "rgba(183,121,31,0.06)", border: "1px solid rgba(183,121,31,0.25)" }} data-testid="geo-waiting-card">
-                  <p style={{ ...S.sectionTitle, marginBottom: 4 }}>⏳ {t("geoWaitingTitle")}</p>
+                  <p style={{ ...S.sectionTitle, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}><Icon d={icons.hourglass} size={13} /> {t("geoWaitingTitle")}</p>
                   <p style={{ margin: "0 0 10px", fontSize: 11, color: "var(--text-muted,#5F7A91)", lineHeight: 1.5 }}>{t("geoWaitingHint")}</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {mine.map(r => {
@@ -4298,7 +4308,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               if (upcoming.length === 0) return null;
               return (
                 <div style={{ ...S.card, background: "rgba(37,99,235,0.05)", border: "1px solid rgba(37,99,235,0.2)" }}>
-                  <p style={{ ...S.sectionTitle, marginBottom: 10 }}>⏰ Pickup tomorrow</p>
+                  <p style={{ ...S.sectionTitle, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><Icon d={icons.clock} size={13} /> {t("pickupTomorrow")}</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {upcoming.map(job => {
                       const pending = earlyReqPending("early-pickup", job.id);
@@ -4306,12 +4316,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         <div key={job.id} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}</p>
-                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>Pickup {formatDate(effPickupDate(job))} · {(job.assignedEquipment || []).length} item{(job.assignedEquipment || []).length > 1 ? "s" : ""}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{t("pickupOn").replace("{date}", formatDate(effPickupDate(job)))} · {tCount(t, "itemsN", (job.assignedEquipment || []).length)}</p>
                           </div>
                           {pending ? (
-                            <span style={{ ...S.badge("amber"), flexShrink: 0 }}>Waiting for approval</span>
+                            <span style={{ ...S.badge("amber", "md"), flexShrink: 0 }}>{t("waitingApproval")}</span>
                           ) : (
-                            <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12, flexShrink: 0 }} onClick={() => submitEarlyRequest("early-pickup", job)}>Request early pickup</button>
+                            <button style={{ ...S.btn("primary", "lg"), flexShrink: 0 }} onClick={() => submitEarlyRequest("early-pickup", job)}>{t("requestEarlyPickup")}</button>
                           )}
                         </div>
                       );
@@ -4330,8 +4340,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               ].map(stat => (
                 <div key={stat.key} onClick={() => setExpandedStat(expandedStat === stat.key ? null : stat.key)} style={{ ...S.card, textAlign: "center", padding: "12px 6px", cursor: "pointer", border: expandedStat === stat.key ? `1px solid ${stat.color}40` : undefined, transition: "border-color .15s" }}>
                   <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
-                  <p style={{ margin: "4px 0 0", fontSize: 9, color: "var(--text-muted,#5F7A91)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{stat.label}</p>
-                  <p style={{ margin: "3px 0 0", fontSize: 9, color: expandedStat === stat.key ? stat.color : "var(--text-muted,#8CA2B5)" }}>{expandedStat === stat.key ? "▲" : "▼"}</p>
+                  <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{stat.label}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 10, lineHeight: 1, color: expandedStat === stat.key ? stat.color : "var(--text-muted,#8CA2B5)" }}><Icon d={expandedStat === stat.key ? icons.chevron_up : icons.chevron_down} size={12} strokeW={2.2} /></p>
                 </div>
               ))}
             </div>
@@ -4339,7 +4349,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Expanded stat job list */}
             {expandedStat && (() => {
               const statJobs = statJobMap[expandedStat] || [];
-              if (statJobs.length === 0) return <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)", textAlign: "center" }}>No jobs.</p>;
+              if (statJobs.length === 0) return <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)", textAlign: "center" }}>{t("noJobs")}</p>;
               return statJobs.map(job => {
                 const { allPicked, allReturned } = getJobCheckoutState(job);
                 const isToday = expandedStat === "today";
@@ -4353,14 +4363,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                             if (due && due < todayStr) return <span style={S.badge("red")}>{t("crewOverdue").replace("{n}", Math.max(1, Math.round((Date.parse(todayStr + "T00:00:00Z") - Date.parse(due + "T00:00:00Z")) / 86400000)))}</span>;
                             if (due && due === todayStr) return <span style={S.badge("amber")}>{t("crewReturnToday")}</span>;
                             return <span style={S.badge("amber")}>{t("onShoot")}</span>;
-                          })() : <span style={S.badge("blue")}>{t("readyPick")}</span>) : <span style={S.badge(JOB_STATUS_BADGE[job.status] || "gray")}>{job.status}</span>}
-                          <span style={S.badge("gray")}>{job.shootTime}</span>
+                          })() : <span style={S.badge("blue")}>{t("readyPick")}</span>) : <span style={S.badge(JOB_STATUS_BADGE[job.status] || "gray")}>{t("status" + job.status)}</span>}
+                          <span style={S.badge("gray")}>{shootTimeLabel(t, job.shootTime)}</span>
                         </div>
                         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{job.name}</h3>
-                        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</p>
+                        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {locationLabel(t, job.location)}{job.locationCity ? ` · ${job.locationCity}` : ""}</p>
                         <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
                       </div>
-                      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted,#5F7A91)" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
+                      <Icon d={icons.chevron_right} size={16} color="var(--text-muted,#5F7A91)" strokeW={2} />
                     </div>
                   </div>
                 );
@@ -4374,8 +4384,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             <div style={S.card}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                 <p style={{ ...S.sectionTitle, margin: 0 }}>{t("gearRequests")} {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} {t("dashPending")}</span>}</p>
-                <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12 }} onClick={() => setShowGearRequest(true)}>
-                  <Icon d={icons.plus} size={13} /> {t("requestBtn")}
+                <button style={S.btn("primary", "lg")} onClick={() => setShowGearRequest(true)}>
+                  <Icon d={icons.plus} size={15} /> {t("requestBtn")}
                 </button>
               </div>
               {myRequests.length === 0 ? (
@@ -4388,21 +4398,26 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 const reqJob = req.status === "approved" ? reqAsJob(req) : null;
                 const reqState = reqJob ? getJobCheckoutState(reqJob) : null;
                 const needsPickup = reqJob && (reqJob.assignedEquipment || []).some(ae => equipment.some(e => e.id === ae.eqId) && !reqState.pickedIds.has(ae.eqId));
+                // Who approves and how you hear back (P3-6): the house is named, LINE is the channel.
+                const statusHint = req.status === "pending" ? (companyName ? t("reqSentTo").replace("{company}", companyName) : t("reqSentToHouse"))
+                  : req.status === "approved" && needsPickup ? t("reqApprovedHint")
+                  : req.status === "denied" || req.status === "rejected" ? t("reqDeniedHint") : "";
                 return (
-                  <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap", paddingBottom: i < myRequests.length - 1 ? 10 : 0, marginBottom: i < myRequests.length - 1 ? 10 : 0, borderBottom: i < myRequests.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
-                    <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
+                  <div key={req.id} data-testid={`gear-req-${req.id}`} style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap", paddingBottom: i < myRequests.length - 1 ? 10 : 0, marginBottom: i < myRequests.length - 1 ? 10 : 0, borderBottom: i < myRequests.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+                    <span style={S.badge(req.status === "approved" ? "green" : (req.status === "denied" || req.status === "rejected") ? "red" : "amber", "md")}>{statusLabel(t, req.status)}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{itemLabel}</p>
                       <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
                         {req.purpose === "work" ? `${t("reqWork")}${req.jobName}` : t("reqPractice")}
-                        {(req.useDates?.length > 0) ? ` · ${req.useDates.map(formatDate).join(", ")}` : req.useDate ? ` · For: ${formatDate(req.useDate)}` : ""}
-                        {" · "}{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                        {(req.useDates?.length > 0) ? ` · ${req.useDates.map(d => formatDate(d)).join(", ")}` : req.useDate ? ` · ${t("reqForDate").replace("{date}", formatDate(req.useDate))}` : ""}
+                        {" · "}{formatDay(new Date(req.requestedAt))}
                       </p>
                       {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{req.reason}</p>}
+                      {statusHint && <p style={{ margin: "4px 0 0", fontSize: 11, lineHeight: 1.45, color: req.status === "pending" ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)" }}>{statusHint}</p>}
                     </div>
                     {needsPickup && (
-                      <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12, flexShrink: 0 }} onClick={() => selectJob(reqJob)}>
-                        <Icon d={icons.camera} size={13} /> Pick up
+                      <button style={{ ...S.btn("primary", "lg"), flexShrink: 0 }} onClick={() => selectJob(reqJob)}>
+                        <Icon d={icons.camera} size={15} /> {t("reqPickUpBtn")}
                       </button>
                     )}
                   </div>
@@ -4413,7 +4428,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
             {/* Gear Request Modal */}
             {showGearRequest && (
-              <Modal title={t("reqGearModalTitle")} onClose={() => { setShowGearRequest(false); setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }} wide>
+              <Modal title={t("reqGearModalTitle")} dirty={gearReqForm.useDates.length > 0 || Object.values(gearReqForm.selectedGear).some(q => q > 0) || !!gearReqForm.reason} onClose={() => { setShowGearRequest(false); setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }} wide>
                 <div style={S.col}>
                   <div>
                     <label style={S.label}>{t("datesNeeded")}</label>
@@ -4421,7 +4436,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       const { year, month } = gearReqCalMonth;
                       const firstDay = new Date(year, month, 1).getDay();
                       const daysInMonth = new Date(year, month + 1, 0).getDate();
-                      const monthName = new Date(year, month).toLocaleString("en-GB", { month: "long", year: "numeric" });
+                      const monthName = new Date(year, month).toLocaleString(lang === "th" ? "th-TH" : "en-GB", { month: "long", year: "numeric" });
                       const todayStr = today();
                       const cells = [];
                       for (let i = 0; i < firstDay; i++) cells.push(null);
@@ -4429,12 +4444,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       return (
                         <div>
                           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                            <button style={{ ...S.btn("ghost"), padding: "4px 9px" }} onClick={() => setGearReqCalMonth(p => { const d = new Date(p.year, p.month - 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>‹</button>
+                            <button style={{ ...S.btn("ghost", "md"), minWidth: 36, padding: "4px 9px" }} aria-label="previous month" onClick={() => setGearReqCalMonth(p => { const d = new Date(p.year, p.month - 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>‹</button>
                             <span style={{ flex: 1, textAlign: "center", fontWeight: 600, fontSize: 13 }}>{monthName}</span>
-                            <button style={{ ...S.btn("ghost"), padding: "4px 9px" }} onClick={() => setGearReqCalMonth(p => { const d = new Date(p.year, p.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>›</button>
+                            <button style={{ ...S.btn("ghost", "md"), minWidth: 36, padding: "4px 9px" }} aria-label="next month" onClick={() => setGearReqCalMonth(p => { const d = new Date(p.year, p.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>›</button>
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
-                            {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 9, color: "var(--text-muted,#5F7A91)", fontWeight: 600, paddingBottom: 3 }}>{d}</div>)}
+                            {(lang === "th" ? ["อา","จ","อ","พ","พฤ","ศ","ส"] : ["Su","Mo","Tu","We","Th","Fr","Sa"]).map((d, i) => <div key={i} style={{ textAlign: "center", fontSize: 11, color: "var(--text-muted,#5F7A91)", fontWeight: 600, paddingBottom: 3 }}>{d}</div>)}
                             {cells.map((d, i) => {
                               if (!d) return <div key={"e"+i} />;
                               const ds = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
@@ -4442,7 +4457,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                               const isToday = ds === todayStr;
                               return (
                                 <div key={d} onClick={() => setGearReqForm(p => ({ ...p, useDates: p.useDates.includes(ds) ? p.useDates.filter(x => x !== ds) : [...p.useDates, ds].sort() }))}
-                                  style={{ textAlign: "center", padding: "6px 0", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: sel ? 700 : 400,
+                                  style={{ textAlign: "center", padding: "9px 0", minHeight: 36, boxSizing: "border-box", borderRadius: 5, cursor: "pointer", fontSize: 13, fontWeight: sel ? 700 : 400,
                                     background: sel ? "var(--accent,#2563EB)" : isToday ? "rgba(var(--accent-rgb,37,99,235),0.1)" : "transparent",
                                     color: sel ? "var(--accent-text,#FFFFFF)" : isToday ? "var(--accent,#2563EB)" : "var(--text,#16324A)",
                                     border: isToday && !sel ? "1px solid rgba(var(--accent-rgb,37,99,235),0.3)" : "1px solid transparent" }}>
@@ -4452,7 +4467,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                             })}
                           </div>
                           {gearReqForm.useDates.length > 0
-                            ? <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", marginTop: 8 }}>{gearReqForm.useDates.length} date{gearReqForm.useDates.length > 1 ? "s" : ""} selected: {gearReqForm.useDates.map(formatDate).join(", ")}</p>
+                            ? <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", marginTop: 8 }}>{tCount(t, "datesSelected", gearReqForm.useDates.length)} {gearReqForm.useDates.map(d => formatDate(d)).join(", ")}</p>
                             : <p style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)", marginTop: 8 }}>{t("tapDatesHint")}</p>
                           }
                         </div>
@@ -4537,11 +4552,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     <>
                       <div>
                         <label style={S.label}>{t("productionHouse")}</label>
-                        <input style={S.input} value={gearReqForm.productionName} onChange={e => setGearReqForm(p => ({ ...p, productionName: e.target.value }))} placeholder="Production house" />
+                        <input style={S.input} value={gearReqForm.productionName} onChange={e => setGearReqForm(p => ({ ...p, productionName: e.target.value }))} placeholder={t("productionHousePh")} />
                       </div>
                       <div>
                         <label style={S.label}>{t("jobNameLabel")}</label>
-                        <input style={S.input} value={gearReqForm.jobName} onChange={e => setGearReqForm(p => ({ ...p, jobName: e.target.value }))} placeholder="Job name" />
+                        <input style={S.input} value={gearReqForm.jobName} onChange={e => setGearReqForm(p => ({ ...p, jobName: e.target.value }))} placeholder={t("jobNamePh")} />
                       </div>
                     </>
                   )}
@@ -4552,7 +4567,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
                   {Object.values(gearReqForm.selectedGear).some(q => q > 0) && (
                     <div style={{ padding: "10px 14px", background: "rgba(var(--accent-rgb,37,99,235),0.06)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.15)", borderRadius: 8 }}>
-                      <p style={{ margin: 0, fontSize: 11, color: "var(--accent,#2563EB)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Selected</p>
+                      <p style={{ margin: 0, fontSize: 11, color: "var(--accent,#2563EB)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>{t("selectedLabel")}</p>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                         {Object.entries(gearReqForm.selectedGear).filter(([, q]) => q > 0).map(([eqId, qty]) => {
                           const eq = equipment.find(e => e.id === eqId);
@@ -4562,11 +4577,21 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     </div>
                   )}
 
+                  {(() => {
+                    // Submit stays disabled until one item AND one date are chosen; the reason is written next to it (P2-5).
+                    const nItems = Object.values(gearReqForm.selectedGear).filter(q => q > 0).length;
+                    const nDates = gearReqForm.useDates.length;
+                    const blocker = nItems === 0 && nDates === 0 ? t("reqNeedBoth") : nItems === 0 ? t("reqNeedItem") : nDates === 0 ? t("reqNeedDate") : "";
+                    return blocker ? <p data-testid="gear-req-blocker" style={{ margin: 0, fontSize: 12, color: "#B7791F", textAlign: "right" }}>{blocker}</p> : null;
+                  })()}
                   <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                    <button style={S.btn("ghost")} onClick={() => { setShowGearRequest(false); setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }}>{t("cancel")}</button>
-                    <button style={S.btn("primary")} onClick={() => {
+                    <button style={S.btn("ghost", "lg")} onClick={() => { setShowGearRequest(false); setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} }); }}>{t("cancel")}</button>
+                    <button style={{ ...S.btn("primary", "lg"), opacity: (Object.values(gearReqForm.selectedGear).some(q => q > 0) && gearReqForm.useDates.length > 0) ? 1 : 0.45, cursor: (Object.values(gearReqForm.selectedGear).some(q => q > 0) && gearReqForm.useDates.length > 0) ? "pointer" : "not-allowed" }}
+                      disabled={!(Object.values(gearReqForm.selectedGear).some(q => q > 0) && gearReqForm.useDates.length > 0)}
+                      data-testid="gear-req-submit"
+                      onClick={() => {
                       const selectedItems = Object.entries(gearReqForm.selectedGear).filter(([, q]) => q > 0);
-                      if (selectedItems.length === 0) return;
+                      if (selectedItems.length === 0 || gearReqForm.useDates.length === 0) return;
                       const items = selectedItems.map(([eqId, qty]) => {
                         const eq = equipment.find(e => e.id === eqId);
                         return { eqId, eqName: eq?.name || "", qty };
@@ -4614,42 +4639,42 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
             {/* Equipment Add Request Modal */}
             {showAdminReqModal === "equipment" && (
-              <Modal title="Request New Equipment" onClose={() => setShowAdminReqModal(null)}>
+              <Modal title={t("reqNewEqTitle")} dirty={!!(adminReqForm.name || adminReqForm.category || adminReqForm.notes || adminReqForm.photo)} onClose={() => setShowAdminReqModal(null)}>
                 <div style={S.col}>
                   <div>
-                    <label style={S.label}>Item Name</label>
-                    <input style={S.input} value={adminReqForm.name || ""} onChange={e => setAdminReqForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. DJI Ronin 4D" autoFocus />
+                    <label style={S.label}>{t("eqItemName")}</label>
+                    <input style={S.input} value={adminReqForm.name || ""} onChange={e => setAdminReqForm(p => ({ ...p, name: e.target.value }))} placeholder={t("eqNamePh")} autoFocus />
                   </div>
                   <div>
-                    <label style={S.label}>Category</label>
-                    <input style={S.input} value={adminReqForm.category || ""} onChange={e => setAdminReqForm(p => ({ ...p, category: e.target.value }))} placeholder="e.g. Camera, Lens, Power…" />
+                    <label style={S.label}>{t("eqCategory")}</label>
+                    <input style={S.input} value={adminReqForm.category || ""} onChange={e => setAdminReqForm(p => ({ ...p, category: e.target.value }))} placeholder={t("eqCategoryPh")} />
                   </div>
                   <div>
-                    <label style={S.label}>Total Units</label>
+                    <label style={S.label}>{t("eqReqTotalUnits")}</label>
                     <input style={S.input} type="number" min={1} value={adminReqForm.total || "1"} onChange={e => setAdminReqForm(p => ({ ...p, total: e.target.value }))} />
                   </div>
                   <div>
-                    <label style={S.label}>Notes</label>
-                    <input style={S.input} value={adminReqForm.notes || ""} onChange={e => setAdminReqForm(p => ({ ...p, notes: e.target.value }))} placeholder="Optional notes" />
+                    <label style={S.label}>{t("eqNotes")}</label>
+                    <input style={S.input} value={adminReqForm.notes || ""} onChange={e => setAdminReqForm(p => ({ ...p, notes: e.target.value }))} placeholder={t("eqNotesPh")} />
                   </div>
                   <div>
-                    <label style={S.label}>Photo (optional)</label>
+                    <label style={S.label}>{t("eqPhotoOptional")}</label>
                     <input ref={adminReqPhotoRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       compressImage(file, { maxDim: 1200, quality: 0.72 }).then(d => d && setAdminReqForm(p => ({ ...p, photo: d })));
                     }} />
-                    <button style={S.btn("ghost")} onClick={() => adminReqPhotoRef.current?.click()}><Icon d={icons.photo} size={14} /> {adminReqForm.photo ? "Change Photo" : "Upload Photo"}</button>
+                    <button style={S.btn("ghost")} onClick={() => adminReqPhotoRef.current?.click()}><Icon d={icons.photo} size={14} /> {adminReqForm.photo ? t("eqChangePhoto") : t("uploadPhoto")}</button>
                     {adminReqForm.photo && <img src={adminReqForm.photo} alt="preview" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 6, marginTop: 8 }} />}
                   </div>
                   {adminReqMsg && <p style={{ fontSize: 12, color: adminReqMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{adminReqMsg.text}</p>}
                   <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                    <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>Cancel</button>
+                    <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>{t("cancel")}</button>
                     <button style={S.btn("primary")} onClick={() => {
-                      if (!adminReqForm.name?.trim()) { setAdminReqMsg({ ok: false, text: "Item name is required." }); return; }
+                      if (!adminReqForm.name?.trim()) { setAdminReqMsg({ ok: false, text: t("eqItemNameRequired") }); return; }
                       setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type: "equipment", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, name: adminReqForm.name.trim(), category: adminReqForm.category || "", total: +adminReqForm.total || 1, notes: adminReqForm.notes || "", photo: adminReqForm.photo || null }]);
                       setShowAdminReqModal(null);
-                    }}>Submit Request</button>
+                    }}>{t("submitRequest")}</button>
                   </div>
                 </div>
               </Modal>
@@ -4690,53 +4715,67 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               default: return 0;
             }
           });
+          // Crew ask "can I borrow the 600d on Saturday": a list question. One 48px row per item,
+          // availability in words, the QR label only when this house scans labels (P3-3).
+          const showQr = vMode === "barcode" || vMode === "both";
+          const freeWords = (eq) => {
+            const a = Math.max(0, eq.available ?? eq.total), tot = eq.total || 0;
+            if (a <= 0) return t("noneFreeToday");
+            if (tot <= 1) return t("freeTodayOne");
+            return t("freeTodayN").replace("{a}", a).replace("{t}", tot);
+          };
           const renderEqGrid = (items) => (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(145px, 1fr))", gap: 10 }}>
-              {items.map(eq => (
-                <div key={eq.id} style={{ ...S.card, padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                  <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", overflow: "hidden", background: "var(--surface2,#EAF0F7)", flexShrink: 0 }}>
-                    {eq.photo
-                      ? <img src={eq.photo} alt={eq.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                      : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon d={icons.camera} size={32} color="var(--divider-color,#D8E1EC)" /></div>
-                    }
-                    <div style={{ position: "absolute", top: 5, left: 5 }}><AvChip av={eq} t={t} /></div>
-                  </div>
-                  <div style={{ padding: "8px 10px 8px", flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
-                    {eq.category && <span style={S.tag}>{eq.category}</span>}
-                    <p style={{ margin: 0, fontWeight: 700, fontSize: 12, lineHeight: 1.3, color: "var(--text,#16324A)" }}>{eq.name}</p>
-                    {eq.notes && <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#7B8FA3)", lineHeight: 1.3 }}>{eq.notes}</p>}
-                    <AvReasons av={eq} t={t} max={1} />
-                    <div style={{ marginTop: "auto", paddingTop: 6, display: "flex", justifyContent: "flex-end" }}>
-                      <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} title="View QR" onClick={() => printQRForItems([eq], false)}>
-                        <Icon d={icons.qr || icons.camera} size={12} /> QR
-                      </button>
+            <div style={{ ...S.card, padding: 0, overflow: "hidden" }} data-testid="gear-list">
+              {items.map((eq, i) => {
+                const a = Math.max(0, eq.available ?? eq.total);
+                const conflict = (eq.available ?? 0) < 0;
+                const tone = conflict || a <= 0 ? "#C53030" : a < (eq.total || 0) ? "#B7791F" : "#2F855A";
+                return (
+                  <div key={eq.id} data-testid={`gear-row-${eq.id}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", minHeight: 64, boxSizing: "border-box", borderBottom: i < items.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 8, overflow: "hidden", background: "var(--surface2,#EAF0F7)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {eq.photo
+                        ? <img src={eq.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                        : <Icon d={icons.camera} size={20} color="var(--border-color,#D8E1EC)" />}
                     </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: 14, lineHeight: 1.3, color: "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eq.name}</p>
+                      <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {eq.category ? `${eq.category} · ` : ""}<span style={{ color: tone, fontWeight: 600 }}>{conflict ? `${t("avConflict")} ${eq.available}` : freeWords(eq)}</span>
+                      </p>
+                      <AvReasons av={eq} t={t} max={1} style={{ fontSize: 11, marginTop: 2 }} />
+                    </div>
+                    {showQr && (
+                      <button style={{ ...S.btn("ghost", "lg"), minWidth: 44, padding: "8px 10px", flexShrink: 0 }} aria-label={t("viewQr")} title={t("viewQr")} onClick={() => printQRForItems([eq], false)}>
+                        <Icon d={icons.qr} size={18} />
+                      </button>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           );
           return (
             <div style={S.col}>
-              <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>Gear</h1>
+              <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("tabGear")}</h1>
 
               {/* Equipment Library */}
               <div>
-                <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Equipment Library · {eqAvailList.length} items</p>
+                <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{tCount(t, "gearLibraryCount", eqAvailList.length)}</p>
                 {/* Category filter */}
                 {eqCategories.length > 0 && (
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                    <button onClick={() => setEqFilterCat(null)} style={{ ...S.badge(eqFilterCat === null ? "amber" : "gray"), cursor: "pointer", border: "none", padding: "4px 10px" }}>All</button>
+                    <button onClick={() => setEqFilterCat(null)} style={S.chip(eqFilterCat === null)}>{t("eqAll")}</button>
                     {eqCategories.map(c => (
-                      <button key={c} onClick={() => setEqFilterCat(eqFilterCat === c ? null : c)} style={{ ...S.badge(eqFilterCat === c ? "amber" : "gray"), cursor: "pointer", border: "none", padding: "4px 10px" }}>{c}</button>
+                      <button key={c} onClick={() => setEqFilterCat(eqFilterCat === c ? null : c)} style={S.chip(eqFilterCat === c)}>{c}</button>
                     ))}
                   </div>
                 )}
-                {/* Sort bar */}
-                <div style={{ display: "flex", gap: 5, overflowX: "auto", marginBottom: 12, paddingBottom: 2 }}>
-                  {EQ_SORT_OPTIONS.map(s => (
-                    <button key={s.key} onClick={() => setEqSortBy(s.key)} style={{ ...S.btn(eqSortBy === s.key ? "primary" : "ghost"), padding: "5px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>{s.label}</button>
-                  ))}
+                {/* Sort: one select instead of a clipped chip row */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <label htmlFor="gear-sort" style={{ ...S.label, margin: 0, whiteSpace: "nowrap" }}>{t("sortLabel")}</label>
+                  <select id="gear-sort" style={{ ...S.select, flex: 1, minHeight: 36, padding: "7px 10px" }} value={eqSortBy} onChange={e => setEqSortBy(e.target.value)}>
+                    {EQ_SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{t(o.labelKey)}</option>)}
+                  </select>
                 </div>
                 {/* Grid — grouped by category when cat sort */}
                 {eqSortBy === "cat"
@@ -4758,8 +4797,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <div style={{ ...S.card }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                   <p style={{ ...S.sectionTitle, margin: 0 }}>{t("reportTitle")}</p>
-                  <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12 }} onClick={() => setShowReportModal(true)}>
-                    <Icon d={icons.alert} size={13} /> {t("reportNew")}
+                  <button style={S.btn("primary", "lg")} onClick={() => setShowReportModal(true)}>
+                    <Icon d={icons.alert} size={15} /> {t("reportNew")}
                   </button>
                 </div>
                 {myReports.length === 0 ? (
@@ -4769,7 +4808,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                       {{ open: <span style={S.badge("red")}>{t("reportStatusOpen")}</span>, solved: <span style={S.badge("green")}>{t("reportStatusSolved")}</span>, discarded: <span style={S.badge("gray")}>{t("reportStatusDiscarded")}</span> }[r.status]}
                       {r.eqName && <span style={S.tag}>{r.eqName}</span>}
-                      {r.reportedBy?.name && <span style={{ fontSize: 11, color: "var(--text-muted,#6E8398)" }}>by {r.reportedBy.name}</span>}
+                      {r.reportedBy?.name && <span style={{ fontSize: 11, color: "var(--text-muted,#6E8398)" }}>{t("reportedBy").replace("{name}", r.reportedBy.name)}</span>}
                     </div>
                     <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{r.description}</p>
                     <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{formatDateTime(r.ts)}</p>
@@ -4786,20 +4825,20 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <div style={S.card}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }} onClick={() => setEqReqCollapsed(v => !v)}>
                   <p style={{ ...S.sectionTitle, margin: 0, cursor: "pointer" }}>
-                    Equipment Requests {myAdminReqs.length > 0 && <span style={S.badge("amber")}>{myAdminReqs.length}</span>}
+                    {t("eqRequestsTitle")} {myAdminReqs.length > 0 && <span style={S.badge("amber")}>{myAdminReqs.length}</span>}
                   </p>
-                  <span style={{ color: "var(--text-muted,#5F7A91)", fontSize: 16, cursor: "pointer" }}>{eqReqCollapsed ? "▸" : "▾"}</span>
+                  <span style={{ color: "var(--text-muted,#5F7A91)", cursor: "pointer", display: "inline-flex", minWidth: 44, minHeight: 32, alignItems: "center", justifyContent: "flex-end" }}><Icon d={eqReqCollapsed ? icons.chevron_right : icons.chevron_down} size={16} strokeW={2} /></span>
                 </div>
                 {!eqReqCollapsed && (
                   <div style={{ marginTop: 12 }}>
                     <div style={{ display: "flex", gap: 8, marginBottom: myAdminReqs.length > 0 ? 12 : 0 }}>
-                      <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("equipment"); setAdminReqForm({ name: "", category: "", total: "1", notes: "", photo: null }); setAdminReqMsg(null); }}>+ Equipment</button>
+                      <button style={S.btn("ghost", "md")} onClick={() => { setShowAdminReqModal("equipment"); setAdminReqForm({ name: "", category: "", total: "1", notes: "", photo: null }); setAdminReqMsg(null); }}>{t("eqRequestAddBtn")}</button>
                     </div>
                     {myAdminReqs.length === 0 ? (
-                      <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>No requests yet.</p>
+                      <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>{t("eqRequestsNone")}</p>
                     ) : myAdminReqs.slice().reverse().map((req, i, arr) => (
                       <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
-                        <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : req.status === "withdrawn" ? "gray" : "amber")}>{req.status}</span>
+                        <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : req.status === "withdrawn" ? "gray" : "amber", "md")}>{statusLabel(t, req.status)}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{req.name || req.eqName || req.jobName || "—"}{req.type === "geo-return" && req.qty > 1 ? ` ×${req.qty}` : ""}</p>
                           <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
@@ -4816,10 +4855,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
               {/* Add New Equipment — goes to admin approval */}
               <div style={S.card}>
-                <p style={{ ...S.sectionTitle, margin: "0 0 8px" }}>Add New Equipment</p>
-                <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 12px" }}>Submitted for admin approval before it appears in the library.</p>
-                <button style={S.btn("primary")} onClick={() => { setShowAdminReqModal("equipment"); setAdminReqForm({ name: "", category: "", total: "1", notes: "", photo: null }); setAdminReqMsg(null); }}>
-                  <Icon d={icons.plus} size={14} /> Submit Equipment
+                <p style={{ ...S.sectionTitle, margin: "0 0 8px" }}>{t("addNewEqTitle")}</p>
+                <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 12px" }}>{t("addNewEqDesc")}</p>
+                <button style={S.btn("primary", "lg")} onClick={() => { setShowAdminReqModal("equipment"); setAdminReqForm({ name: "", category: "", total: "1", notes: "", photo: null }); setAdminReqMsg(null); }}>
+                  <Icon d={icons.plus} size={15} /> {t("submitEquipment")}
                 </button>
               </div>
             </div>
@@ -4847,7 +4886,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <div style={{ textAlign: "center" }}>
                 <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--text,#16324A)" }}>{profileInfo.nickname || employee.name}</p>
                 {profileInfo.firstName && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>{profileInfo.firstName} {profileInfo.lastName}</p>}
-                <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("cameraCrew")}</p>
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{crewRoleLabel}</p>
               </div>
               <input ref={profileFileRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={handleProfileUpload} />
               <div style={{ display: "flex", gap: 10 }}>
@@ -4869,34 +4908,51 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               const score = kpiScore(employee.id, kpiEvents, kpiConfig);
               const stars = kpiStars(score, kpiConfig);
               const { start, end } = kpiPeriod(kpiConfig);
-              const myEvents = (kpiEvents || []).filter(ev => ev.employeeId === employee.id && ev.ts >= start.getTime() && ev.ts < end.getTime()).sort((a, b) => b.ts - a.ts);
+              const myEvents = kpiEventsInPeriod(employee.id, kpiEvents, kpiConfig);
+              const rules = visibleKpiRules(punishments);
               return (
-                <div style={S.card}>
-                  <p style={S.sectionTitle}>{t("kpiMyScore")}</p>
+                <div style={S.card} data-testid="kpi-card">
+                  <p style={{ ...S.sectionTitle, display: "flex", alignItems: "center", gap: 6 }}><Icon d={icons.star} size={13} fill="currentColor" /> {t("kpiMyScore")}</p>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
                     <StarRating value={stars} size={26} />
                     <span style={{ fontSize: 24, fontWeight: 800, color: "var(--accent,#2563EB)" }}>{stars.toFixed(1)}</span>
                     <span style={{ fontSize: 13, color: "var(--text-muted,#4E6B84)" }}>{score}/{max} {t("kpiPts")}</span>
                   </div>
                   <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 4px" }}>
-                    {t("teamKpiPeriodLabel")} {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                    {t("teamKpiPeriodLabel")} {formatDate(start)} – {formatDate(new Date(end.getTime() - 86400000))}
                   </p>
                   {myEvents.length === 0 ? (
                     <p style={{ fontSize: 13, color: "#2F855A", margin: "8px 0 0" }}>{t("kpiFullScore")}</p>
                   ) : (
                     <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 10 }}>
-                      <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("kpiDeductions")}</p>
+                      <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("kpiHistory")}</p>
                       {myEvents.map(ev => (
                         <div key={ev.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
-                          <span style={{ ...S.badge("red"), flexShrink: 0 }}>−{ev.points}</span>
+                          <span style={{ ...S.badge(isKpiAdd(ev) ? "green" : "red"), flexShrink: 0 }}>{isKpiAdd(ev) ? "+" : "−"}{Math.abs(parseFloat(ev.points) || 0)}</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <p style={{ margin: 0, fontSize: 13, color: "var(--text,#16324A)" }}>{ev.reason}</p>
-                            <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>{new Date(ev.ts).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>{formatDate(new Date(ev.ts))}</p>
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
+                  {/* The rules are known before they bite (P3-2): read-only copy of the house's deduction presets */}
+                  <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 10 }} data-testid="kpi-rules">
+                    <p style={{ ...S.sectionTitle, marginBottom: 4 }}>{t("kpiRulesTitle")}</p>
+                    <p style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)", margin: "0 0 8px" }}>{t("kpiRulesHint")}</p>
+                    {rules.length === 0 ? (
+                      <p style={{ fontSize: 12, color: "var(--text-muted,#7B8FA3)", margin: 0 }}>{t("kpiRulesNone")}</p>
+                    ) : rules.map((r, i) => (
+                      <div key={r.id || i} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "5px 0", borderBottom: i < rules.length - 1 ? "1px dashed var(--divider-color,#D8E1EC)" : "none" }}>
+                        <span style={{ ...S.badge("gray"), flexShrink: 0, minWidth: 36, justifyContent: "center" }}>−{parseFloat(r.points) || 0}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: 0, fontSize: 12, color: "var(--text,#16324A)" }}>{r.label}</p>
+                          {r.description && <p style={{ margin: "1px 0 0", fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>{r.description}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               );
             })()}
@@ -4920,9 +4976,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   <input style={S.input} placeholder={t("nickname")} value={profileInfo.nickname} onChange={e => setProfileInfo(p => ({ ...p, nickname: e.target.value }))} />
                 </div>
                 {[
-                  { key: "phone", label: t("phone"), type: "tel", placeholder: "Phone" },
-                  { key: "email", label: t("email"), type: "email", placeholder: "Email" },
-                  { key: "lineId", label: t("lineId"), type: "text", placeholder: "Line ID" },
+                  { key: "phone", label: t("phone"), type: "tel", placeholder: t("phonePh") },
+                  { key: "email", label: t("email"), type: "email", placeholder: t("emailPh") },
+                  { key: "lineId", label: t("lineId"), type: "text", placeholder: t("lineIdPh") },
                 ].map(f => (
                   <div key={f.key}>
                     <label style={S.label}>{f.label}</label>
@@ -4969,7 +5025,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                         <div>
                           <label style={S.label}>{t("positionName")}</label>
-                          <input style={S.input} value={pos.name} list="psr-role-list" placeholder="e.g. 1st AC, Gaffer, Sound Recordist" onChange={e => updatePosition(pos.id, { name: e.target.value })} />
+                          <input style={S.input} value={pos.name} list="psr-role-list" placeholder={t("positionPh")} onChange={e => updatePosition(pos.id, { name: e.target.value })} />
                           <p style={{ fontSize: 10, color: "var(--text-muted,#7B8FA3)", margin: "4px 0 0" }}>{t("positionPickHint")}</p>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -5147,7 +5203,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
             {/* Calendar Sync */}
             <div style={S.card}>
-              <p style={S.sectionTitle}>📅 {t("calendarSync")}</p>
+              <p style={{ ...S.sectionTitle, display: "flex", alignItems: "center", gap: 6 }}><Icon d={icons.calendar} size={13} /> {t("calendarSync")}</p>
               <div style={S.col}>
                 <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.7 }}>
                   Subscribe to the production schedule in your iPhone Calendar. Pencil jobs appear <strong style={{ color: "var(--text,#16324A)" }}>tentative (striped)</strong>, Confirmed are <strong style={{ color: "#2F855A" }}>solid</strong>. Updates hourly.
@@ -5162,15 +5218,15 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   https://pickshootreturn.pages.dev/api/calendar
                 </code>
                 <button style={{ ...S.btn("ghost"), alignSelf: "flex-start", fontSize: 12 }} onClick={() => navigator.clipboard?.writeText("https://pickshootreturn.pages.dev/api/calendar")}>
-                  📋 Copy URL
+                  <Icon d={icons.copy} size={13} /> {t("copyUrl")}
                 </button>
               </div>
             </div>
 
-            {/* Save Profile: sticks ABOVE the 70px bottom nav (was bottom:16 = hidden behind it until fully scrolled) */}
-            <div style={{ position: "sticky", bottom: 88, zIndex: 10 }}>
+            {/* Save Profile: sticks ABOVE the 62px bottom nav + the phone's home indicator (P1-3) */}
+            <div data-sticky-primary="profile-save" style={{ position: "sticky", bottom: "calc(62px + 16px + env(safe-area-inset-bottom, 0px))", zIndex: 10 }}>
               <button
-                style={{ ...S.btn(profileSaveStatus === "saved" ? "success" : profileSaveStatus === "error" ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, opacity: profileSaveStatus === "saving" ? 0.75 : 1, boxShadow: "0 4px 24px rgba(22,50,74,0.17)" }}
+                style={{ ...S.btn(profileSaveStatus === "saved" ? "success" : profileSaveStatus === "error" ? "danger" : "primary", "lg"), width: "100%", padding: "15px", fontSize: 15, fontWeight: 700, opacity: profileSaveStatus === "saving" ? 0.75 : 1, boxShadow: "0 4px 24px rgba(22,50,74,0.17)" }}
                 disabled={profileSaveStatus === "saving"}
                 onClick={saveProfile}
               >
@@ -5201,9 +5257,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         <span style={{ ...S.badge(g.kind === "pick" ? "amber" : "green"), flexShrink: 0 }}>{g.kind === "pick" ? t("pickEvt") : t("returnEvt")}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{g.jobName}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{g.items.length} {g.items.length === 1 ? "item" : "items"} · {formatDateTime(g.latest)}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{tCount(t, "itemsN", g.items.length)} · {formatDateTime(g.latest)}</p>
                         </div>
-                        <span style={{ color: "var(--text-muted,#5F7A91)", fontSize: 14, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</span>
+                        <span style={{ color: "var(--text-muted,#5F7A91)", flexShrink: 0, display: "inline-flex", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}><Icon d={icons.chevron_right} size={16} strokeW={2} /></span>
                       </div>
                       {open && (
                         <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid var(--divider-color,#D8E1EC)", display: "flex", flexDirection: "column", gap: 6 }}>
@@ -5290,14 +5346,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           };
 
           const delInvoice = (id) => {
-            if (window.confirm("Delete this invoice?")) setInvoices(p => p.map(i => i.id === id ? { ...i, _deleted: true } : i));
+            if (window.confirm(t("deleteDocConfirm"))) setInvoices(p => p.map(i => i.id === id ? { ...i, _deleted: true } : i));
           };
 
           return (
             <div style={S.col}>
               <div>
                 <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("myInvoices")}</h1>
-                <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{allMyInvoices.length} invoices · ฿{allMyInvoices.reduce((s, inv) => s + calcTotal(inv), 0).toLocaleString()} total</p>
+                <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{tCount(t, "invCountTotal", allMyInvoices.length).replace("{total}", allMyInvoices.reduce((s, inv) => s + calcTotal(inv), 0).toLocaleString())}</p>
               </div>
 
               {/* Revenue Summary */}
@@ -5317,10 +5373,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 return (
                   <div style={S.card}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                      <p style={{ ...S.sectionTitle, margin: 0 }}>Revenue</p>
+                      <p style={{ ...S.sectionTitle, margin: 0 }}>{t("revenue")}</p>
                       <div style={{ display: "flex", gap: 6 }}>
-                        {[["all","All"],["year","By Year"],["custom","Custom"]].map(([k,lbl]) => (
-                          <button key={k} style={{ ...S.btn(revPeriod===k?"primary":"ghost"), padding:"4px 9px", fontSize:10 }} onClick={() => setRevPeriod(k)}>{lbl}</button>
+                        {[["all", t("revAll")],["year", t("revByYear")],["custom", t("revCustom")]].map(([k,lbl]) => (
+                          <button key={k} style={S.chip(revPeriod === k)} onClick={() => setRevPeriod(k)}>{lbl}</button>
                         ))}
                       </div>
                     </div>
@@ -5331,20 +5387,20 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     )}
                     {revPeriod === "custom" && (
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-                        <div><label style={S.label}>From</label><input style={S.input} type="date" value={revFrom} onChange={e => setRevFrom(e.target.value)} /></div>
-                        <div><label style={S.label}>To</label><input style={S.input} type="date" value={revTo} onChange={e => setRevTo(e.target.value)} /></div>
+                        <div><label style={S.label}>{t("revFrom")}</label><input style={S.input} type="date" value={revFrom} onChange={e => setRevFrom(e.target.value)} /></div>
+                        <div><label style={S.label}>{t("revTo")}</label><input style={S.input} type="date" value={revTo} onChange={e => setRevTo(e.target.value)} /></div>
                       </div>
                     )}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                       <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.06)", borderRadius: 8, padding: "10px 14px" }}>
-                        <p style={{ margin: 0, fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)" }}>Total Invoiced</p>
+                        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)" }}>{t("totalInvoiced")}</p>
                         <p style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 800, color: "var(--accent,#2563EB)" }}>฿{revTotal.toLocaleString()}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>{revInvs.length} invoice{revInvs.length !== 1 ? "s" : ""}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{tCount(t, "invoicesN", revInvs.length)}</p>
                       </div>
                       <div style={{ background: "rgba(47,133,90,0.06)", borderRadius: 8, padding: "10px 14px" }}>
-                        <p style={{ margin: 0, fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)" }}>Paid</p>
+                        <p style={{ margin: 0, fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)" }}>{t("paidLabel")}</p>
                         <p style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 800, color: "#2F855A" }}>฿{revPaid.toLocaleString()}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>฿{(revTotal - revPaid).toLocaleString()} pending</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("pendingAmount").replace("{amt}", (revTotal - revPaid).toLocaleString())}</p>
                       </div>
                     </div>
                   </div>
@@ -5354,17 +5410,17 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               {/* Filter/Sort row */}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 {["all", "Pending", "Paid"].map(f => (
-                  <button key={f} style={{ ...S.btn(invFilter === f ? "primary" : "ghost"), padding: "5px 12px", fontSize: 11 }} onClick={() => setInvFilter(f)}>
-                    {f === "all" ? "All" : f}
+                  <button key={f} style={S.chip(invFilter === f)} onClick={() => setInvFilter(f)}>
+                    {f === "all" ? t("filterAll") : f === "Paid" ? t("stPaid") : t("stPending")}
                   </button>
                 ))}
                 <div style={{ flex: 1 }} />
-                <button style={{ ...S.btn(invSort === "date" ? "primary" : "ghost"), padding: "5px 12px", fontSize: 11 }} onClick={() => setInvSort("date")}>Latest</button>
-                <button style={{ ...S.btn(invSort === "amount" ? "primary" : "ghost"), padding: "5px 12px", fontSize: 11 }} onClick={() => setInvSort("amount")}>Amount ↓</button>
+                <button style={S.chip(invSort === "date")} onClick={() => setInvSort("date")}>{t("sortLatestShort")}</button>
+                <button style={S.chip(invSort === "amount")} onClick={() => setInvSort("amount")}>{t("sortAmount")} ↓</button>
               </div>
               <div style={{ display: "flex", gap: 6 }}>
-                {[["all","All"],["invoice","INV"],["quotation","QUO"],["receipt","RTX"]].map(([k,lbl]) => (
-                  <button key={k} style={{ ...S.btn(invDocType === k ? "primary" : "ghost"), padding: "4px 10px", fontSize: 11 }} onClick={() => setInvDocType(k)}>{lbl}</button>
+                {[["all", t("filterAll")],["invoice","INV"],["quotation","QUO"],["receipt","RTX"]].map(([k,lbl]) => (
+                  <button key={k} style={S.chip(invDocType === k)} onClick={() => setInvDocType(k)}>{lbl}</button>
                 ))}
               </div>
 
@@ -5372,7 +5428,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <div style={S.card}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <p style={{ ...S.sectionTitle, margin: 0 }}>{t("prodHousesTitle")}</p>
-                  <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("production-house"); setAdminReqForm({ name: "", address: "" }); setAdminReqMsg(null); }}>{t("addProdHouse")}</button>
+                  <button style={S.btn("ghost", "md")} onClick={() => { setShowAdminReqModal("production-house"); setAdminReqForm({ name: "", address: "" }); setAdminReqMsg(null); }}>{t("addProdHouse")}</button>
                 </div>
                 {(() => {
                   const companies = [...(productionCompanies || [])].filter(c => (c.name || "").trim()).sort((a, b) => (a.name || "").localeCompare(b.name || "", ["th", "en"], { sensitivity: "base" }));
@@ -5390,12 +5446,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                               ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)", whiteSpace: "pre-wrap" }}>{co.address}</p>
                               : <p style={{ margin: "2px 0 0", fontSize: 11, color: "#B7791F", fontStyle: "italic" }}>{t("noBillingAddress")}</p>}
                           </div>
-                          <span style={{ color: "var(--text-muted,#5F7A91)", fontSize: 14 }}>{canEditCompany(co, { id: employee.id, role: "employee" }) ? "✎" : "🔒"}</span>
+                          <Icon d={canEditCompany(co, { id: employee.id, role: "employee" }) ? icons.edit : icons.lock} size={14} color="var(--text-muted,#5F7A91)" />
                         </div>
                       ))}
                       {legacyPending.map(req => (
                         <div key={req.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
-                          <span style={S.badge("amber")}>{req.status}</span>
+                          <span style={S.badge("amber")}>{statusLabel(t, req.status)}</span>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{req.name}</p>
                         </div>
                       ))}
@@ -5409,7 +5465,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <div style={S.card}>
                 <p style={S.sectionTitle}>{t("confirmJobs")}</p>
                 {confirmedJobs.length === 0
-                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>No confirmed jobs.</p>
+                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("noConfirmedJobs")}</p>
                   : confirmedJobs.map(job => {
                     // Any live document of mine for this job, regardless of the list filter (P2-4).
                     const hasInvoice = allMyInvoices.some(inv => inv.jobId === job.id);
@@ -5417,12 +5473,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       <div key={job.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
                         <div style={{ flex: 1 }}>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{job.name}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {(job.dates || []).slice(0, 2).map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ")}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {(job.dates || []).slice(0, 2).map(d => formatDay(d)).join(", ")}</p>
                         </div>
                         {hasInvoice
-                          ? <span style={S.badge("green")}>✓ Invoiced</span>
-                          : <button style={{ ...S.btn("primary"), padding: "5px 10px", fontSize: 11 }} onClick={() => setInvoiceModal({ job, existing: null })}>
-                              <Icon d={icons.invoice} size={13} /> {t("createInvoice")}
+                          ? <span style={S.badge("green", "md")}>✓ {t("invoicedBadge")}</span>
+                          : <button style={S.btn("primary", "md")} onClick={() => setInvoiceModal({ job, existing: null })}>
+                              <Icon d={icons.invoice} size={14} /> {t("createInvoice")}
                             </button>
                         }
                       </div>
@@ -5434,7 +5490,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               {/* My saved invoices */}
               {myInvoices.length === 0 ? (
                 <div style={{ ...S.card, textAlign: "center", padding: 32 }}>
-                  <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{invFilter === "all" ? "No invoices yet." : `No ${invFilter} invoices.`}</p>
+                  <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{invFilter === "all" ? t("noInvoicesYet") : t("noInvoicesFilter").replace("{status}", invFilter === "Paid" ? t("stPaid") : t("stPending"))}</p>
                 </div>
               ) : (
                 <div style={S.col}>
@@ -5453,7 +5509,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}>
                               <span style={{ ...S.badge("blue"), fontSize: 9 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
-                              <span style={{ ...S.badge(isVoid ? "red" : isPaid ? "green" : "amber"), fontSize: 10 }}>{isVoid ? t("receiptVoided") : (inv.status || "Pending")}</span>
+                              <span style={{ ...S.badge(isVoid ? "red" : isPaid ? "green" : "amber"), fontSize: 10 }}>{isVoid ? t("receiptVoided") : ({ Paid: t("stPaid"), Pending: t("stPending"), Confirmed: t("stConfirmed"), Declined: t("stDeclined") }[inv.status || "Pending"] || inv.status)}</span>
                               <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#5F7A91)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</p>
                             </div>
                             <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{inv.jobName}</p>
@@ -5461,16 +5517,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           </div>
                           <div style={{ textAlign: "right", flexShrink: 0 }}>
                             <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: "var(--accent,#2563EB)" }}>฿{total.toLocaleString()}</p>
-                            <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>{new Date(inv.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                            <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{formatDate(new Date(inv.updatedAt))}</p>
                           </div>
-                          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s", opacity: 0.4, marginLeft: 8 }}><path d="M9 18l6-6-6-6" /></svg>
+                          <Icon d={icons.chevron_right} size={14} strokeW={2} style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s", opacity: 0.4, marginLeft: 8 }} />
                         </div>
                         {isExpanded && (
                           <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--divider-color,#D8E1EC)" }}>
                             {/* Line items */}
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 80px 80px", gap: "4px 8px", marginBottom: 10 }}>
-                              {["Description", "Qty", "Rate", "Total"].map((h, i) => (
-                                <div key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)", textAlign: i > 0 ? "right" : "left", paddingBottom: 4, borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>{h}</div>
+                              {[t("colDescription"), t("colQty"), t("colRate"), t("colTotal")].map((h, i) => (
+                                <div key={i} style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)", textAlign: i > 0 ? "right" : "left", paddingBottom: 4, borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>{h}</div>
                               ))}
                               {itemList.map((it, idx) => {
                                 const qty = parseFloat(it.qty) || 0;
@@ -5484,42 +5540,42 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                               })}
                             </div>
                             <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, paddingTop: 8, borderTop: "1px solid var(--divider-color,#D8E1EC)", marginBottom: 14 }}>
-                              <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>Total</span>
+                              <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("colTotal")}</span>
                               <span style={{ fontSize: 18, fontWeight: 800, color: "var(--accent,#2563EB)" }}>฿{total.toLocaleString()}</span>
                             </div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                              {!isVoid && <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => setInvoiceModal({ job: null, existing: inv })}>
-                                <Icon d={icons.edit} size={13} /> Edit
+                              {!isVoid && <button style={S.btn("ghost", "md")} onClick={() => setInvoiceModal({ job: null, existing: inv })}>
+                                <Icon d={icons.edit} size={14} /> {t("editBtn")}
                               </button>}
-                              <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName, print: false })}>
-                                👁 View
+                              <button style={S.btn("ghost", "md")} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName, print: false })}>
+                                <Icon d={icons.eye} size={14} /> {t("viewBtn")}
                               </button>
-                              <button style={{ ...S.btn("primary"), fontSize: 12, padding: "6px 10px" }} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName })}>
-                                🖨 Print
+                              <button style={S.btn("primary", "md")} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName })}>
+                                <Icon d={icons.print} size={14} /> {t("printBtn")}
                               </button>
                               {lineGroupId && !isVoid && (
                                 <button
                                   disabled={invSending === inv.id}
-                                  style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px", opacity: invSending === inv.id ? 0.6 : 1 }}
+                                  style={{ ...S.btn("ghost", "md"), opacity: invSending === inv.id ? 0.6 : 1 }}
                                   onClick={() => shareDoc(inv)}>
-                                  {invSending === inv.id ? t("shareSending") : `💬 ${t("shareBtn")}`}
+                                  <Icon d={icons.chat} size={14} /> {invSending === inv.id ? t("shareSending") : t("shareBtn")}
                                 </button>
                               )}
                               {isInv && !isPaid && (
-                                <button style={{ ...S.btn("success"), fontSize: 12, padding: "6px 10px" }} onClick={() => setPaidDialog({ mode: "paid", inv })}>{t("markPaid")}</button>
+                                <button style={S.btn("ghost", "md")} onClick={() => setPaidDialog({ mode: "paid", inv })}><Icon d={icons.check} size={14} /> {t("markPaid")}</button>
                               )}
                               {isInv && isPaid && (<>
-                                {!liveReceiptFor(inv) && <button style={{ ...S.btn("success"), fontSize: 12, padding: "6px 10px" }} onClick={() => issueReceipt(inv)}>🧾 {t("issueReceipt")}</button>}
-                                <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => setPaidDialog({ mode: "unpaid", inv })}>{t("markPending")}</button>
+                                {!liveReceiptFor(inv) && <button style={S.btn("success", "md")} onClick={() => issueReceipt(inv)}><Icon d={icons.receipt} size={14} /> {t("issueReceipt")}</button>}
+                                <button style={S.btn("ghost", "md")} onClick={() => setPaidDialog({ mode: "unpaid", inv })}>{t("markPending")}</button>
                               </>)}
-                              <button style={{ ...S.btn("danger"), fontSize: 12, padding: "6px 10px" }} onClick={() => delInvoice(inv.id)}>
-                                <Icon d={icons.trash} size={13} />
+                              <button style={{ ...S.btn("danger", "md"), minWidth: 36 }} aria-label={t("deleteBtn")} title={t("deleteBtn")} onClick={() => delInvoice(inv.id)}>
+                                <Icon d={icons.trash} size={14} />
                               </button>
                             </div>
                             {inv.share?.key && (
                               <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
-                                <span>🔗 {shareActive
-                                  ? t("shareLinkActive").replace("{date}", new Date(shareSt?.expiresAt || inv.share.expiresAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Icon d={icons.link} size={12} /> {shareActive
+                                  ? t("shareLinkActive").replace("{date}", formatDateTime(shareSt?.expiresAt || inv.share.expiresAt))
                                   : t("shareExpired")}</span>
                                 {shareSt && !shareSt.expired && <span>· {t("shareViews").replace("{n}", shareSt.views || 0)}</span>}
                                 <button style={{ ...S.btn("ghost"), fontSize: 11, padding: "3px 8px" }} onClick={() => revokeShare(inv)}>{t("shareRevoke")}</button>
@@ -5575,7 +5631,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {[
           { key: "today", label: t("tabToday"), icon: icons.calendar },
           { key: "invoice", label: t("tabInvoice"), icon: icons.invoice },
-          { key: "gear", label: "Gear", icon: icons.camera },
+          { key: "gear", label: t("tabGear"), icon: icons.camera },
           { key: "profile", label: t("tabProfile"), icon: icons.user },
         ].map(tItem => {
           const active = tab === tItem.key;
@@ -5587,7 +5643,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             }}>
               {active && <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: "var(--accent,#2563EB)", borderRadius: "0 0 3px 3px" }} />}
               <Icon d={tItem.icon} size={20} color={active ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)"} />
-              <span style={{ fontSize: 9.5, fontWeight: active ? 700 : 500, letterSpacing: "0.02em" }}>{tItem.label}</span>
+              <span style={{ fontSize: 11, fontWeight: active ? 700 : 500, letterSpacing: "0.02em", lineHeight: 1.1 }}>{tItem.label}</span>
             </button>
           );
         })}
@@ -5655,7 +5711,7 @@ function ReportModal({ employee, equipment, jobs, checkouts, onSubmit, onClose }
   if (submitted) return (
     <Modal title={t("reportNew")} onClose={onClose}>
       <div style={{ textAlign: "center", padding: "24px 0" }}>
-        <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
+        <div style={{ marginBottom: 12, display: "flex", justifyContent: "center" }}><Icon d={icons.check} size={48} color="#2F855A" strokeW={2.4} /></div>
         <p style={{ fontSize: 16, fontWeight: 700, color: "#2F855A", marginBottom: 8 }}>{t("reportSubmitted")}</p>
         <button style={{ ...S.btn("primary"), marginTop: 16 }} onClick={onClose}>{t("back")}</button>
       </div>
@@ -5663,7 +5719,7 @@ function ReportModal({ employee, equipment, jobs, checkouts, onSubmit, onClose }
   );
 
   return (
-    <Modal title={t("reportNew")} onClose={onClose}>
+    <Modal title={t("reportNew")} onClose={onClose} dirty={!!description.trim() || photos.length > 0}>
       <div style={S.col}>
         <div>
           <label style={S.label}>{t("reportDate")}</label>
@@ -6047,14 +6103,14 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
   const [profileTarget, setProfileTarget] = useState(null);
   const [profileData, setProfileData] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
-  const [kpiForm, setKpiForm] = useState({ punishmentId: "", points: "", reason: "" });
+  const [kpiForm, setKpiForm] = useState({ punishmentId: "", points: "", reason: "", kind: "deduct" });
   const [kpiMsg, setKpiMsg] = useState(null);
 
   const openProfile = (emp) => {
     setProfileTarget(emp);
     setProfileData(null);
     setProfileLoading(true);
-    setKpiForm({ punishmentId: "", points: "", reason: "" });
+    setKpiForm({ punishmentId: "", points: "", reason: "", kind: "deduct" });
     setKpiMsg(null);
     setModal("profile");
     api.getProfile(emp.id).then(d => setProfileData(d)).catch(() => {}).finally(() => setProfileLoading(false));
@@ -6206,14 +6262,14 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
             const score = kpiScore(profileTarget.id, kpiEvents, kpiConfig);
             const stars = kpiStars(score, kpiConfig);
             const { start, end } = kpiPeriod(kpiConfig);
-            const myEvents = (kpiEvents || []).filter(ev => ev.employeeId === profileTarget.id && ev.ts >= start.getTime() && ev.ts < end.getTime()).sort((a, b) => b.ts - a.ts);
+            const myEvents = kpiEventsInPeriod(profileTarget.id, kpiEvents, kpiConfig);
+            const isAdd = kpiForm.kind === "add";
             const submit = () => {
-              const pts = parseFloat(kpiForm.points) || 0;
-              if (pts <= 0) { setKpiMsg({ ok: false, text: t("teamKpiErrPoints") }); return; }
-              if (!kpiForm.reason.trim()) { setKpiMsg({ ok: false, text: t("teamKpiErrReason") }); return; }
-              setKpiEvents(p => [...(p || []), { id: "kpi" + Date.now(), employeeId: profileTarget.id, points: pts, reason: kpiForm.reason.trim(), punishmentId: kpiForm.punishmentId || null, ts: Date.now(), by: "admin" }]);
-              setKpiForm({ punishmentId: "", points: "", reason: "" });
-              setKpiMsg({ ok: true, text: t("teamKpiDeductedMsg").replace("{pts}", pts) });
+              const r = buildKpiEvent({ employeeId: profileTarget.id, points: kpiForm.points, reason: kpiForm.reason, kind: kpiForm.kind, ruleId: kpiForm.punishmentId });
+              if (!r.ok) { setKpiMsg({ ok: false, text: r.error === "points" ? t(isAdd ? "teamKpiErrPointsAdd" : "teamKpiErrPoints") : t("teamKpiErrReason") }); return; }
+              setKpiEvents(p => [...(p || []), r.event]);
+              setKpiForm({ punishmentId: "", points: "", reason: "", kind: "deduct" });
+              setKpiMsg({ ok: true, text: t(isAdd ? "teamKpiAddedMsg" : "teamKpiDeductedMsg").replace("{pts}", r.event.points) });
               setTimeout(() => setKpiMsg(null), 3000);
             };
             return (
@@ -6224,9 +6280,14 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
                   <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#2563EB)" }}>{stars.toFixed(1)}</span>
                   <span style={{ fontSize: 13, color: "var(--text-muted,#4E6B84)" }}>{score}/{max} {t("kpiPts")}</span>
                 </div>
-                <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 12px" }}>{t("teamKpiPeriodLabel")} {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 12px" }}>{t("teamKpiPeriodLabel")} {formatDate(start)} – {formatDate(new Date(end.getTime() - 86400000))}</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {(punishments || []).length > 0 && (
+                  <div style={{ display: "flex", gap: 6 }} role="radiogroup" aria-label="adjustment kind">
+                    {[["deduct", t("teamKpiModeDeduct")], ["add", t("teamKpiModeAdd")]].map(([k, lbl]) => (
+                      <button key={k} role="radio" aria-checked={kpiForm.kind === k} style={{ ...S.chip(kpiForm.kind === k), flex: 1 }} onClick={() => setKpiForm(f => ({ ...f, kind: k, punishmentId: k === "add" ? "" : f.punishmentId }))}>{lbl}</button>
+                    ))}
+                  </div>
+                  {!isAdd && (punishments || []).length > 0 && (
                     <select style={S.select} value={kpiForm.punishmentId} onChange={e => { const pun = (punishments || []).find(x => x.id === e.target.value); setKpiForm(f => ({ punishmentId: e.target.value, points: pun ? String(pun.points) : f.points, reason: pun ? (pun.label + (pun.description ? ` — ${pun.description}` : "")) : f.reason })); }}>
                       <option value="">{t("teamKpiCustomDeduction")}</option>
                       {(punishments || []).map(pun => <option key={pun.id} value={pun.id}>{pun.label} (−{pun.points})</option>)}
@@ -6237,17 +6298,17 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
                     <input style={S.input} value={kpiForm.reason} placeholder={t("teamKpiReason")} onChange={e => setKpiForm(f => ({ ...f, reason: e.target.value }))} />
                   </div>
                   {kpiMsg && <p style={{ fontSize: 12, color: kpiMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{kpiMsg.text}</p>}
-                  <button style={{ ...S.btn("danger"), justifyContent: "center" }} onClick={submit}>{t("teamKpiDeduct")}</button>
+                  <button style={{ ...S.btn(isAdd ? "success" : "danger"), justifyContent: "center" }} onClick={submit}>{isAdd ? t("teamKpiAdd") : t("teamKpiDeduct")}</button>
                 </div>
                 {myEvents.length > 0 && (
                   <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 10 }}>
-                    <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("teamKpiDeductionsThisPeriod")}</p>
+                    <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("teamKpiHistory")}</p>
                     {myEvents.map(ev => (
                       <div key={ev.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
-                        <span style={{ ...S.badge("red"), flexShrink: 0 }}>−{ev.points}</span>
+                        <span style={{ ...S.badge(isKpiAdd(ev) ? "green" : "red"), flexShrink: 0 }}>{isKpiAdd(ev) ? "+" : "−"}{Math.abs(parseFloat(ev.points) || 0)}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ margin: 0, fontSize: 13 }}>{ev.reason}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>{new Date(ev.ts).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>{formatDateTime(ev.ts)}</p>
                         </div>
                         <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => setKpiEvents(p => p.filter(x => x.id !== ev.id))}>{t("teamKpiUndo")}</button>
                       </div>
@@ -6319,7 +6380,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
         {(() => { const p = kpiPeriod(kpiConfig); const endLabel = new Date(p.end.getTime() - 86400000); return (
           <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: 0 }}>
             {t("settingsKpiEveryoneStarts")} <strong style={{ color: "var(--accent,#2563EB)" }}>{kpiMax(kpiConfig)} pts (★★★★★)</strong>. {t("settingsKpiCurrPeriod")}{" "}
-            <strong style={{ color: "var(--text,#16324A)" }}>{p.start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {endLabel.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>. {t("settingsKpiDefaultStart")}
+            <strong style={{ color: "var(--text,#16324A)" }}>{formatDate(p.start)} – {formatDate(endLabel)}</strong>. {t("settingsKpiDefaultStart")}
           </p>
         ); })()}
         <div style={{ borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 12 }}>
@@ -6388,7 +6449,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
         <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text,#16324A)" }}>{t("settingsTitle")}</h1>
       </div>
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 120px", maxWidth: 600, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 32px", maxWidth: 600, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
 
       {/* Language card */}
       <div style={{ ...S.card, marginBottom: 20 }}>
@@ -6890,10 +6951,12 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
         <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", marginTop: 8 }}>{t("settingsSysDesc2")}</p>
       </div>
 
-      {/* Save all settings */}
-      <div style={{ position: "sticky", bottom: 16, zIndex: 20, marginTop: 20 }}>
+      </div>
+      {/* Save all settings: a fixed footer of the panel, never floating over the content (P1-3) */}
+      <div data-sticky-primary="settings-save" style={{ flexShrink: 0, background: "var(--surface,#FFFFFF)", borderTop: "1px solid var(--divider-color,#D8E1EC)", padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))", boxShadow: "0 -4px 16px rgba(22,50,74,0.06)" }}>
+        <div style={{ maxWidth: 600, margin: "0 auto" }}>
         <button
-          style={{ ...S.btn(saveState === "saved" ? "success" : saveState && saveState.error ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, boxShadow: "0 4px 24px rgba(22,50,74,0.17)", opacity: saveState === "saving" ? 0.75 : 1 }}
+          style={{ ...S.btn(saveState === "saved" ? "success" : saveState && saveState.error ? "danger" : "primary", "lg"), width: "100%", padding: "14px", fontSize: 15, fontWeight: 700, opacity: saveState === "saving" ? 0.75 : 1 }}
           disabled={saveState === "saving"}
           onClick={async () => {
             setSaveState("saving");
@@ -6913,9 +6976,8 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
         {saveState === "saved" && (
           <p style={{ fontSize: 11, color: "#2F855A", textAlign: "center", margin: "8px 0 0" }}>{t("settingsSavedAt")} {new Date().toLocaleTimeString()}</p>
         )}
-        <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", textAlign: "center", margin: "8px 0 0" }}>{t("settingsSaveHint")}</p>
-      </div>
-
+        <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", textAlign: "center", margin: "6px 0 0", lineHeight: 1.4 }}>{t("settingsSaveHint")}</p>
+        </div>
       </div>
     </div>
   );
@@ -9119,6 +9181,7 @@ export default function App() {
   const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem("psr_user") || "null"); } catch { return null; } });
   useEffect(() => { try { user ? localStorage.setItem("psr_user", JSON.stringify(user)) : localStorage.removeItem("psr_user"); } catch {} }, [user]);
   const [activePage, setActivePage] = useState("dashboard");
+  useEffect(() => { try { window.scrollTo(0, 0); } catch {} }, [activePage]); // page titles start visible (P2-15)
   const [eqInitialTab, setEqInitialTab] = useState(null); // opens Equipment page straight to a tab (e.g. reports)
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const [equipment, setEquipment] = useState([]);
@@ -9163,6 +9226,7 @@ export default function App() {
   // Holds the last savePayload that failed — drained by the online-retry effect.
   const pendingSaveRef = useRef(null);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
+  setFormatLang(lang); // date helpers follow the UI language in this same render pass (P1-6)
   const [themeStyle, setThemeStyle] = useState(() => { try { return localStorage.getItem("psr_theme_style2") || "flat"; } catch { return "flat"; } });
   const [themePalette, setThemePalette] = useState(() => { try { return localStorage.getItem("psr_theme_palette2") || "white-blue"; } catch { return "white-blue"; } });
   const [navOrder, setNavOrder] = useState(null);
@@ -9966,7 +10030,11 @@ export default function App() {
           {saveErr && <p style={{ color: "#C53030", fontSize: 12 }}>Save failed — check your connection and try again.</p>}
         </div>
       ) : !user ? (
-        <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
+        <>
+          {/* TODO(auth track): fold this pill into the Login header if that track adds its own language toggle. */}
+          <div data-testid="login-langpill" style={{ position: "fixed", top: "calc(12px + env(safe-area-inset-top, 0px))", right: 12, zIndex: 50 }}><LangPill setLang={setLang} /></div>
+          <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
+        </>
       ) : user.role === "employee" ? (
         <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
       ) : (
