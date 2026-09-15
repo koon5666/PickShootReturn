@@ -9721,7 +9721,13 @@ export default function App() {
     }
     if (d.invoicePresets != null) { setInvoicePresets(d.invoicePresets); kl.add("invoicePresets"); }
     if (d.chatEnabled != null) { setChatEnabled(d.chatEnabled); kl.add("chatEnabled"); }
-    if (d.theme && typeof d.theme === "object") { setTheme(d.theme); kl.add("theme"); }
+    if (d.theme && typeof d.theme === "object") {
+      // Keep KV's own object when it is already valid, so the reference matches
+      // lastSavedRef and the loaded theme is not re-uploaded as a "change".
+      const th = normalizeTheme(d.theme);
+      setTheme(th.style === d.theme.style && th.palette === d.theme.palette ? d.theme : th);
+      kl.add("theme");
+    }
     // Mark every applied field as already-persisted (same reference now lives in
     // state), so the debounced save effect skips re-uploading freshly loaded or
     // remotely-synced data. Only fields actually present are recorded.
@@ -9845,7 +9851,9 @@ export default function App() {
       try {
         const d = await api.getData();
         if (!d || typeof d !== "object") return;
-        if (d._v && typeof d._v === "object") Object.assign(versionsRef.current, d._v);
+        // (versionsRef is deliberately NOT refreshed here: the PUT below carries the
+        // versions the cache was loaded with, so anything another device wrote while
+        // this one was offline surfaces as a 409 and is merged, never overwritten.)
         // 1. queued profile saves
         if (profileQueueRef.current.length) {
           profileQueueRef.current = await drainProfileQueue(profileQueueRef.current, (id, prof) => api.putProfile(id, prof));

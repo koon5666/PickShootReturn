@@ -35,6 +35,7 @@ const ALLOW = [
   /Failed to load resource: the server responded with a status of (404|500|503)/i,
   /Failed to load resource: net::ERR_FAILED/i, // offline simulation
   /Failed to load resource: net::ERR_INTERNET_DISCONNECTED/i,
+  /409/, // the offline reconnect deliberately hits a 409 and rebases (P1-14)
 ];
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const fail = (msg) => { console.error("\nWALK FAILED: " + msg); process.exitCode = 1; throw new Error(msg); };
@@ -52,7 +53,7 @@ async function newPage(viewport, { keepStorage = false } = {}) {
   await page.setViewport(viewport);
   page.on("pageerror", e => errors.push("pageerror: " + e.message));
   page.on("console", m => { if (m.type() === "error") errors.push("console: " + m.text()); });
-  page.on("response", r => { if (r.status() >= 400 && !/\/api\/session|\/api\/profile\/|\/api\/notify/.test(r.url())) errors.push(`http ${r.status()} ${r.url()}`); });
+  page.on("response", r => { if (r.status() >= 400 && r.status() !== 409 && !/\/api\/session|\/api\/profile\/|\/api\/notify/.test(r.url())) errors.push(`http ${r.status()} ${r.url()}`); });
   await page.setRequestInterception(true);
   page.on("request", req => {
     if (req.url().includes("/api/notify") && req.method() === "POST") { try { notifyCalls.push(JSON.parse(req.postData() || "{}")); } catch { notifyCalls.push({}); } }
@@ -353,12 +354,16 @@ try {
     await sleep(500);
     if (!(await hasText("1 change(s) waiting to sync"))) fail("offline banner does not count the pending job");
     await shot("offline-admin-dirty");
+    // Meanwhile another device renames the pencil job: the reconnect must merge, not overwrite.
+    const before = await kv();
+    await fetch(URL + "/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobs: before.jobs.map(j => j.id === "job3" ? { ...j, name: "Music Video (renamed elsewhere)" } : j) }) });
     blockData = false;
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30_000 }).catch(() => {});
     await sleep(1500);
     const d = await kv();
     if (!d.jobs.some(j => j.name === "Offline Job Walk")) fail("job created offline was discarded on reconnect");
+    if (!d.jobs.some(j => j.name === "Music Video (renamed elsewhere)")) fail("the other device's edit was overwritten by the offline delta (409 rebase did not happen)");
     await waitText("Overview");
     if (await hasText("Offline.")) fail("still offline after reconnect");
     await shot("offline-admin-reconnected");
