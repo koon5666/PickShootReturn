@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, createContext, useContext } f
 import jsQR from "jsqr";
 import { LANG } from "./i18n/index.js";
 import { hoursWorked, DEFAULT_OT_TIERS, calcOtAmount, calcVatBreakdown, calcTotal } from "./logic/money.js";
+import { isPickEvt, isReturnEvt, isLostEvt, isVoidEvt, jobCheckoutState, outstandingQty, latestOpenPick, laneDone, stillOutAcrossJobs, geoGate, voidEvent, conditionKey, DEFAULT_DAY_START_HOUR, DEFAULT_GEO_THRESHOLD_M } from "./logic/checkoutState.js";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const JOB_STATUSES = ["Pencil", "Confirmed", "Cancelled", "Declined"];
@@ -314,20 +315,26 @@ function AvailBar({ available, total }) {
 // This works in every mobile browser INCLUDING in-app webviews (LINE, Instagram,
 // Facebook) where the live getUserMedia() preview is blocked — that was the cause
 // of the "Open Camera does nothing" reports. Geo-lock is preserved by stamping the
-// timestamp + GPS onto the captured still; onCapture(dataUrl, location) is unchanged.
-function GeoPhoto({ onCapture, label }) {
+// timestamp + GPS onto the captured still.
+//
+// usePhotoCapture() owns the hidden input + decoding so a list row's Photo button
+// can call `open()` SYNCHRONOUSLY inside the tap (P2-14: no empty intermediate
+// screen); the decoded, stamped photo then shows in <GeoPhoto> for a "Use photo /
+// Retake" decision BEFORE anything is committed (P1-4).
+function usePhotoCapture() {
   const fileRef = useRef(null);
-  const [location, setLocation] = useState(null);
-  const [locErr, setLocErr] = useState(null);
   const [photo, setPhoto] = useState(null);
+  const [location, setLocation] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);       // i18n key
+  const [locErr, setLocErr] = useState(null); // i18n key
+  const seq = useRef(0);
 
-  // Best-effort GPS. Resolves with the location object or null.
   const getGPS = () => new Promise(resolve => {
-    if (!navigator.geolocation) { setLocErr("Location unavailable — photo still saved with timestamp."); return resolve(null); }
+    if (!navigator.geolocation) { setLocErr("photoNoGps"); return resolve(null); }
     navigator.geolocation.getCurrentPosition(
       (pos) => { const l = { lat: pos.coords.latitude.toFixed(5), lng: pos.coords.longitude.toFixed(5), acc: Math.round(pos.coords.accuracy) }; setLocation(l); resolve(l); },
-      () => { setLocErr("Location unavailable — photo still saved with timestamp."); resolve(null); },
+      () => { setLocErr("photoNoGps"); resolve(null); },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
     );
   });
@@ -354,43 +361,109 @@ function GeoPhoto({ onCapture, label }) {
     const f = e.target.files && e.target.files[0];
     e.target.value = ""; // allow re-picking the same file
     if (!f) return;
-    setBusy(true);
-    setLocErr(null);
+    const my = ++seq.current;
+    setBusy(true); setErr(null); setLocErr(null); setPhoto(null); setLocation(null);
     const gpsP = getGPS(); // request GPS while the image decodes
     const reader = new FileReader();
     reader.onload = (ev) => {
       const img = new Image();
       img.onload = async () => {
         const loc = await gpsP.catch(() => null);
-        const dataUrl = stamp(img, loc);
-        setPhoto(dataUrl);
+        if (my !== seq.current) return; // superseded by a newer pick
+        setPhoto(stamp(img, loc));
         setBusy(false);
-        onCapture(dataUrl, loc);
       };
-      img.onerror = () => { setLocErr("Could not read that photo. Please try again."); setBusy(false); };
+      img.onerror = () => { if (my === seq.current) { setErr("photoReadFail"); setBusy(false); } };
       img.src = ev.target.result;
     };
-    reader.onerror = () => { setLocErr("Could not read that photo. Please try again."); setBusy(false); };
+    reader.onerror = () => { if (my === seq.current) { setErr("photoReadFail"); setBusy(false); } };
     reader.readAsDataURL(f);
   };
 
+  const open = () => { if (fileRef.current) fileRef.current.click(); };
+  const reset = () => { seq.current++; setPhoto(null); setLocation(null); setBusy(false); setErr(null); setLocErr(null); };
+  // The input must be mounted on whichever screen calls open(); one ref, one at a time.
+  const input = <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={onFilePicked} data-testid="photo-input" />;
+  return { input, open, reset, photo, location, busy, err, locErr };
+}
+
+// Preview + decide. `capture` = usePhotoCapture(). Renders the stamped photo with
+// Use photo / Retake; `children` (e.g. return qty/condition fields) sit between the
+// photo and the buttons. Falls back to an "Open camera" button when there is no
+// photo yet (permission denied, cancelled picker, decode error).
+function GeoPhoto({ capture, label, onUse, useLabel, children, disabled }) {
+  const t = useT();
+  const { photo, location, busy, err, locErr } = capture;
   return (
     <div style={{ ...S.card, background: "var(--surface2,#EAF0F7)" }}>
       <p style={S.label}>{label || "Capture Verification Photo"}</p>
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={onFilePicked} />
+      {capture.input}
       {!photo && (
-        <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px", fontSize: 16, width: "100%" }} onClick={() => fileRef.current && fileRef.current.click()} disabled={busy}>
-          <Icon d={icons.camera} size={18} /> {busy ? "Processing…" : "Open Camera"}
-        </button>
+        <>
+          <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px", fontSize: 16, width: "100%" }} onClick={capture.open} disabled={busy}>
+            <Icon d={icons.camera} size={18} /> {busy ? t("photoProcessing") : t("photoOpenCamera")}
+          </button>
+          {!busy && !err && <p style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", marginTop: 8, textAlign: "center" }}>{t("photoTapToRetry")}</p>}
+        </>
       )}
-      {locErr && <p style={{ fontSize: 12, color: "#B7791F", marginTop: 8 }}>{locErr}</p>}
+      {err && <p style={{ fontSize: 12, color: "#C53030", marginTop: 8 }}>{t(err)}</p>}
+      {locErr && photo && <p style={{ fontSize: 12, color: "#B7791F", marginTop: 8 }}>{t(locErr)}</p>}
       {photo && (
         <div style={{ marginTop: 12 }}>
           <img src={photo} alt="captured" style={{ width: "100%", borderRadius: 8 }} />
-          <p style={{ fontSize: 11, color: "#2F855A", margin: "8px 0 0" }}>✓ Photo captured with timestamp{location ? " & GPS" : ""}</p>
-          <button style={{ ...S.btn("ghost"), marginTop: 8, justifyContent: "center", width: "100%" }} onClick={() => { setPhoto(null); setLocation(null); setLocErr(null); fileRef.current && fileRef.current.click(); }}>↻ Retake Photo</button>
+          <p style={{ fontSize: 11, color: "#2F855A", margin: "8px 0 0" }}>✓ {location ? t("photoCapturedGps") : t("photoCaptured")}</p>
+          {children}
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button style={{ ...S.btn("ghost"), flex: 1, justifyContent: "center", padding: "12px" }} onClick={() => { capture.reset(); capture.open(); }}>↻ {t("photoRetake")}</button>
+            <button style={{ ...S.btn("primary"), flex: 2, justifyContent: "center", padding: "12px", fontSize: 15 }} disabled={disabled} onClick={() => onUse(photo, location)}><Icon d={icons.check} size={16} /> {useLabel || t("photoUse")}</button>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Return details (P1-1): units coming back (capped at what is out), condition, note.
+// Shared by the crew preview screen, the crew none-mode modal, the barcode-lane
+// modal and the admin Receive modal.
+function ReturnDetailsFields({ value, onChange, outstanding, showQty = true, compact }) {
+  const t = useT();
+  const set = (patch) => onChange({ ...value, ...patch });
+  const minQty = value.condition === "missing" ? 0 : 1;
+  const qty = Math.max(minQty, Math.min(outstanding, value.qty ?? outstanding));
+  const conds = [["ok", "condOk", "green"], ["damaged", "condDamaged", "amber"], ["missing", "condMissing", "red"]];
+  return (
+    <div style={{ marginTop: compact ? 8 : 12, display: "flex", flexDirection: "column", gap: 10 }}>
+      {showQty && outstanding > 1 && (
+        <div>
+          <label style={S.label}>{t("returnQty")} <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500 }}>{t("returnQtyOf").replace("{n}", outstanding)}</span></label>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button type="button" aria-label="minus" style={{ ...S.btn("ghost"), padding: "8px 14px", fontSize: 16 }} disabled={qty <= minQty} onClick={() => set({ qty: Math.max(minQty, qty - 1) })}>−</button>
+            <span style={{ minWidth: 48, textAlign: "center", fontSize: 20, fontWeight: 800, color: "var(--text,#16324A)" }} data-testid="return-qty">{qty}</span>
+            <button type="button" aria-label="plus" style={{ ...S.btn("ghost"), padding: "8px 14px", fontSize: 16 }} disabled={qty >= outstanding} onClick={() => set({ qty: Math.min(outstanding, qty + 1) })}>+</button>
+            {qty < outstanding && <span style={{ ...S.badge("red") }}>{t("missingN").replace("{n}", outstanding - qty)}</span>}
+          </div>
+          <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "6px 0 0" }}>{t("partialHint").replace("{n}", outstanding)}</p>
+        </div>
+      )}
+      <div>
+        <label style={S.label}>{t("condition")}</label>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {conds.map(([id, key, color]) => {
+            const active = (value.condition || "ok") === id;
+            return (
+              <button key={id} type="button" onClick={() => set({ condition: id, qty: id === "missing" ? Math.min(qty, outstanding) : Math.max(1, qty) })}
+                style={{ ...S.btn(active ? "primary" : "ghost"), padding: "7px 12px", fontSize: 12, ...(active && color === "red" ? { background: "#C53030" } : active && color === "amber" ? { background: "#B7791F" } : {}) }}>
+                {t(key)}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div>
+        <label style={S.label}>{t("returnNote")}</label>
+        <input style={S.input} value={value.note || ""} placeholder={t("returnNotePh")} onChange={e => set({ note: e.target.value })} />
+      </div>
     </div>
   );
 }
@@ -514,8 +587,7 @@ function LangPill({ setLang }) {
 }
 
 // ─── AVAILABILITY CALCULATOR ─────────────────────────────────────────────────
-const isPickEvt = (type) => type === "pick" || type === "checkout" || type === "barcode_pick";
-const isReturnEvt = (type) => type === "return" || type === "barcode_return";
+// isPickEvt / isReturnEvt / isLostEvt / isVoidEvt live in src/logic/checkoutState.js
 
 function calcAvailable(equipment, jobs, checkouts, targetDate) {
   const date = targetDate || today();
@@ -3157,6 +3229,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [scanAe, setScanAe] = useState(null);
   // barcodeResults: { [eqId]: "ok" } — barcode lane completions this session (for "both" mode)
   const [barcodeResults, setBarcodeResults] = useState({});
+  // Photo capture (P2-14 / P1-4): the row's Photo button opens the native camera
+  // synchronously; pendingAe = row tapped, captureAe = preview screen shown.
+  const capture = usePhotoCapture();
+  const [pendingAe, setPendingAe] = useState(null);
+  const [returnDetails, setReturnDetails] = useState({ qty: 1, condition: "ok", note: "" }); // P1-1 per-return details
+  const [detailsAe, setDetailsAe] = useState(null); // { ae, loc, lane } none-mode / barcode-lane return awaiting details
+  const [sessionEvents, setSessionEvents] = useState({}); // { [eqId]: [eventId] } picks made this session (undo)
 
   const todayStr = today();
   // Early pickup approved for me today → job becomes actionable even before its pickup day
@@ -3205,18 +3284,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     return { barcode: false, photo: false }; // "none"
   };
 
-  // For "both" mode: check if an item has a barcode_pick/barcode_return event in persisted checkouts
-  const hasBarcodeEvent = (job, eqId, isReturn) => {
-    if (vMode !== "both" || !job) return false;
-    const evType = isReturn ? "barcode_return" : "barcode_pick";
-    return checkouts.some(c => evtMatchesJob(c, job) && c.eqId === eqId && c.type === evType);
-  };
-  const hasPhotoEvent = (job, eqId, isReturn) => {
-    if (!job) return false;
-    const evType = isReturn ? "return" : "pick";
-    const altType = "checkout";
-    return checkouts.some(c => evtMatchesJob(c, job) && c.eqId === eqId && (c.type === evType || c.type === altType));
-  };
+  // Count-based checkout state (src/logic/checkoutState.js): picked - returned - lost
+  // per eqId; daily mode buckets by the configurable production day (P1-1 / P1-2).
+  const dayStartHour = verificationConfig?.dayStartHour ?? DEFAULT_DAY_START_HOUR;
+  const geoThresholdM = verificationConfig?.geoThresholdM || DEFAULT_GEO_THRESHOLD_M;
+  const getJobCheckoutState = (job) => jobCheckoutState(job, checkouts, { tz: APP_TZ, dayStartHour });
 
   // Load full profile from cloud
   useEffect(() => {
@@ -3266,70 +3338,98 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     compressImage(f, opts).then(d => d && setter(d));
   };
 
-  const getJobCheckoutState = (job) => {
-    const mode = job.checkoutMode || "span";
-    const jobCheckouts = checkouts.filter(c => evtMatchesJob(c, job));
-    const relevant = mode === "daily"
-      ? jobCheckouts.filter(c => new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(c.ts)) === todayStr)
-      : jobCheckouts;
-    const assignedIds = (job.assignedEquipment || []).map(ae => ae.eqId);
-    const pickedIds = new Set(relevant.filter(c => isPickEvt(c.type)).map(c => c.eqId));
-    const returnedIds = new Set(relevant.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
-    const allPicked = assignedIds.every(id => pickedIds.has(id));
-    const allReturned = assignedIds.every(id => returnedIds.has(id));
-    return { allPicked, allReturned, pickedIds, returnedIds };
-  };
-
   const selectJob = (job, forceReturn) => {
     setSelectedJob(job);
     const { allPicked } = getJobCheckoutState(job);
     setPhase(forceReturn ? "return" : (allPicked ? "return" : "pick"));
     setItemResults({});
     setBarcodeResults({});
+    setSessionEvents({});
     setCaptureAe(null);
+    setPendingAe(null);
+    setDetailsAe(null);
     setScanAe(null);
+    capture.reset();
   };
 
   // Commit ONE item's photo/none lane. dataUrl & loc null when vMode is "none".
-  const commitItem = (ae, dataUrl, loc) => {
+  // `details` = { qty, condition, note } for returns (P1-1); ignored on picks.
+  const commitItem = (ae, dataUrl, loc, details) => {
     const now = Date.now();
     const eq = equipment.find(e => e.id === ae.eqId);
     // Gear-request pickups carry requestId instead of jobId
     const evtRef = selectedJob.__reqId ? { jobId: null, requestId: selectedJob.__reqId } : { jobId: selectedJob.id };
     if (phase === "pick") {
-      setCheckouts(p => [...p, { id: "co" + now + ae.eqId, ...evtRef, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: "pick", ts: now, photo: dataUrl || null, location: loc || null }]);
+      const id = "co" + now + ae.eqId;
+      setCheckouts(p => [...p, { id, ...evtRef, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: "pick", ts: now, photo: dataUrl || null, location: loc || null }]);
+      setSessionEvents(s => ({ ...s, [ae.eqId]: [...(s[ae.eqId] || []), id] }));
       setItemResults(r => ({ ...r, [ae.eqId]: "ok" }));
       return;
     }
-    // return — geo-validate against the pickup location (only when GPS is present)
-    const isDailyMode = (selectedJob.checkoutMode || "span") === "daily";
-    const pickupCo = [...checkouts].reverse().find(c => {
-      if (!evtMatchesJob(c, selectedJob) || c.eqId !== ae.eqId) return false;
-      if (!isPickEvt(c.type)) return false;
-      if (isDailyMode && new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(c.ts)) !== todayStr) return false;
-      return true;
-    });
-    let distance = null;
-    if (loc && pickupCo?.location) distance = haversineMeters(+pickupCo.location.lat, +pickupCo.location.lng, +loc.lat, +loc.lng);
-    const geoOk = pickupCo?.location && loc && distance !== null && distance <= 50;
+    // return — count based (P1-1) + geo gate against the latest open pick (P1-2/P1-5)
+    const outstanding = outstandingQty(getJobCheckoutState(selectedJob), ae.eqId);
+    const condition = details?.condition || "ok";
+    const qty = Math.max(condition === "missing" ? 0 : 1, Math.min(outstanding, details?.qty ?? outstanding));
+    const note = (details?.note || "").trim();
+    const pickupCo = latestOpenPick(selectedJob, checkouts, ae.eqId);
+    const gate = geoGate({ returnLoc: loc, pickupLoc: pickupCo?.location, homeBase: verificationConfig?.homeBase, thresholdM: geoThresholdM, haversine: haversineMeters });
     // Require geo check only when photo or barcode mode (both have GPS); "none" mode skips it
-    const needsApproval = (vMode !== "none") && !geoOk;
+    const needsApproval = (vMode !== "none") && !gate.ok;
+    const base = { ...evtRef, jobName: selectedJob.name, eqId: ae.eqId, qty, employeeId: employee.id, employeeName: employee.name, ts: now, photo: dataUrl || null, location: loc || null, condition, ...(note ? { note } : {}) };
     if (!needsApproval) {
-      setCheckouts(p => [...p, { id: "co" + now + ae.eqId, ...evtRef, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: "return", ts: now, photo: dataUrl || null, location: loc || null }]);
+      setCheckouts(p => [...p, { id: "co" + now + ae.eqId, ...base, type: "return" }]);
+      withdrawPendingGeo(ae.eqId); // a retry at the shop supersedes the earlier remote attempt
       setItemResults(r => ({ ...r, [ae.eqId]: "ok" }));
     } else {
-      setAdminRequests(p => [...(p || []), { id: "ar" + now + ae.eqId, type: "geo-return", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: selectedJob.__reqId ? null : selectedJob.id, requestId: selectedJob.__reqId || null, jobName: selectedJob.name, eqId: ae.eqId, eqName: eq?.name || ae.eqId, qty: ae.qty, photo: dataUrl || null, returnLocation: loc || null, pickupLocation: pickupCo?.location || null, distance: distance !== null ? Math.round(distance) : null }]);
+      setAdminRequests(p => [...(p || []), { id: "ar" + now + ae.eqId, type: "geo-return", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: selectedJob.__reqId ? null : selectedJob.id, requestId: selectedJob.__reqId || null, jobName: selectedJob.name, eqId: ae.eqId, eqName: eq?.name || ae.eqId, name: eq?.name || ae.eqId, qty, condition, ...(note ? { note } : {}), photo: dataUrl || null, returnLocation: loc || null, pickupLocation: pickupCo?.location || null, distance: gate.distance, homeDistance: gate.homeDistance, threshold: gate.threshold, tolerance: gate.tolerance, reason: gate.reason }]);
       setItemResults(r => ({ ...r, [ae.eqId]: "pending" }));
     }
   };
 
   // Commit ONE item's barcode lane (barcode_pick or barcode_return event).
-  const commitBarcode = (ae, loc) => {
+  const commitBarcode = (ae, loc, details) => {
     const now = Date.now();
     const evType = phase === "pick" ? "barcode_pick" : "barcode_return";
     const evtRef = selectedJob.__reqId ? { jobId: null, requestId: selectedJob.__reqId } : { jobId: selectedJob.id };
-    setCheckouts(p => [...p, { id: "bc" + now + ae.eqId, ...evtRef, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: evType, ts: now, location: loc || null }]);
+    const id = "bc" + now + ae.eqId;
+    let qty = ae.qty, extra = {};
+    if (phase !== "pick") {
+      const outstanding = outstandingQty(getJobCheckoutState(selectedJob), ae.eqId);
+      const condition = details?.condition || "ok";
+      qty = Math.max(condition === "missing" ? 0 : 1, Math.min(outstanding, details?.qty ?? outstanding));
+      const note = (details?.note || "").trim();
+      extra = { condition, ...(note ? { note } : {}) };
+    }
+    setCheckouts(p => [...p, { id, ...evtRef, jobName: selectedJob.name, eqId: ae.eqId, qty, employeeId: employee.id, employeeName: employee.name, type: evType, ts: now, location: loc || null, ...extra }]);
+    if (phase === "pick") setSessionEvents(s => ({ ...s, [ae.eqId]: [...(s[ae.eqId] || []), id] }));
     setBarcodeResults(r => ({ ...r, [ae.eqId]: "ok" }));
+  };
+
+  // Undo a pick made THIS session (P1-4). The autosave has already persisted the
+  // event and the server keeps KV-only ids, so the event is overwritten in place
+  // with a qty-0 "void" tombstone that every reader ignores.
+  const undoPick = (ae) => {
+    const ids = sessionEvents[ae.eqId] || [];
+    if (ids.length === 0) return;
+    setCheckouts(p => p.map(c => ids.includes(c.id) ? voidEvent(c, employee.id) : c));
+    setSessionEvents(s => { const n = { ...s }; delete n[ae.eqId]; return n; });
+    setItemResults(r => { const n = { ...r }; delete n[ae.eqId]; return n; });
+    setBarcodeResults(r => { const n = { ...r }; delete n[ae.eqId]; return n; });
+  };
+
+  // My pending geo-return requests for an item of the selected job (P1-5)
+  const myPendingGeo = (job, eqId) => (adminRequests || []).filter(r => r.type === "geo-return" && r.status === "pending" && r.employeeId === employee.id && (job.__reqId ? r.requestId === job.__reqId : r.jobId === job.id) && r.eqId === eqId);
+  const withdrawPendingGeo = (eqId) => {
+    const ids = myPendingGeo(selectedJob, eqId).map(r => r.id);
+    if (ids.length) setAdminRequests(p => (p || []).map(r => ids.includes(r.id) ? { ...r, status: "withdrawn", resolvedAt: new Date().toISOString() } : r));
+  };
+  const fmtDist = (m) => m == null ? "?" : m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`;
+  const geoReasonText = (g) => {
+    if (!g) return "";
+    const m = g.threshold || geoThresholdM;
+    if (g.reason === "no-return-gps") return t("geoNoGps").replace("{m}", m);
+    if (g.reason === "no-pickup-gps") return t("geoNoPickupGps");
+    return t("geoTooFar").replace("{dist}", fmtDist(g.distance ?? g.homeDistance)).replace("{m}", m);
   };
 
   // What happens when an item row is tapped: depends on mode + role
@@ -3338,10 +3438,24 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     // anything entered now — block capture instead of silently losing the work.
     if (offlineMode) { setCoSaveState({ error: t("coOfflineNoCapture") }); return; }
     if (lane === "barcode") { setScanAe(ae); return; }
+    const outstanding = phase === "return" ? outstandingQty(getJobCheckoutState(selectedJob), ae.eqId) : 0;
+    const freshDetails = { qty: outstanding, condition: "ok", note: "" };
     // photo or none lane
-    if (vMode === "none") { commitItem(ae, null, null); return; }
-    setCaptureAe(ae);
+    if (vMode === "none") {
+      if (phase === "return") { setReturnDetails(freshDetails); setDetailsAe({ ae, loc: null, lane: "photo" }); }
+      else commitItem(ae, null, null);
+      return;
+    }
+    // Open the native camera SYNCHRONOUSLY inside the tap (P2-14); the preview
+    // screen appears once the file is picked, or on an error.
+    capture.reset();
+    setReturnDetails(freshDetails);
+    setPendingAe(ae);
+    capture.open();
   };
+  useEffect(() => {
+    if (pendingAe && (capture.busy || capture.photo || capture.err)) { setCaptureAe(pendingAe); setPendingAe(null); }
+  }, [pendingAe, capture.busy, capture.photo, capture.err]);
 
   // Force an immediate save of everything and report success/failure. Returns true on success.
   const doSaveCheckout = async () => {
@@ -3356,41 +3470,49 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   // ── Checkout / return flow (per-item, barcode-style) ───────────────────────
   if (phase !== "select" && selectedJob) {
     const isReturn = phase === "return";
-    const { pickedIds, returnedIds } = getJobCheckoutState(selectedJob);
-    // Pick: all assigned items that still exist. Return: only items currently OUT (picked, not returned).
+    const jobState = getJobCheckoutState(selectedJob);
+    const { pickedIds, returnedIds } = jobState;
+    // Pick: all assigned items that still exist. Return: only items with units OUT (count based, any date).
     const items = (selectedJob.assignedEquipment || []).filter(ae =>
-      equipment.some(e => e.id === ae.eqId) && (isReturn ? pickedIds.has(ae.eqId) : true)
+      equipment.some(e => e.id === ae.eqId) && (isReturn ? outstandingQty(jobState, ae.eqId) > 0 : true)
     );
-    const pendingReturn = (ae) => (adminRequests || []).some(r => r.type === "geo-return" && r.status === "pending" && (selectedJob.__reqId ? r.requestId === selectedJob.__reqId : r.jobId === selectedJob.id) && r.eqId === ae.eqId);
+    const pendingReturn = (ae) => myPendingGeo(selectedJob, ae.eqId).length > 0;
+    const myLanes = getMyLanes(selectedJob);
+    const photoLaneDone = (ae) => laneDone(jobState, ae.eqId, "photo", isReturn) || itemResults[ae.eqId] === "ok";
+    const barcodeLaneDone = (ae) => laneDone(jobState, ae.eqId, "barcode", isReturn) || !!barcodeResults[ae.eqId];
+    // Done = every lane I am responsible for is complete. A pending geo-return is NOT done (P1-5).
     const itemDone = (ae) => {
-      const baseKVDone = (isReturn ? returnedIds.has(ae.eqId) : pickedIds.has(ae.eqId));
-      const sessionDone = itemResults[ae.eqId] === "ok";
-      const pending = isReturn && pendingReturn(ae);
-      if (vMode === "both") {
-        const myLanes = getMyLanes(selectedJob);
-        // Item is "done for me" if all my assigned lanes are complete
-        const barcDone = !myLanes.barcode || hasBarcodeEvent(selectedJob, ae.eqId, isReturn) || !!barcodeResults[ae.eqId];
-        const phtDone = !myLanes.photo || baseKVDone || sessionDone || pending;
-        return barcDone && phtDone;
-      }
-      return baseKVDone || sessionDone || pending;
+      if (vMode === "both") return (!myLanes.barcode || barcodeLaneDone(ae)) && (!myLanes.photo || photoLaneDone(ae));
+      if (vMode === "barcode") return barcodeLaneDone(ae);
+      return photoLaneDone(ae);
     };
+    const pendingItems = isReturn ? items.filter(ae => !itemDone(ae) && pendingReturn(ae)) : [];
     const allDone = items.length > 0 && items.every(itemDone);
+    const allSettled = !allDone && items.length > 0 && items.every(ae => itemDone(ae) || pendingReturn(ae));
+    const outstandingOf = (ae) => outstandingQty(jobState, ae.eqId);
 
-    // Per-item photo capture screen
+    // Per-item photo preview screen (P1-4): shown once the native picker returned a file
     if (captureAe) {
       const eq = equipment.find(e => e.id === captureAe.eqId);
+      const out = outstandingOf(captureAe);
       return (
         <div style={{ ...S.main, maxWidth: 500 }}>
-          <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => setCaptureAe(null)}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
+          <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => { setCaptureAe(null); capture.reset(); }}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
           <div style={{ ...S.card, marginBottom: 16, display: "flex", alignItems: "center", gap: 14 }}>
             {eq?.photo && <img src={eq.photo} alt="" style={{ width: 56, height: 48, objectFit: "cover", borderRadius: 6 }} />}
             <div>
               <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{eq?.name}</p>
-              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? "Return" : "Pick-up"} photo</p>
+              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? t("returnPhotoTitle") : t("pickPhotoTitle")}{isReturn && out > 0 ? ` · ${t("stillOutN").replace("{n}", out)}` : ""}</p>
             </div>
           </div>
-          <GeoPhoto key={captureAe.eqId} label={`${isReturn ? "Return" : "Pick-up"} photo — ${eq?.name || ""}`} onCapture={(dataUrl, loc) => { commitItem(captureAe, dataUrl, loc); setCaptureAe(null); }} />
+          <GeoPhoto
+            capture={capture}
+            label={`${isReturn ? t("returnPhotoTitle") : t("pickPhotoTitle")} · ${eq?.name || ""}`}
+            useLabel={isReturn ? t("confirmReturn") : t("photoUse")}
+            onUse={(dataUrl, loc) => { commitItem(captureAe, dataUrl, loc, isReturn ? returnDetails : null); setCaptureAe(null); capture.reset(); }}
+          >
+            {isReturn && <ReturnDetailsFields value={returnDetails} onChange={setReturnDetails} outstanding={out} />}
+          </GeoPhoto>
         </div>
       );
     }
@@ -3405,7 +3527,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {eq?.photo && <img src={eq.photo} alt="" style={{ width: 56, height: 48, objectFit: "cover", borderRadius: 6 }} />}
             <div>
               <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{eq?.name}</p>
-              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? "Return" : "Pick-up"} scan · {eq?.category}</p>
+              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? t("returnScanTitle") : t("pickScanTitle")} · {eq?.category}</p>
             </div>
           </div>
           <QRScanner
@@ -3413,7 +3535,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             label={`Scan QR label on: ${eq?.name || ""}`}
             onScan={(scannedId, loc) => {
               if (scannedId === scanAe.eqId) {
-                commitBarcode(scanAe, loc);
+                if (isReturn) { setReturnDetails({ qty: outstandingOf(scanAe), condition: "ok", note: "" }); setDetailsAe({ ae: scanAe, loc, lane: "barcode" }); }
+                else commitBarcode(scanAe, loc);
                 setScanAe(null);
               }
               // If wrong item scanned, scanner stays open (user can try again)
@@ -3424,9 +3547,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       );
     }
 
+    const modeLabel = vMode === "both" ? " · photo & scan required" : vMode === "photo" ? " · photo required" : vMode === "barcode" ? " · QR scan required" : "";
     return (
       <div style={{ ...S.main, maxWidth: 600 }}>
-        <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => { setSelectedJob(null); setPhase("select"); setItemResults({}); }}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
+        {capture.input}
+        <button style={{ ...S.btn("ghost"), marginBottom: 16 }} onClick={() => { setSelectedJob(null); setPhase("select"); setItemResults({}); setSessionEvents({}); }}><Icon d={icons.arrow_left} size={15} /> {t("back")}</button>
         <StepBar currentStep={isReturn ? 2 : 0} />
         <div style={{ ...S.card, marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{selectedJob.name}</h2>
@@ -3459,11 +3584,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             </p>
           </div>
         )}
-        {(() => {
-          const myLanes = getMyLanes(selectedJob);
-          const modeLabel = vMode === "both" ? " · photo & scan required" : vMode === "photo" ? " · photo required" : vMode === "barcode" ? " · QR scan required" : "";
-          return <p style={S.sectionTitle}>{isReturn ? "Tap each item to return" : "Tap each item to check out"}{modeLabel}</p>;
-        })()}
+        <p style={S.sectionTitle}>{isReturn ? "Tap each item to return" : "Tap each item to check out"}{modeLabel}</p>
         {items.length === 0 ? (
           <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? "No gear out to return for this job." : "Nothing to check out."}</p>
         ) : (
@@ -3471,24 +3592,35 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {items.map(ae => {
               const eq = equipment.find(e => e.id === ae.eqId);
               const done = itemDone(ae);
-              const pend = isReturn && (itemResults[ae.eqId] === "pending" || pendingReturn(ae)) && !returnedIds.has(ae.eqId);
-              const myLanes = getMyLanes(selectedJob);
-
-              // Per-lane done state
-              const barcodeDoneKV = hasBarcodeEvent(selectedJob, ae.eqId, isReturn);
-              const barcodeDoneSession = !!barcodeResults[ae.eqId];
-              const barcodeDone = barcodeDoneKV || barcodeDoneSession;
-              const photoDoneKV = hasPhotoEvent(selectedJob, ae.eqId, isReturn) || (isReturn && (returnedIds.has(ae.eqId)));
-              const photoDoneSession = itemResults[ae.eqId] === "ok";
-              const photoDone = photoDoneKV || photoDoneSession;
+              const pendingReqs = isReturn ? myPendingGeo(selectedJob, ae.eqId) : [];
+              const pend = isReturn && !done && (itemResults[ae.eqId] === "pending" || pendingReqs.length > 0);
+              const geo = pendingReqs.length ? pendingReqs[pendingReqs.length - 1] : null;
+              const barcodeDone = barcodeLaneDone(ae);
+              const photoDone = photoLaneDone(ae);
+              const counts = jobState.items[ae.eqId];
+              const out = outstandingOf(ae);
+              const canUndo = !isReturn && (sessionEvents[ae.eqId] || []).length > 0;
 
               return (
-                <div key={ae.eqId} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", display: "flex", alignItems: "center", gap: 14, opacity: done && !pend ? 0.65 : 1 }}>
+                <div key={ae.eqId} data-testid={`item-${ae.eqId}`} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", opacity: done ? 0.65 : 1 }}>
                   {eq.photo && <img src={eq.photo} alt="" style={{ width: 48, height: 40, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{eq.name}</p>
-                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{eq.category} · {t("qty")}: {ae.qty}</p>
-                    {pend && <p style={{ margin: "3px 0 0", fontSize: 11, color: "#C53030", fontWeight: 600 }}>⚠ Sent for admin approval</p>}
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>
+                      {eq.category} · {isReturn ? t("outOfN").replace("{out}", out).replace("{total}", ae.qty) : `${t("qty")}: ${ae.qty}`}
+                      {counts?.missing && out > 0 && <span style={{ ...S.badge("red"), marginLeft: 6 }}>{t("missingN").replace("{n}", out)}</span>}
+                    </p>
+                    {pend && (
+                      <div style={{ margin: "6px 0 0" }}>
+                        <p style={{ margin: 0, fontSize: 11, color: "#C53030", fontWeight: 600 }}>⚠ {t("geoSentForApproval")}</p>
+                        {geo && <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)", lineHeight: 1.5 }}>{geoReasonText(geo)}</p>}
+                        {myLanes.photo && vMode !== "none" && (
+                          <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11, marginTop: 6 }} onClick={() => onTapItem(ae, "photo")} title={t("geoRetryHint")}>
+                            <Icon d={icons.camera} size={13} /> {t("geoRetryAtShop")}
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {/* "Both" mode: show mini status for each lane */}
                     {vMode === "both" && (
                       <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
@@ -3499,11 +3631,18 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     )}
                   </div>
                   {done ? (
-                    <span style={{ ...S.badge(pend ? "amber" : "green"), flexShrink: 0 }}>{pend ? "Pending" : (isReturn ? "✓ Returned" : "✓ Out")}</span>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                      <span style={{ ...S.badge("green"), flexShrink: 0 }}>{isReturn ? "✓ Returned" : "✓ Out"}</span>
+                      {canUndo && (
+                        <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => undoPick(ae)} title={t("undoPickHint")}>↶ {t("undoPick")}</button>
+                      )}
+                    </div>
+                  ) : pend ? (
+                    <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{t("geoPending")}</span>
                   ) : (
                     <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                       {myLanes.barcode && !barcodeDone && (
-                        <button style={{ ...S.btn("ghost"), padding: "6px 10px", justifyContent: "center", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.4)" }} onClick={() => onTapItem(ae, "barcode")}>
+                        <button style={{ ...S.btn("ghost"), padding: "6px 10px", justifyContent: "center", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.4)" }} onClick={() => onTapItem(ae, "barcode")} aria-label={t("adminScanQr")}>
                           <Icon d={icons.qr} size={15} />
                         </button>
                       )}
@@ -3527,7 +3666,15 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           <div style={{ ...S.card, background: "rgba(47,133,90,0.07)", border: "1px solid rgba(47,133,90,0.25)", marginTop: 16, textAlign: "center" }}>
             <div style={{ fontSize: 38, marginBottom: 6 }}>{isReturn ? "🏁" : "✅"}</div>
             <p style={{ margin: "0 0 12px", fontWeight: 700, color: "#2F855A" }}>{isReturn ? "All gear returned!" : "All gear checked out!"}</p>
-            <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", opacity: coSaveState === "saving" ? 0.7 : 1 }} disabled={coSaveState === "saving"} onClick={async () => { const ok = await doSaveCheckout(); if (ok) { setSelectedJob(null); setPhase("select"); setItemResults({}); } }}>{coSaveState === "saving" ? "Saving…" : `${t("backToJobs")}`}</button>
+            <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", opacity: coSaveState === "saving" ? 0.7 : 1 }} disabled={coSaveState === "saving"} onClick={async () => { const ok = await doSaveCheckout(); if (ok) { setSelectedJob(null); setPhase("select"); setItemResults({}); setSessionEvents({}); } }}>{coSaveState === "saving" ? "Saving…" : `${t("backToJobs")}`}</button>
+          </div>
+        )}
+        {allSettled && pendingItems.length > 0 && (
+          <div style={{ ...S.card, background: "rgba(183,121,31,0.07)", border: "1px solid rgba(183,121,31,0.3)", marginTop: 16, textAlign: "center" }} data-testid="pending-card">
+            <div style={{ fontSize: 30, marginBottom: 6 }}>⏳</div>
+            <p style={{ margin: "0 0 4px", fontWeight: 700, color: "#B7791F" }}>{t("allReturnedWaiting")}</p>
+            <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("pendingCountLine").replace("{n}", pendingItems.length)}</p>
+            <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", opacity: coSaveState === "saving" ? 0.7 : 1 }} disabled={coSaveState === "saving"} onClick={async () => { const ok = await doSaveCheckout(); if (ok) { setSelectedJob(null); setPhase("select"); setItemResults({}); setSessionEvents({}); } }}>{coSaveState === "saving" ? "Saving…" : `${t("backToJobs")}`}</button>
           </div>
         )}
         {/* Explicit save — make sure everything reached the cloud */}
@@ -3548,6 +3695,21 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             )}
           </div>
         )}
+        {/* Return details for the none mode and the barcode lane (photo lane collects them on the preview) */}
+        {detailsAe && (() => {
+          const eq = equipment.find(e => e.id === detailsAe.ae.eqId);
+          const out = outstandingOf(detailsAe.ae);
+          return (
+            <Modal title={`${t("returnDetailsTitle")} · ${eq?.name || ""}`} onClose={() => setDetailsAe(null)}>
+              <ReturnDetailsFields value={returnDetails} onChange={setReturnDetails} outstanding={out} compact />
+              <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", marginTop: 16, padding: "12px" }} onClick={() => {
+                if (detailsAe.lane === "barcode") commitBarcode(detailsAe.ae, detailsAe.loc, returnDetails);
+                else commitItem(detailsAe.ae, null, detailsAe.loc, returnDetails);
+                setDetailsAe(null);
+              }}><Icon d={icons.check} size={15} /> {t("confirmReturn")}</button>
+            </Modal>
+          );
+        })()}
       </div>
     );
   }
@@ -3661,18 +3823,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Gear currently out — jobs + my approved gear requests */}
             {(() => {
               const myReqJobs = myRequests.filter(r => r.status === "approved").map(reqAsJob);
-              const outJobs = [...jobs, ...myReqJobs].filter(j => {
-                const { pickedIds, returnedIds } = getJobCheckoutState(j);
-                return (j.assignedEquipment || []).some(ae => pickedIds.has(ae.eqId) && !returnedIds.has(ae.eqId));
-              });
+              const outJobs = [...jobs, ...myReqJobs].filter(j => getJobCheckoutState(j).outCount > 0);
               if (outJobs.length === 0) return null;
               return (
-                <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.06)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)" }}>
+                <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.06)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)" }} data-testid="gear-out-card">
                   <p style={{ ...S.sectionTitle, marginBottom: 10 }}>🎬 {t("gearOutTitle")}</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {outJobs.map(job => {
-                      const { pickedIds, returnedIds } = getJobCheckoutState(job);
-                      const outCount = (job.assignedEquipment || []).filter(ae => pickedIds.has(ae.eqId) && !returnedIds.has(ae.eqId)).length;
+                      const jst = getJobCheckoutState(job);
+                      const outCount = jst.outCount;
+                      const missingUnits = Object.values(jst.items).reduce((n, it) => n + (it.missing ? it.out : 0), 0);
                       // Returning before the last shoot day of an ongoing span-mode job needs admin approval
                       const lastShoot = jobLastDate(job);
                       const isEarly = !job.__reqId && (job.checkoutMode || "span") === "span" && lastShoot && todayStr < lastShoot;
@@ -3681,6 +3841,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       return (
                         <div key={job.id} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", cursor: canReturn ? "pointer" : "default", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }} onClick={() => canReturn && selectJob(job, true)}>
                           <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{outCount} {t("outBadge")}</span>
+                          {missingUnits > 0 && <span style={{ ...S.badge("red"), flexShrink: 0 }}>{t("missingN").replace("{n}", missingUnits)}</span>}
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}{job.__reqId ? <span style={{ ...S.badge("blue"), marginLeft: 6 }}>REQUEST</span> : null}</p>
                             <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
@@ -3693,6 +3854,40 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           ) : (
                             <button style={{ ...S.btn("ghost"), padding: "6px 12px", fontSize: 12, flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); submitEarlyRequest("early-return", job); }}>Request early return</button>
                           )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Returns waiting for admin approval (geo-gated) + recent outcomes (P1-5) */}
+            {(() => {
+              const cutoff = Date.now() - 3 * 86400000;
+              const mine = (adminRequests || []).filter(r => r.type === "geo-return" && r.employeeId === employee.id && (r.status === "pending" || (r.resolvedAt && new Date(r.resolvedAt).getTime() > cutoff)))
+                .sort((a, b) => (a.status === "pending" ? 0 : 1) - (b.status === "pending" ? 0 : 1) || new Date(b.submittedAt || 0) - new Date(a.submittedAt || 0));
+              if (mine.length === 0) return null;
+              const fmtDist = (m) => m == null ? null : m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`;
+              const statusOf = (r) => r.status === "pending" ? ["amber", t("geoPending")] : r.status === "approved" ? ["green", t("geoApproved")] : r.status === "withdrawn" ? ["gray", t("geoWithdrawn")] : ["red", t("geoRejected")];
+              return (
+                <div style={{ ...S.card, background: "rgba(183,121,31,0.06)", border: "1px solid rgba(183,121,31,0.25)" }} data-testid="geo-waiting-card">
+                  <p style={{ ...S.sectionTitle, marginBottom: 4 }}>⏳ {t("geoWaitingTitle")}</p>
+                  <p style={{ margin: "0 0 10px", fontSize: 11, color: "var(--text-muted,#5F7A91)", lineHeight: 1.5 }}>{t("geoWaitingHint")}</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {mine.map(r => {
+                      const [color, label] = statusOf(r);
+                      const eqName = equipment.find(e => e.id === r.eqId)?.name || r.eqName || r.name || r.eqId;
+                      const dist = fmtDist(r.distance ?? r.homeDistance);
+                      return (
+                        <div key={r.id} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 14px" }}>
+                          <span style={{ ...S.badge(color), flexShrink: 0 }}>{label}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ margin: 0, fontWeight: 700, fontSize: 13 }}>{eqName}{r.qty > 1 ? ` ×${r.qty}` : ""} <span style={{ ...S.badge("blue"), marginLeft: 4 }}>{t("geoLabelReturn")}</span></p>
+                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>
+                              {r.jobName}{dist ? ` · ${t("geoDistanceFrom").replace("{dist}", dist)}` : ""} · {formatDateTime(r.resolvedAt || r.submittedAt)}
+                            </p>
+                          </div>
                         </div>
                       );
                     })}
@@ -4211,10 +4406,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>No requests yet.</p>
                     ) : myAdminReqs.slice().reverse().map((req, i, arr) => (
                       <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
-                        <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
+                        <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : req.status === "withdrawn" ? "gray" : "amber")}>{req.status}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{req.name}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{req.type === "production-house" ? "Production House" : "Equipment"}{req.status === "approved" ? " — Added to system" : ""}</p>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{req.name || req.eqName || req.jobName || "—"}{req.type === "geo-return" && req.qty > 1 ? ` ×${req.qty}` : ""}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
+                            {req.type === "production-house" ? t("reqTypeProductionHouse") : req.type === "geo-return" ? t("geoLabelReturn") : req.type === "member-register" ? t("reqTypeMemberRegister") : req.type === "early-pickup" ? t("reqTypeEarlyPickup") : req.type === "early-return" ? t("reqTypeEarlyReturn") : t("reqTypeEquipment")}
+                            {req.type === "geo-return" && req.distance != null ? ` · ${t("geoDistanceFrom").replace("{dist}", req.distance < 1000 ? `${req.distance} m` : `${(req.distance / 1000).toFixed(1)} km`)}` : ""}
+                            {req.status === "approved" && (req.type === "equipment" || req.type === "production-house") ? ` · ${t("reqAddedToSystem")}` : ""}
+                          </p>
                         </div>
                       </div>
                     ))}
@@ -4558,7 +4757,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             <div style={S.card}>
               <p style={S.sectionTitle}>{t("recentActivity")}</p>
               {(() => {
-                const mine = checkouts.filter(c => c.employeeId === employee.id);
+                const mine = checkouts.filter(c => c.employeeId === employee.id && !isVoidEvt(c.type));
                 if (mine.length === 0) return <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("noActivity")}</p>;
                 const groups = {};
                 mine.forEach(c => {
