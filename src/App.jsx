@@ -528,7 +528,7 @@ function calcAvailableSpan(equipment, dates, ctx = {}, opts = {}) {
 }
 // Human-readable "why" lines for an availability row (used by badges + modals).
 function describeReasons(reasons, t) {
-  const fmtSince = (v) => !v ? "" : typeof v === "number" ? formatDate(new Date(v).toLocaleDateString("en-CA")) : formatDate(v);
+  const fmtSince = (v) => !v ? "" : typeof v === "number" ? formatDate(new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(v))) : formatDate(v);
   return (reasons || []).map(r => {
     const fill = (key) => t(key).replace("{n}", r.qty).replace("{job}", r.label || "?").replace("{date}", fmtSince(r.since)).replace("{name}", r.employeeName || "?").replace("{label}", r.label || "");
     if (r.kind === "job") return fill("avBooked");
