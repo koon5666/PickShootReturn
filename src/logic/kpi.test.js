@@ -36,6 +36,19 @@ describe("kpiScore", () => {
     expect(kpiScore("e1", evs, {}, T)).toBe(100);
     expect(kpiScore("e1", evs.slice(0, 2), {}, T)).toBe(95);
   });
+  it("clamps after every event in time order: +5 at full score banks nothing", () => {
+    const evs = [
+      { employeeId: "e1", points: 10, ts: ts("2026-06-02") },              // later deduction, listed first
+      { employeeId: "e1", points: 5, kind: "add", ts: ts("2026-06-01") },  // earlier add at 100 -> stays 100
+    ];
+    expect(kpiScore("e1", evs, {}, T)).toBe(90);
+    // and a deep deduction does not build a debt that a later add has to pay off first
+    const debt = [
+      { employeeId: "e1", points: 500, ts: ts("2026-06-01") },
+      { employeeId: "e1", points: 5, kind: "add", ts: ts("2026-06-02") },
+    ];
+    expect(kpiScore("e1", debt, {}, T)).toBe(5);
+  });
   it("never below zero, ignores other employees and other periods", () => {
     const evs = [
       { employeeId: "e1", points: 500, ts: ts("2026-05-01") },

@@ -38,11 +38,14 @@ export function kpiEventsInPeriod(employeeId, kpiEvents, config, todayStr) {
     .sort((a, b) => b.ts - a.ts);
 }
 
-// Points this period: max + sum(signed deltas), clamped to [0, max].
+// Points this period: start at max, apply the signed deltas in the order they
+// happened, clamping to [0, max] after EVERY event. A positive adjustment at full
+// score is therefore worth nothing (it cannot bank above the max and soften a
+// later deduction), and a deduction below zero does not build a debt.
 export function kpiScore(employeeId, kpiEvents, config, todayStr) {
   const max = kpiMax(config);
-  const sum = kpiEventsInPeriod(employeeId, kpiEvents, config, todayStr).reduce((s, ev) => s + kpiDelta(ev), 0);
-  return Math.max(0, Math.min(max, max + sum));
+  const chrono = kpiEventsInPeriod(employeeId, kpiEvents, config, todayStr).slice().reverse();
+  return chrono.reduce((score, ev) => Math.max(0, Math.min(max, score + kpiDelta(ev))), max);
 }
 export const kpiStars = (score, config) => { const max = kpiMax(config); return max > 0 ? (score / max) * 5 : 0; };
 
