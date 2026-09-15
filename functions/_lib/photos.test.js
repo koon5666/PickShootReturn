@@ -79,3 +79,25 @@ describe("loadPhotos", () => {
     expect(Object.keys(blobs).length).toBe(39);
   });
 });
+
+describe("duplicate ids (real prod data has double-submitted returns)", () => {
+  it("gives each duplicate its own key and restores both photos", () => {
+    const arr = [{ id: "dup", ts: 1, photo: P1 }, { id: "dup", ts: 2, photo: P2 }, { id: "dup", ts: 3, photo: null }, { id: "x", photo: P3 }];
+    const { entries, photos } = externalize("checkouts", arr);
+    expect(photos.map(p => p.key)).toEqual(["photo:checkouts:dup", "photo:checkouts:dup#1", "photo:checkouts:x"]);
+    expect(entries[0].photoKey).toBeUndefined();
+    expect(entries[1].photoKey).toBe("photo:checkouts:dup#1");
+    expect(photoKeysOf("checkouts", entries)).toEqual(["photo:checkouts:dup", "photo:checkouts:dup#1", "photo:checkouts:x"]);
+    const blobs = Object.fromEntries(photos.map(p => [p.key, p.data]));
+    const back = inlinePhotos("checkouts", entries, blobs);
+    expect(back.map(e => e.photo)).toEqual([P1, P2, null, P3]);
+    // a re-save of the re-inlined array reuses the same keys, no rewrite
+    const again = externalize("checkouts", back, Infinity, storedSigs("checkouts", entries));
+    expect(again.photos).toEqual([]);
+    expect(again.entries[1].photoKey).toBe("photo:checkouts:dup#1");
+  });
+  it("reports with a duplicate id get a suffixed base too", () => {
+    const { photos } = externalize("reports", [{ id: "r", photos: [P1] }, { id: "r", photos: [P2] }]);
+    expect(photos.map(p => p.key)).toEqual(["photo:reports:r:0", "photo:reports:r#1:0"]);
+  });
+});

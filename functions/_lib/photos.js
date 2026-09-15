@@ -27,6 +27,17 @@ export function photoKey(field, id, index) {
   return index == null ? `${PHOTO_PREFIX}${field}:${id}` : `${PHOTO_PREFIX}${field}:${id}:${index}`;
 }
 
+// Duplicate ids exist in real data (a double-submitted return shares
+// "co<ts><eqId>"). The n-th duplicate (n >= 1) gets `#n` on its base key and the
+// marker records it as `photoKey`, so two records with one id never share a key.
+function baseKeyOf(field, e) { return e.photoKey || photoKey(field, e.id); }
+function slotKey(field, e, index) { const b = baseKeyOf(field, e); return index == null ? b : `${b}:${index}`; }
+function dupBase(field, e, seen) {
+  const n = seen.get(e.id) || 0;
+  seen.set(e.id, n + 1);
+  return n ? `${photoKey(field, e.id)}#${n}` : photoKey(field, e.id);
+}
+
 // Cheap content signature (length + FNV-1a) kept on the marker as `photoSig`
 // (reports: `photoSigs[]`). GET re-inlines equipment / report photos, so a client
 // sends them back inline on every save; when the signature matches what is
@@ -45,8 +56,8 @@ export function storedSigs(field, arr) {
   const kind = PHOTO_FIELDS[field];
   for (const e of arr) {
     if (!e || typeof e !== "object" || e.id == null) continue;
-    if (kind === "photo") { if (e.hasPhoto && e.photoSig) out.set(photoKey(field, e.id), e.photoSig); }
-    else if (e.hasPhotos && Array.isArray(e.photoSigs)) e.photoSigs.forEach((sg, i) => { if (sg) out.set(photoKey(field, e.id, i), sg); });
+    if (kind === "photo") { if (e.hasPhoto && e.photoSig) out.set(slotKey(field, e), e.photoSig); }
+    else if (e.hasPhotos && Array.isArray(e.photoSigs)) e.photoSigs.forEach((sg, i) => { if (sg) out.set(slotKey(field, e, i), sg); });
   }
   return out;
 }
@@ -64,14 +75,17 @@ export function externalize(field, arr, limit = Infinity, existingSigs = null) {
   const kind = PHOTO_FIELDS[field];
   if (!kind) return { entries: arr, photos };
   let moved = 0;
+  const seen = new Map();
   const entries = arr.map(e => {
     if (!e || typeof e !== "object" || e.id == null) return e;
+    const base = e.photoKey || dupBase(field, e, seen);
+    const mark = base === photoKey(field, e.id) ? {} : { photoKey: base };
     if (kind === "photo") {
       if (!isDataUri(e.photo) || moved >= limit) return e;
-      const key = photoKey(field, e.id), sig = photoSig(e.photo);
+      const key = base, sig = photoSig(e.photo);
       moved++;
       if (!existingSigs || existingSigs.get(key) !== sig) photos.push({ key, data: e.photo });
-      return { ...e, photo: null, hasPhoto: true, photoSig: sig };
+      return { ...e, ...mark, photo: null, hasPhoto: true, photoSig: sig };
     }
     // reports: photos[] (all of a record's photos move together)
     if (!Array.isArray(e.photos) || !e.photos.some(isDataUri)) return e;
@@ -79,13 +93,13 @@ export function externalize(field, arr, limit = Infinity, existingSigs = null) {
     const sigs = Array.isArray(e.photoSigs) ? [...e.photoSigs] : [];
     const slots = e.photos.map((p, i) => {
       if (!isDataUri(p)) return p;
-      const key = photoKey(field, e.id, i), sig = photoSig(p);
+      const key = `${base}:${i}`, sig = photoSig(p);
       moved++;
       if (!existingSigs || existingSigs.get(key) !== sig) photos.push({ key, data: p });
       sigs[i] = sig;
       return null;
     });
-    return { ...e, photos: slots, hasPhotos: true, photoSigs: sigs };
+    return { ...e, ...mark, photos: slots, hasPhotos: true, photoSigs: sigs };
   });
   return { entries, photos };
 }
@@ -99,8 +113,8 @@ export function photoKeysOf(field, arr) {
   if (!kind) return keys;
   for (const e of arr) {
     if (!e || typeof e !== "object" || e.id == null) continue;
-    if (kind === "photo") { if (e.hasPhoto && !isDataUri(e.photo)) keys.push(photoKey(field, e.id)); continue; }
-    if (e.hasPhotos && Array.isArray(e.photos)) e.photos.forEach((p, i) => { if (!isDataUri(p)) keys.push(photoKey(field, e.id, i)); });
+    if (kind === "photo") { if (e.hasPhoto && !isDataUri(e.photo)) keys.push(slotKey(field, e)); continue; }
+    if (e.hasPhotos && Array.isArray(e.photos)) e.photos.forEach((p, i) => { if (!isDataUri(p)) keys.push(slotKey(field, e, i)); });
   }
   return keys;
 }
@@ -115,16 +129,16 @@ export function inlinePhotos(field, arr, blobs) {
     if (!e || typeof e !== "object" || e.id == null) return e;
     if (kind === "photo") {
       if (!e.hasPhoto || isDataUri(e.photo)) return e;
-      const data = blobs[photoKey(field, e.id)];
+      const data = blobs[slotKey(field, e)];
       if (!isDataUri(data)) return e;
-      const { hasPhoto, ...rest } = e; // photoSig stays: lets the next PUT skip an unchanged photo
+      const { hasPhoto, ...rest } = e; // photoSig / photoKey stay: the next PUT reuses the same key
       return { ...rest, photo: data };
     }
     if (!e.hasPhotos || !Array.isArray(e.photos)) return e;
     let all = true;
     const photos = e.photos.map((p, i) => {
       if (isDataUri(p)) return p;
-      const data = blobs[photoKey(field, e.id, i)];
+      const data = blobs[slotKey(field, e, i)];
       if (!isDataUri(data)) { all = false; return p; }
       return data;
     });
