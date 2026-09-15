@@ -3,6 +3,8 @@ import jsQR from "jsqr";
 import { LANG } from "./i18n/index.js";
 import { hoursWorked, DEFAULT_OT_TIERS, calcOtAmount, calcVatBreakdown, calcTotal } from "./logic/money.js";
 import { versionsFor, rebasePayload } from "./logic/sync.js";
+import { availability, availabilitySpan, stillOutList, jobConflicts, jobHoldDates, unitsOutForEquipment, unitsOutForJob, buildReceiveEvents, isPickEvt, isReturnEvt, jobFirstDate, jobLastDate, effPickupDate, effReturnDate, isOpenReport } from "./logic/availability.js";
+import { filterHistory, historyCsv, downloadText } from "./logic/history.js";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const JOB_STATUSES = ["Pencil", "Confirmed", "Cancelled", "Declined"];
@@ -177,12 +179,7 @@ const haversineMeters = (lat1, lon1, lat2, lon2) => { const R=6371000,φ1=lat1*M
 const formatDate = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 const formatDateTime = (ts) => new Date(ts).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 const addDaysStr = (ds, n) => { const d = new Date(ds + "T00:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
-// Effective pickup/return window of a job: admin may open pickup before the
-// first shoot day and allow returns after the last shoot day.
-const jobFirstDate = (j) => [...(j.dates || [])].sort()[0] || null;
-const jobLastDate = (j) => [...(j.dates || [])].sort().slice(-1)[0] || null;
-const effPickupDate = (j) => (j.pickupDate && jobFirstDate(j) && j.pickupDate < jobFirstDate(j)) ? j.pickupDate : jobFirstDate(j);
-const effReturnDate = (j) => (j.returnDate && jobLastDate(j) && j.returnDate > jobLastDate(j)) ? j.returnDate : jobLastDate(j);
+// jobFirstDate / jobLastDate / effPickupDate / effReturnDate live in src/logic/availability.js
 
 // ─── KPI scoring ─────────────────────────────────────────────────────────────
 const KPI_MAX_DEFAULT = 100; // 100 pts == 5 stars
@@ -526,46 +523,53 @@ function LangPill({ setLang }) {
 }
 
 // ─── AVAILABILITY CALCULATOR ─────────────────────────────────────────────────
-const isPickEvt = (type) => type === "pick" || type === "checkout" || type === "barcode_pick";
-const isReturnEvt = (type) => type === "return" || type === "barcode_return";
-
-function calcAvailable(equipment, jobs, checkouts, targetDate) {
-  const date = targetDate || today();
-  // Find confirmed jobs active on this date
-  const activeJobIds = jobs.filter(j => j.status === "Confirmed" && j.dates.includes(date)).map(j => j.id);
-  // Sum equipment assigned (and checked out) to those jobs
-  let takenMap = {};
-  activeJobIds.forEach(jid => {
-    const job = jobs.find(j => j.id === jid);
-    if (!job?.assignedEquipment) return;
-    job.assignedEquipment.forEach(ae => {
-      takenMap[ae.eqId] = (takenMap[ae.eqId] || 0) + ae.qty;
-    });
-  });
-  return equipment.map(eq => {
-    const taken = takenMap[eq.id] || 0;
-    return { ...eq, available: Math.max(0, eq.total - taken), taken };
-  });
+// isPickEvt / isReturnEvt and the availability model live in src/logic/availability.js.
+// ONE function everywhere (equipment badges, assign modal, dashboard, crew request
+// picker, crew gear tab): available = total - other Confirmed jobs across their
+// pickup..return window - units picked and not returned - approved loans - open
+// damage reports. Never clamped: a negative number is an over-booking to show.
+//   ctx = { jobs, checkouts, equipmentRequests, reports }   opts = { excludeJobId }
+function calcAvailable(equipment, targetDate, ctx = {}, opts = {}) {
+  return availability(equipment || [], targetDate || today(), { ...ctx, today: today() }, opts);
 }
-
-// Availability across a multi-day span = the WORST (minimum) available count on any
-// day in the span. Assigning gear off a single-day check double-books items that are
-// free on day 1 but taken on a later shoot day.
-function calcAvailableSpan(equipment, jobs, checkouts, dates) {
-  const days = (dates && dates.length) ? dates : [today()];
-  const perDay = days.map(d => {
-    const m = {};
-    calcAvailable(equipment, jobs, checkouts, d).forEach(e => { m[e.id] = e; });
-    return m;
-  });
-  return equipment.map(eq => {
-    let minAvail = eq.total, worstDate = null;
-    for (let i = 0; i < days.length; i++) {
-      const a = perDay[i][eq.id] ? perDay[i][eq.id].available : eq.total;
-      if (a < minAvail) { minAvail = a; worstDate = days[i]; }
-    }
-    return { ...eq, available: Math.max(0, minAvail), worstDate };
-  });
+// Dates on which a job holds its gear (pickup..return window; daily mode = shoot days).
+const jobHoldDatesOf = (job) => { const d = jobHoldDates(job || {}); return d.length ? d : [today()]; };
+// Availability across a multi-day span = the WORST (minimum) day, with that day's reasons.
+function calcAvailableSpan(equipment, dates, ctx = {}, opts = {}) {
+  return availabilitySpan(equipment || [], dates, { ...ctx, today: today() }, opts);
+}
+// Human-readable "why" lines for an availability row (used by badges + modals).
+function describeReasons(reasons, t) {
+  const fmtSince = (v) => !v ? "" : typeof v === "number" ? formatDate(new Intl.DateTimeFormat("en-CA", { timeZone: APP_TZ }).format(new Date(v))) : formatDate(v);
+  return (reasons || []).map(r => {
+    const fill = (key) => t(key).replace("{n}", r.qty).replace("{job}", r.label || "?").replace("{date}", fmtSince(r.since)).replace("{name}", r.employeeName || "?").replace("{label}", r.label || "");
+    if (r.kind === "job") return fill("avBooked");
+    if (r.kind === "out") return fill(r.gone ? "avStillOutGone" : r.overdue ? "avStillOutOverdue" : "avStillOut");
+    if (r.kind === "loan") return fill("avLoan");
+    if (r.kind === "damage") return fill("avDamage");
+    if (r.kind === "pencil") return fill("avPencil");
+    return "";
+  }).filter(Boolean);
+}
+// Compact availability chip: green free / amber partial / red none / red CONFLICT when negative.
+function AvChip({ av, t, size = 10 }) {
+  const title = describeReasons(av.reasons, t).join("\n") || undefined;
+  if (av.available < 0) return <span title={title} style={{ ...S.badge("red"), fontSize: size, fontWeight: 800 }}>{t("avConflict")} {av.available}</span>;
+  if (av.available === 0) return <span title={title} style={{ ...S.badge("red"), fontSize: size }}>{t("eqUnavail") || "Unavail."}</span>;
+  if (av.available < av.total) return <span title={title} style={{ ...S.badge("amber"), fontSize: size }}>{av.available}/{av.total}</span>;
+  return <span title={title} style={{ ...S.badge("green"), fontSize: size }}>{av.available}/{av.total}</span>;
+}
+// One-line reason summary under a card ("1 still out on TVC Toyota since 13 Sept").
+function AvReasons({ av, t, max = 2, style }) {
+  const lines = describeReasons(av.reasons, t);
+  if (!lines.length) return null;
+  const hasBad = (av.reasons || []).some(r => r.kind === "out" || r.kind === "damage");
+  return (
+    <div title={lines.join("\n")} style={{ fontSize: 10, lineHeight: 1.35, color: hasBad ? "#C53030" : "var(--text-muted,#5F7A91)", ...style }}>
+      {lines.slice(0, max).map((l, i) => <div key={i} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l}</div>)}
+      {lines.length > max && <div>+{lines.length - max}</div>}
+    </div>
+  );
 }
 
 // ─── EQUIPMENT PAGE ───────────────────────────────────────────────────────────
@@ -618,7 +622,7 @@ const EQ_SORT_OPTIONS = [
   { key: "most",    label: "Most Used" },
 ];
 
-function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setReports, initialTab, onConsumeInitialTab }) {
+function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setReports, equipmentRequests, productionCompanies, initialTab, onConsumeInitialTab }) {
   const t = useT();
   const [eqTab, setEqTab] = useState(initialTab || "equipment"); // equipment | reports
   const [modal, setModal] = useState(null);
@@ -626,6 +630,8 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
   const [form, setForm] = useState({ name: "", category: "", total: 1, notes: "", photo: null });
   const [newCatInput, setNewCatInput] = useState("");
   const [histTarget, setHistTarget] = useState(null);
+  const [histLimit, setHistLimit] = useState(20);
+  const [histRange, setHistRange] = useState({ from: "", to: "" });
   const [sortBy, setSortBy] = useState("name_az");
   const [filterCat, setFilterCat] = useState(null);
   const [search, setSearch] = useState("");
@@ -639,12 +645,12 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
   const [selectMode, setSelectMode] = useState(false);
   const fileRef = useRef(null);
 
-  const availableList = calcAvailable(equipment, jobs, checkouts, today());
+  const availableList = calcAvailable(equipment, today(), { jobs, checkouts, equipmentRequests, reports });
   const existingCategories = [...new Set(equipment.map(e => e.category).filter(Boolean))].sort();
 
   const openAdd = () => { setForm({ name: "", category: "", total: 1, notes: "", photo: null }); setNewCatInput(""); setEqFormErr(""); setModal("add"); };
   const openEdit = (eq) => { setEditTarget(eq); setForm({ ...eq }); setNewCatInput(""); setEqFormErr(""); setModal("edit"); };
-  const openHistory = (eq) => { setHistTarget(eq); setModal("history"); };
+  const openHistory = (eq) => { setHistTarget(eq); setHistLimit(20); setHistRange({ from: "", to: "" }); setModal("history"); };
 
   const handlePhoto = (e) => {
     const f = e.target.files[0]; if (!f) return;
@@ -666,14 +672,15 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
   };
 
   const del = (id) => {
-    // Warn if units are still out (picked, not returned) — deleting would erase the
-    // only record that this gear is unaccounted for.
-    const out = checkouts.reduce((n, c) => c.eqId === id ? n + (isPickEvt(c.type) ? (c.qty || 0) : -(c.qty || 0)) : n, 0);
-    const warn = out > 0 ? t("eqDeleteStillOut").replace("{n}", out) + "\n\n" : "";
-    if (window.confirm(warn + t("eqDeleteConfirm"))) setEquipment(p => p.filter(e => e.id !== id));
+    // P1-12: refuse while units are still out (picked, not returned). Deleting would
+    // erase the only record that this gear is unaccounted for.
+    const out = unitsOutForEquipment(checkouts, id);
+    if (out > 0) { window.alert(t("eqDeleteBlocked").replace("{n}", out)); return; }
+    if (window.confirm(t("eqDeleteConfirm"))) setEquipment(p => p.filter(e => e.id !== id));
   };
 
-  const getHistory = (eqId) => checkouts.filter(c => c.eqId === eqId).sort((a, b) => b.ts - a.ts).slice(0, 20);
+  // P3-5: full per-item log, newest first, date-filterable, paged 20 at a time.
+  const getHistory = (eqId) => filterHistory(checkouts, eqId, { from: histRange.from, to: histRange.to, limit: histLimit, tz: APP_TZ });
 
   // Generate a printable A4 sheet of QR code labels for all equipment.
   // Each QR encodes "psr_eq:{eqId}" — scanned by QRScanner in checkout flow.
@@ -724,11 +731,7 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
-  const AvStatus = ({ av }) => {
-    if (av.available === 0) return <span style={{ ...S.badge("red"), fontSize: 10 }}>{t("eqUnavail") || "Unavail."}</span>;
-    if (av.available < av.total) return <span style={{ ...S.badge("amber"), fontSize: 10 }}>{av.available}/{av.total}</span>;
-    return <span style={{ ...S.badge("green"), fontSize: 10 }}>{av.available}/{av.total}</span>;
-  };
+  const AvStatus = ({ av }) => <AvChip av={av} t={t} />;
 
   // Sort + filter
   const _q = search.trim().toLowerCase();
@@ -777,7 +780,9 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
             <span style={S.tag}>{eq.category}</span>
             <p style={{ margin: 0, fontWeight: 700, fontSize: 12, lineHeight: 1.3, color: "var(--text,#16324A)" }}>{eq.name}</p>
             {eq.notes && <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#7B8FA3)", lineHeight: 1.3 }}>{eq.notes}</p>}
-            <div style={{ marginTop: 3 }}><AvailBar available={eq.available} total={eq.total} /></div>
+            <div style={{ marginTop: 3 }}><AvailBar available={Math.max(0, eq.available)} total={eq.total} /></div>
+            {eq.available < 0 && <p style={{ margin: "2px 0 0", fontSize: 10, fontWeight: 700, color: "#C53030" }}>{t("avOverbooked").replace("{n}", -eq.available)}</p>}
+            <AvReasons av={eq} t={t} style={{ marginTop: 2 }} />
             <div style={{ display: "flex", gap: 3, marginTop: 5, justifyContent: "flex-end" }}>
               {selectMode ? (
                 <button style={{ ...S.btn(selectedIds.has(eq.id) ? "primary" : "ghost"), padding: "3px 8px", fontSize: 11 }}
@@ -809,7 +814,7 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
         </button>
       </div>
 
-      {eqTab === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} />}
+      {eqTab === "reports" && <AdminReportsPage reports={reports} setReports={setReports} equipment={equipment} jobs={jobs} productionCompanies={productionCompanies} />}
 
       {eqTab === "equipment" && <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -902,15 +907,31 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
         </Modal>
       )}
 
-      {/* History Modal */}
-      {modal === "history" && histTarget && (
+      {/* History Modal (P3-5: showing N of total, date filter, load more, CSV) */}
+      {modal === "history" && histTarget && (() => {
+        const h = getHistory(histTarget.id);
+        const exportCsv = () => {
+          const all = filterHistory(checkouts, histTarget.id, { from: histRange.from, to: histRange.to, limit: 0, tz: APP_TZ }).rows;
+          downloadText(`history-${(histTarget.name || histTarget.id).replace(/[^\w.-]+/g, "_")}.csv`, historyCsv(all, { eqName: histTarget.name, tz: APP_TZ }));
+        };
+        return (
         <Modal title={`${t("eqHistoryTitle")} — ${histTarget.name}`} onClose={() => setModal(null)} wide>
-          {getHistory(histTarget.id).length === 0 ? (
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>
+            <div><label style={S.label}>{t("histFrom")}</label><input type="date" style={{ ...S.input, width: 150 }} value={histRange.from} max={histRange.to || undefined} onChange={e => { setHistRange(r => ({ ...r, from: e.target.value })); setHistLimit(20); }} /></div>
+            <div><label style={S.label}>{t("histTo")}</label><input type="date" style={{ ...S.input, width: 150 }} value={histRange.to} min={histRange.from || undefined} onChange={e => { setHistRange(r => ({ ...r, to: e.target.value })); setHistLimit(20); }} /></div>
+            {(histRange.from || histRange.to) && <button style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={() => { setHistRange({ from: "", to: "" }); setHistLimit(20); }}>{t("histClear")}</button>}
+            <div style={{ flex: 1 }} />
+            <span data-testid="hist-count" style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("histShowing").replace("{n}", Math.min(h.rows.length, h.total)).replace("{total}", h.total)}</span>
+            {h.total > 0 && <button style={{ ...S.btn("ghost"), padding: "8px 10px", fontSize: 12 }} onClick={exportCsv}>{t("histCsv")}</button>}
+          </div>
+          {h.all === 0 ? (
             <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{t("eqNoHistory")}</p>
+          ) : h.total === 0 ? (
+            <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{t("histNoMatch")}</p>
           ) : (
             <div style={S.col}>
-              {getHistory(histTarget.id).map((c, i) => (
-                <div key={i} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", display: "flex", gap: 16, alignItems: "flex-start" }}>
+              {h.rows.map((c, i) => (
+                <div key={c.id || i} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", display: "flex", gap: 16, alignItems: "flex-start" }}>
                   <span style={{ ...S.badge(isPickEvt(c.type) ? "amber" : "green"), flexShrink: 0 }}>{isPickEvt(c.type) ? "PICK" : "RETURN"}</span>
                   <div style={{ flex: 1 }}>
                     <p style={{ margin: 0, fontWeight: 600, fontSize: 13 }}>{c.jobName}</p>
@@ -920,10 +941,14 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
                   </div>
                 </div>
               ))}
+              {h.total > h.rows.length && (
+                <button style={{ ...S.btn("ghost"), alignSelf: "center" }} onClick={() => setHistLimit(n => n + 20)}>{t("histLoadMore")} ({h.total - h.rows.length})</button>
+              )}
             </div>
           )}
         </Modal>
-      )}
+        );
+      })()}
       </>}
     </div>
   );
@@ -1664,8 +1689,11 @@ function ProductionCombobox({ value, onChange, companies }) {
 }
 
 // ─── SHARED JOB FORM MODAL ────────────────────────────────────────────────────
-function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, lineGroupId, lineNotifyMuted, onClose }) {
+function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, lineGroupId, lineNotifyMuted, onClose, equipment, checkouts, equipmentRequests, reports }) {
   const t = useT();
+  const [conflicts, setConflicts] = useState(null); // P1-9: gear conflicts found on save
+  const conflictRef = useRef(null);
+  useEffect(() => { if (conflicts && conflictRef.current) conflictRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [conflicts]);
   const CONTACT_PLATFORMS = ["Line", "Facebook", "WhatsApp", "Instagram", "Phone"];
   const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line", dateOverrides: {}, pickupDate: "", returnDate: "" };
   const [form, setForm] = useState(editTarget ? { ...editTarget, dateOverrides: editTarget.dateOverrides || {} } : EMPTY);
@@ -1696,7 +1724,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
     return { ...p, dateOverrides: ovs };
   });
 
-  const saveJob = () => {
+  const saveJob = (force = false) => {
     if (!form.name.trim()) { setJobErr(t("jobErrName")); return; }
     if (form.dates.length === 0) { setJobErr(t("jobErrDates")); return; }
     setJobErr("");
@@ -1709,6 +1737,20 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
       pickupDate: form.pickupDate && form.pickupDate < sorted[0] ? form.pickupDate : "",
       returnDate: form.returnDate && form.returnDate > sorted[sorted.length - 1] ? form.returnDate : "",
     };
+    // P1-9: a date / status / window edit re-checks the job's OWN gear against
+    // everything else (other Confirmed jobs across their windows, gear still out,
+    // loans, open damage) and names the colliding jobs before anything is saved.
+    if (editTarget && !force && (editTarget.assignedEquipment || []).length > 0 && (clean.status === "Confirmed" || clean.status === "Pencil")) {
+      const windowChanged = statusChanged
+        || JSON.stringify([...(editTarget.dates || [])].sort()) !== JSON.stringify(sorted)
+        || (editTarget.pickupDate || "") !== clean.pickupDate || (editTarget.returnDate || "") !== clean.returnDate;
+      if (windowChanged) {
+        const candidate = { ...editTarget, ...clean };
+        const found = jobConflicts(candidate, equipment || [], { jobs: jobs || [], checkouts: checkouts || [], equipmentRequests: equipmentRequests || [], reports: reports || [], today: today() });
+        if (found.length) { setConflicts(found); return; }
+      }
+    }
+    setConflicts(null);
     if (editTarget) {
       setJobs(p => p.map(j => j.id === editTarget.id ? { ...j, ...clean } : j));
     } else {
@@ -1880,16 +1922,40 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
           </div>
         )}
         {jobErr && <p style={{ color: "#C53030", fontSize: 12, margin: "0 0 6px", fontWeight: 600, textAlign: "right" }}>{jobErr}</p>}
+        {conflicts && conflicts.length > 0 && (() => {
+          const hard = conflicts.filter(c => !c.soft), soft = conflicts.filter(c => c.soft);
+          const row = (c) => (
+            <div key={c.eqId} style={{ padding: "8px 10px", borderRadius: 8, background: "var(--surface,#FFFFFF)", border: "1px solid var(--border-color,#D8E1EC)", marginBottom: 6 }}>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: c.soft ? "var(--accent,#2563EB)" : "#C53030" }}>
+                {c.eq.name} · {t("jobConflictNeed").replace("{n}", c.need).replace("{a}", c.available).replace("{date}", c.worstDate ? formatDate(c.worstDate) : "")}
+              </p>
+              {describeReasons(c.reasons, t).map((l, i) => <p key={i} style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text,#16324A)" }}>· {l}</p>)}
+            </div>
+          );
+          return (
+            <div ref={conflictRef} data-testid="job-conflict" style={{ padding: "12px 14px", borderRadius: 10, background: hard.length ? "rgba(197,48,48,0.06)" : "rgba(var(--accent-rgb,37,99,235),0.06)", border: `1px solid ${hard.length ? "rgba(197,48,48,0.35)" : "rgba(var(--accent-rgb,37,99,235),0.3)"}` }}>
+              <p style={{ margin: "0 0 8px", fontSize: 13, fontWeight: 800, color: hard.length ? "#C53030" : "var(--accent,#2563EB)" }}>⚠ {t("jobConflictTitle")}</p>
+              {hard.length > 0 && <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--text,#16324A)" }}>{t("jobConflictIntro")}</p>}
+              {hard.map(row)}
+              {soft.length > 0 && <p style={{ margin: "6px 0 8px", fontSize: 12, color: "var(--text,#16324A)" }}>{t("jobConflictSoftIntro")}</p>}
+              {soft.map(row)}
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 10 }}>
+                <button style={S.btn("ghost")} onClick={() => setConflicts(null)}>{t("jobConflictBack")}</button>
+                <button style={S.btn(hard.length ? "danger" : "primary")} onClick={() => saveJob(true)}>{t("jobConflictSaveAnyway")}</button>
+              </div>
+            </div>
+          );
+        })()}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={S.btn("ghost")} onClick={onClose}>{t("cancel")}</button>
-          <button style={S.btn("primary")} onClick={saveJob}>{t("saveJob")}</button>
+          <button style={S.btn("primary")} onClick={() => saveJob(false)}>{t("saveJob")}</button>
         </div>
       </div>
     </Modal>
   );
 }
 
-function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees, lineGroupId, lineNotifyMuted, verificationConfig }) {
+function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees, lineGroupId, lineNotifyMuted, verificationConfig, equipmentRequests, reports }) {
   const t = useT();
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
@@ -1905,9 +1971,17 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
   const openAdd = () => { setEditTarget(null); setModal("form"); };
   const openEdit = (job) => { setEditTarget(job); setModal("form"); };
   const del = (id) => {
-    const out = checkouts.reduce((n, c) => c.jobId === id ? n + (isPickEvt(c.type) ? (c.qty || 0) : -(c.qty || 0)) : n, 0);
-    const warn = out > 0 ? t("jobDeleteStillOut").replace("{n}", out) + "\n\n" : "";
-    if (window.confirm(warn + t("jobDeleteConfirm"))) setJobs(p => p.filter(j => j.id !== id));
+    // P1-12: never delete a job whose gear is still out. The Not Returned list is
+    // computed from the checkout log (survives a deleted job), but the record
+    // itself (dates, crew, client) should stay: steer to Cancelled instead.
+    const out = unitsOutForJob(checkouts, id);
+    if (out > 0) {
+      if (window.confirm(t("jobDeleteBlocked").replace("{n}", out) + "\n\n" + t("jobDeleteCancelInstead"))) {
+        setJobs(p => p.map(j => j.id === id ? { ...j, status: "Cancelled" } : j));
+      }
+      return;
+    }
+    if (window.confirm(t("jobDeleteConfirm"))) setJobs(p => p.filter(j => j.id !== id));
   };
 
   const openAssign = (job) => {
@@ -2013,7 +2087,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                   {outCount > 0 && <p style={{ margin: "4px 0 0", fontSize: 11, color: "#2563EB" }}>{outCount} assigned · {picked} picked · {returned} returned</p>}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                  {job.status === "Confirmed" && <button style={{ ...S.btn("success"), padding: "6px 10px", fontSize: 12 }} onClick={() => openAssign(job)}><Icon d={icons.gear} size={13} /> {t("jobAssignGear")}</button>}
+                  {(job.status === "Confirmed" || job.status === "Pencil") && <button style={{ ...S.btn(job.status === "Confirmed" ? "success" : "ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => openAssign(job)}><Icon d={icons.gear} size={13} /> {t("jobAssignGear")}</button>}
                   <button style={{ ...S.btn("ghost"), padding: "6px 8px" }} onClick={() => openEdit(job)}><Icon d={icons.edit} size={14} /></button>
                   <button style={{ ...S.btn("danger"), padding: "6px 8px" }} onClick={() => del(job.id)}><Icon d={icons.trash} size={14} /></button>
                 </div>
@@ -2076,7 +2150,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
       {/* Form Modal */}
       {modal === "form" && (
-        <JobFormModal editTarget={editTarget} jobs={jobs} setJobs={setJobs} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} onClose={() => setModal(null)} />
+        <JobFormModal editTarget={editTarget} jobs={jobs} setJobs={setJobs} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} onClose={() => setModal(null)} equipment={equipment} checkouts={checkouts} equipmentRequests={equipmentRequests} reports={reports} />
       )}
 
       {/* Assign Equipment Modal — kanban style */}
@@ -2102,35 +2176,43 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
               ))}
             </div>
           </div>
-          <p style={{ fontSize: 12, color: "var(--text-muted,#4E6B84)", marginBottom: 16 }}>{t("jobTapAssign")}</p>
+          <p style={{ fontSize: 12, color: "var(--text-muted,#4E6B84)", marginBottom: assignTarget.status === "Pencil" ? 8 : 16 }}>{t("jobTapAssign")}</p>
+          {assignTarget.status === "Pencil" && (
+            <p style={{ fontSize: 12, color: "var(--accent,#2563EB)", margin: "0 0 14px", padding: "8px 12px", borderRadius: 8, background: "rgba(var(--accent-rgb,37,99,235),0.07)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)" }}>✏️ {t("assignPencilNote")}</p>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {(() => {
-              // Availability across the job's WHOLE span (worst day), computed once —
-              // fixes double-booking on multi-day jobs and the per-item O(n²) recompute.
-              const spanDates = (assignTarget.dates && assignTarget.dates.length) ? assignTarget.dates : [today()];
+              // Availability across the job's WHOLE gear window (pickup..return, worst
+              // day), from the one shared model: other Confirmed jobs, gear still out,
+              // approved loans and open damage reports all subtract; Pencil holds are
+              // shown separately; a negative number is a red conflict, never clamped.
+              const spanDates = jobHoldDatesOf(assignTarget);
               const avMap = Object.fromEntries(
-                calcAvailableSpan(equipment, jobs.filter(j => j.id !== assignTarget.id), checkouts, spanDates).map(a => [a.id, a])
+                calcAvailableSpan(equipment, spanDates, { jobs, checkouts, equipmentRequests, reports }, { excludeJobId: assignTarget.id }).map(a => [a.id, a])
               );
               return equipment.map(eq => {
-              const avForEq = avMap[eq.id];
+              const avForEq = avMap[eq.id] || { available: eq.total, total: eq.total, pencil: 0, reasons: [], hard: {} };
               const currentQty = +assignForm[eq.id] || 0;
-              const maxAvail = avForEq?.available ?? 0;
+              const maxAvail = avForEq.available;      // signed: < 0 means already over-booked
+              const cap = Math.max(0, maxAvail);        // how many this job can still take
               const isAssigned = currentQty > 0;
               const isMulti = eq.total > 1;
+              const hasDamage = (avForEq.hard && avForEq.hard.damage > 0);
+              const reasonLines = describeReasons(avForEq.reasons, t);
 
               return (
                 <div key={eq.id}
                   onClick={() => {
-                    if (!isAssigned && maxAvail === 0) return; // can't assign, none available
+                    if (!isAssigned && cap === 0) return; // can't assign, none available
                     if (!isAssigned) setAssignForm(p => ({ ...p, [eq.id]: 1 }));
                     else setAssignForm(p => ({ ...p, [eq.id]: 0 }));
                   }}
                   style={{
                     display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10,
-                    border: isAssigned ? "1.5px solid var(--accent,#2563EB)" : maxAvail === 0 ? "1.5px solid var(--divider-color,#D8E1EC)" : "1.5px solid var(--border-color,#D8E1EC)",
-                    background: isAssigned ? "rgba(var(--accent-rgb,37,99,235),0.07)" : maxAvail === 0 ? "rgba(22,50,74,0.07)" : "var(--surface2,#EAF0F7)",
-                    cursor: maxAvail === 0 && !isAssigned ? "not-allowed" : "pointer",
-                    opacity: maxAvail === 0 && !isAssigned ? 0.45 : 1,
+                    border: isAssigned ? "1.5px solid var(--accent,#2563EB)" : maxAvail < 0 ? "1.5px solid rgba(197,48,48,0.5)" : cap === 0 ? "1.5px solid var(--divider-color,#D8E1EC)" : "1.5px solid var(--border-color,#D8E1EC)",
+                    background: isAssigned ? "rgba(var(--accent-rgb,37,99,235),0.07)" : maxAvail < 0 ? "rgba(197,48,48,0.06)" : cap === 0 ? "rgba(22,50,74,0.07)" : "var(--surface2,#EAF0F7)",
+                    cursor: cap === 0 && !isAssigned ? "not-allowed" : "pointer",
+                    opacity: cap === 0 && !isAssigned && maxAvail >= 0 ? 0.45 : 1,
                     transition: "all 0.12s",
                   }}>
 
@@ -2151,10 +2233,17 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: isAssigned ? "var(--accent,#2563EB)" : "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eq.name}</p>
-                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: maxAvail < 0 ? "#C53030" : "var(--text-muted,#5F7A91)", fontWeight: maxAvail < 0 ? 700 : 400 }}>
                       {eq.category}
-                      {isMulti ? ` · ${maxAvail} of ${eq.total} free` : maxAvail === 0 ? ` · ${t("jobUnavailable")}` : ` · ${t("jobAvailable")}`}
+                      {maxAvail < 0 ? ` · ${t("avConflict")} · ${t("avOverbooked").replace("{n}", -maxAvail)}` : isMulti ? ` · ${t("avFree").replace("{a}", maxAvail).replace("{t}", eq.total)}` : maxAvail === 0 ? ` · ${t("jobUnavailable")}` : ` · ${t("jobAvailable")}`}
+                      {avForEq.worstDate && spanDates.length > 1 && maxAvail < eq.total ? ` · ${t("avWorstDay").replace("{date}", formatDate(avForEq.worstDate))}` : ""}
                     </p>
+                    {hasDamage && <p style={{ margin: "3px 0 0", fontSize: 11, fontWeight: 700, color: "#C53030" }}>⚠ {t("assignDamageBanner")}</p>}
+                    {reasonLines.length > 0 && (
+                      <div style={{ marginTop: 3 }}>
+                        {reasonLines.map((l, i) => <p key={i} style={{ margin: 0, fontSize: 10, lineHeight: 1.35, color: (avForEq.reasons[i] || {}).kind === "pencil" ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)" }}>· {l}</p>)}
+                      </div>
+                    )}
                   </div>
 
                   {/* Qty stepper — only for multi-unit items when assigned */}
@@ -2164,10 +2253,10 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                       <button
                         style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", fontSize: 16, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                         onClick={() => setAssignForm(p => { const n = Math.max(1, (p[eq.id] || 1) - 1); return { ...p, [eq.id]: n }; })}>−</button>
-                      <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14, color: "var(--accent,#2563EB)" }}>{currentQty}</span>
+                      <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14, color: currentQty > cap ? "#C53030" : "var(--accent,#2563EB)" }}>{currentQty}</span>
                       <button
-                        style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", fontSize: 16, lineHeight: 1, cursor: currentQty >= maxAvail ? "not-allowed" : "pointer", opacity: currentQty >= maxAvail ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}
-                        onClick={() => setAssignForm(p => ({ ...p, [eq.id]: Math.min(maxAvail, (p[eq.id] || 1) + 1) }))}>+</button>
+                        style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", fontSize: 16, lineHeight: 1, cursor: currentQty >= cap ? "not-allowed" : "pointer", opacity: currentQty >= cap ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}
+                        onClick={() => setAssignForm(p => ({ ...p, [eq.id]: Math.min(Math.max(cap, p[eq.id] || 0), (p[eq.id] || 1) + 1) }))}>+</button>
                     </div>
                   )}
                 </div>
@@ -2521,33 +2610,30 @@ function DashboardCalendar({ jobs, equipment, onEdit }) {
 }
 
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
-function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, lineNotifyMuted, deleteRecord }) {
+function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, lineNotifyMuted, deleteRecord, reports, onReceive }) {
   const t = useT();
   const todayStr = today();
   const todayJobs = jobs.filter(j => j.dates.includes(todayStr));
   const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
   const pencilJobs = jobs.filter(j => j.status === "Pencil");
-  const avList = calcAvailable(equipment, jobs, checkouts, todayStr);
+  const avList = calcAvailable(equipment, todayStr, { jobs, checkouts, equipmentRequests, reports });
   const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
 
-  // Gear that was picked up but never returned — grouped by job
-  const stillOutItems = (() => {
-    const results = [];
-    jobs.forEach(job => {
-      const jobCheckouts = checkouts.filter(c => c.jobId === job.id);
-      const pickedIds = new Set(jobCheckouts.filter(c => isPickEvt(c.type)).map(c => c.eqId));
-      const returnedIds = new Set(jobCheckouts.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
-      const outIds = [...pickedIds].filter(id => !returnedIds.has(id));
-      const dueDate = effReturnDate(job);
-      const overdue = dueDate ? dueDate < todayStr : false;
-      outIds.forEach(eqId => {
-        const eq = equipment.find(e => e.id === eqId);
-        const pickEvent = jobCheckouts.filter(c => (isPickEvt(c.type)) && c.eqId === eqId).sort((a, b) => b.ts - a.ts)[0];
-        if (eq) results.push({ job, eq, pickedBy: pickEvent?.employeeName || "—", pickedAt: pickEvent?.ts || 0, overdue });
-      });
+  // Gear that was picked up but never returned: computed from the checkout log keyed
+  // by job / request, so a deleted or Cancelled job still lists (P1-12). Count-based
+  // (qty), with due date + overdue days (P1-11). Sorted overdue first.
+  const stillOutItems = stillOutList({ checkouts, jobs, equipment, equipmentRequests, today: todayStr, tz: APP_TZ });
+  const physOutUnits = stillOutItems.reduce((s, i) => s + i.qty, 0);
+  // Crew phone for the Not Returned rows: lazy per-employee profile fetch (read-only).
+  const [crewProfiles, setCrewProfiles] = useState({});
+  const stillOutCrewIds = [...new Set(stillOutItems.map(i => i.pickedById).filter(Boolean))].join(",");
+  useEffect(() => {
+    const ids = stillOutCrewIds ? stillOutCrewIds.split(",") : [];
+    ids.filter(id => !(id in crewProfiles)).forEach(id => {
+      setCrewProfiles(p => ({ ...p, [id]: null }));
+      api.getProfile(id).then(d => setCrewProfiles(p => ({ ...p, [id]: d || {} }))).catch(() => {});
     });
-    return results.sort((a, b) => (b.overdue ? 1 : 0) - (a.overdue ? 1 : 0) || b.pickedAt - a.pickedAt);
-  })();
+  }, [stillOutCrewIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [expandedStat, setExpandedStat] = useState(null);
   const [eqOutJob, setEqOutJob] = useState(null);
@@ -2679,15 +2765,23 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
       {/* Calendar */}
       <DashboardCalendar jobs={jobs} equipment={equipment} onEdit={(job) => setDashJobModal(job)} />
 
-      {/* Equipment status — compact chips */}
+      {/* Equipment status: bookings (assignment-based) vs gear physically out (checkout-based) */}
       {(() => {
         const outJobs = jobs.filter(j => j.status === "Confirmed" && j.dates.includes(todayStr) && (j.assignedEquipment || []).length > 0);
-        const totalOut = avList.filter(e => e.taken > 0).length;
+        const totalBooked = avList.filter(e => e.hard && e.hard.jobs > 0).length;
+        const physOutTypes = new Set(stillOutItems.map(i => i.eqId)).size;
         return (
-          <div style={S.card}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: outJobs.length ? 10 : 0, gap: 8 }}>
-              <p style={{ ...S.sectionTitle, margin: 0 }}>{t("dashEqOutToday")}</p>
-              <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)", flexShrink: 0 }}>{totalOut} of {equipment.length} out</span>
+          <div style={S.card} data-testid="booked-today">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
+              <p style={{ ...S.sectionTitle, margin: 0 }}>{t("dashBookedToday")}</p>
+              <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)", flexShrink: 0 }}>{t("dashBookedCount").replace("{n}", totalBooked).replace("{t}", equipment.length)}</span>
+            </div>
+            <div onClick={() => document.getElementById("stillout-card")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderRadius: 8, marginBottom: outJobs.length ? 10 : 0, cursor: "pointer",
+                background: physOutUnits > 0 ? (stillOutItems.some(i => i.overdue) ? "rgba(197,48,48,0.06)" : "rgba(var(--accent-rgb,37,99,235),0.06)") : "var(--surface2,#EAF0F7)",
+                border: `1px solid ${stillOutItems.some(i => i.overdue) ? "rgba(197,48,48,0.3)" : "var(--divider-color,#D8E1EC)"}` }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: stillOutItems.some(i => i.overdue) ? "#C53030" : "var(--text-muted,#4E6B84)" }}>📦 {t("dashPhysOut")}</span>
+              <span data-testid="phys-out" style={{ fontSize: 12, fontWeight: 700, color: physOutUnits > 0 ? (stillOutItems.some(i => i.overdue) ? "#C53030" : "var(--accent,#2563EB)") : "#2F855A" }}>{t("dashPhysOutCount").replace("{u}", physOutUnits).replace("{n}", physOutTypes)}</span>
             </div>
             {outJobs.length === 0
               ? <p style={{ color: "#2F855A", fontSize: 13, margin: 0 }}>{t("dashAllAvail")}</p>
@@ -2718,7 +2812,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
               const eq = equipment.find(e => e.id === ae.eqId);
               if (!eq) return null;
               const avItem = avList.find(e => e.id === ae.eqId);
-              const allOut = avItem ? avItem.available === 0 : false;
+              const allOut = avItem ? avItem.available <= 0 : false;
               return (
                 <div key={ae.eqId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -2733,32 +2827,48 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         </Modal>
       )}
 
-      {/* Still Out */}
-      <div style={{ ...S.card, border: stillOutItems.some(i => i.overdue) ? "1px solid rgba(248,113,113,0.35)" : "1px solid var(--divider-color,#D8E1EC)", padding: "10px 14px" }}>
+      {/* Not Returned: from the checkout log (P1-11 / P1-12) */}
+      <div id="stillout-card" data-testid="stillout-card" style={{ ...S.card, border: stillOutItems.some(i => i.overdue) ? "1px solid rgba(197,48,48,0.35)" : "1px solid var(--divider-color,#D8E1EC)", padding: "10px 14px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stillOutItems.length ? 8 : 0 }}>
           <p style={{ ...S.sectionTitle, margin: 0, fontSize: 12 }}>{t("dashStillOut")}</p>
           {stillOutItems.length > 0 && (
-            <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{stillOutItems.length} item{stillOutItems.length !== 1 ? "s" : ""}</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{t("dashPhysOutCount").replace("{u}", physOutUnits).replace("{n}", stillOutItems.length)}</span>
           )}
         </div>
         {stillOutItems.length === 0
           ? <p style={{ color: "#2F855A", fontSize: 12, margin: 0 }}>{t("dashStillOutEmpty")}</p>
           : stillOutItems.map((item, idx, arr) => {
-              const ago = (() => {
-                const diffMs = Date.now() - item.pickedAt;
-                const h = Math.floor(diffMs / 3600000);
-                const d = Math.floor(diffMs / 86400000);
-                return d > 0 ? `${d}d` : h > 0 ? `${h}h` : "now";
-              })();
-              const color = item.overdue ? "#C53030" : "var(--accent,#2563EB)";
+              const color = item.overdue ? "#C53030" : item.dueToday ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)";
+              const prof = item.pickedById ? crewProfiles[item.pickedById] : null;
+              const phone = prof && prof.phone ? prof.phone : "";
+              const picked = item.daysOut > 0 ? t("dashPickedAgo").replace("{n}", item.daysOut) : t("dashPickedToday");
+              const due = item.overdue ? null : item.dueToday ? t("dashDueToday") : item.dueDate ? t("dashDue").replace("{date}", formatDate(item.dueDate)) : t("dashNoDue");
               return (
-                <div key={`${item.job.id}-${item.eq.id}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
-                  <div style={{ width: 3, alignSelf: "stretch", borderRadius: 2, background: color, flexShrink: 0 }} />
+                <div key={item.key} data-testid="stillout-row" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+                  <div style={{ width: 3, alignSelf: "stretch", borderRadius: 2, background: item.overdue ? "#C53030" : "var(--accent,#2563EB)", flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text,#16324A)" }}>{item.eq.name}</span>
-                    <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)", marginLeft: 6 }}>{item.job.name} · {item.pickedBy}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text,#16324A)" }}>{item.qty} × {item.eqName}</span>
+                      {item.overdue
+                        ? <span style={{ ...S.badge("red"), fontSize: 10, fontWeight: 800 }}>{t("dashOverdueDays").replace("{n}", item.daysOverdue)}</span>
+                        : item.dueToday ? <span style={{ ...S.badge("amber"), fontSize: 10 }}>{t("dashDueToday")}</span> : <span style={{ ...S.badge("gray"), fontSize: 10 }}>{t("dashStillOutActive")}</span>}
+                    </div>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {item.jobName}{item.jobGone ? ` (${t("dashJobGone")})` : ""}{item.job && item.job.production ? ` · ${item.job.production}` : ""}
+                    </p>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color, fontVariantNumeric: "tabular-nums" }}>
+                      {picked}{due ? ` · ${due}` : item.dueDate ? ` · ${t("dashDue").replace("{date}", formatDate(item.dueDate))}` : ""}
+                    </p>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text,#16324A)" }}>
+                      👤 {item.pickedBy || "?"}{phone ? <> · <a href={`tel:${phone.replace(/[^+\d]/g, "")}`} style={{ color: "var(--accent,#2563EB)", textDecoration: "none", fontWeight: 600 }}>{phone}</a></> : ""}
+                    </p>
                   </div>
-                  <span style={{ fontSize: 11, color, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{ago}</span>
+                  {onReceive && (
+                    <button data-testid="receive-btn" style={{ ...S.btn("success"), padding: "5px 10px", fontSize: 11, flexShrink: 0 }}
+                      onClick={() => onReceive(item.jobId, item.eqId, { requestId: item.requestId, qty: item.qty, lanes: item.lanes, jobName: item.jobName, eqName: item.eqName, employeeId: item.pickedById, employeeName: item.pickedBy })}>
+                      ✓ {t("dashReceive")}
+                    </button>
+                  )}
                 </div>
               );
             })
@@ -3614,7 +3724,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       )}
 
       {showReportModal && (
-        <ReportModal employee={employee} equipment={equipment} onSubmit={(report) => {
+        <ReportModal employee={employee} equipment={equipment} jobs={jobs} checkouts={checkouts} onSubmit={(report) => {
           setReports(p => [...p, report]);
           if (lineGroupId && !lineNotifyMuted) {
             const msg = `🚨 [Damage Report] ${employee.name}\n📷 ${report.eqName || "—"}\n📝 ${report.description}\n🔗 https://pickshootreturn.pages.dev`;
@@ -3699,6 +3809,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}{job.__reqId ? <span style={{ ...S.badge("blue"), marginLeft: 6 }}>REQUEST</span> : null}</p>
                             <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
+                            {(() => {
+                              const due = job.__reqId ? jobLastDate(job) : effReturnDate(job);
+                              if (!due) return null;
+                              if (due < todayStr) return <p style={{ margin: "2px 0 0", fontSize: 11, fontWeight: 700, color: "#C53030" }}>{t("dashOverdueDays").replace("{n}", Math.max(1, Math.round((Date.parse(todayStr + "T00:00:00Z") - Date.parse(due + "T00:00:00Z")) / 86400000)))} · {t("crewDueLabel").replace("{date}", formatDate(due))}</p>;
+                              if (due === todayStr) return <p style={{ margin: "2px 0 0", fontSize: 11, fontWeight: 700, color: "var(--accent,#2563EB)" }}>{t("dashDueToday")}</p>;
+                              return <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#4E6B84)" }}>{t("crewDueLabel").replace("{date}", formatDate(due))}</p>;
+                            })()}
                             {canReturn && isEarly && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#2F855A" }}>Early return approved for today</p>}
                           </div>
                           {canReturn ? (
@@ -3773,7 +3890,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                          {isToday ? (allReturned ? <span style={S.badge("green")}>{t("allReturned")}</span> : allPicked ? <span style={S.badge("amber")}>{t("onShoot")}</span> : <span style={S.badge("blue")}>{t("readyPick")}</span>) : <span style={S.badge(JOB_STATUS_BADGE[job.status] || "gray")}>{job.status}</span>}
+                          {isToday ? (allReturned ? <span style={S.badge("green")}>{t("allReturned")}</span> : allPicked ? (() => {
+                            const due = effReturnDate(job);
+                            if (due && due < todayStr) return <span style={S.badge("red")}>{t("crewOverdue").replace("{n}", Math.max(1, Math.round((Date.parse(todayStr + "T00:00:00Z") - Date.parse(due + "T00:00:00Z")) / 86400000)))}</span>;
+                            if (due && due === todayStr) return <span style={S.badge("amber")}>{t("crewReturnToday")}</span>;
+                            return <span style={S.badge("amber")}>{t("onShoot")}</span>;
+                          })() : <span style={S.badge("blue")}>{t("readyPick")}</span>) : <span style={S.badge(JOB_STATUS_BADGE[job.status] || "gray")}>{job.status}</span>}
                           <span style={S.badge("gray")}>{job.shootTime}</span>
                         </div>
                         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{job.name}</h3>
@@ -3883,21 +4005,19 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   <div>
                     <label style={S.label}>{t("selectEquipment")}</label>
                     {(() => {
-                      const avList = (() => {
-                        if (gearReqForm.useDates.length === 0) return equipment.map(eq => ({ ...eq, available: eq.total, taken: 0 }));
-                        const perDate = gearReqForm.useDates.map(d => calcAvailable(equipment, jobs, checkouts, d));
-                        return equipment.map(eq => {
-                          const minAvail = Math.min(...perDate.map(av => av.find(a => a.id === eq.id)?.available ?? eq.total));
-                          return { ...eq, available: minAvail };
-                        });
-                      })();
+                      // One shared availability model (worst day over the chosen dates): gear
+                      // still out, other jobs' windows, approved loans and open damage all count.
+                      const avList = gearReqForm.useDates.length === 0
+                        ? equipment.map(eq => ({ ...eq, available: eq.total, taken: 0, reasons: [] }))
+                        : calcAvailableSpan(equipment, gearReqForm.useDates, { jobs, checkouts, equipmentRequests, reports });
                       return (
                         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 300, overflowY: "auto", paddingRight: 4 }}>
                           {avList.map(eq => {
                             const currentQty = +gearReqForm.selectedGear[eq.id] || 0;
                             const isSelected = currentQty > 0;
-                            const maxAvail = eq.available ?? eq.total;
+                            const maxAvail = Math.max(0, eq.available ?? eq.total);
                             const isMulti = eq.total > 1;
+                            const reqReasonLines = describeReasons(eq.reasons, t);
                             return (
                               <div key={eq.id}
                                 onClick={() => {
@@ -3927,8 +4047,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                                   <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: isSelected ? "var(--accent,#2563EB)" : "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eq.name}</p>
                                   <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
                                     {eq.category}
-                                    {isMulti ? ` · ${maxAvail} of ${eq.total} free` : maxAvail === 0 ? ` · ${t("jobUnavailable")}` : ` · ${t("jobAvailable")}`}
+                                    {isMulti ? ` · ${t("avFree").replace("{a}", maxAvail).replace("{t}", eq.total)}` : maxAvail === 0 ? ` · ${t("jobUnavailable")}` : ` · ${t("jobAvailable")}`}
                                   </p>
+                                  {reqReasonLines.length > 0 && reqReasonLines.slice(0, 2).map((l, i) => <p key={i} style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>· {l}</p>)}
                                 </div>
                                 {isMulti && isSelected && (
                                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
@@ -4088,7 +4209,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {/* GEAR TAB */}
         {tab === "gear" && (() => {
           const myAdminReqs = (adminRequests || []).filter(r => r.employeeId === employee.id);
-          const eqAvailList = calcAvailable(equipment || [], jobs || [], checkouts || [], today());
+          const eqAvailList = calcAvailable(equipment || [], today(), { jobs: jobs || [], checkouts: checkouts || [], equipmentRequests: equipmentRequests || [], reports: reports || [] });
           const eqCategories = [...new Set((equipment || []).map(e => e.category).filter(Boolean))].sort();
           const eqFiltered = eqFilterCat ? eqAvailList.filter(e => e.category === eqFilterCat) : eqAvailList;
           const eqSorted = [...eqFiltered].sort((a, b) => {
@@ -4120,19 +4241,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       ? <img src={eq.photo} alt={eq.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                       : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon d={icons.camera} size={32} color="var(--divider-color,#D8E1EC)" /></div>
                     }
-                    <div style={{ position: "absolute", top: 5, left: 5 }}>
-                      {eq.available === 0
-                        ? <span style={{ ...S.badge("red"), fontSize: 10 }}>Unavail.</span>
-                        : eq.available < eq.total
-                          ? <span style={{ ...S.badge("amber"), fontSize: 10 }}>{eq.available}/{eq.total}</span>
-                          : <span style={{ ...S.badge("green"), fontSize: 10 }}>{eq.available}/{eq.total}</span>
-                      }
-                    </div>
+                    <div style={{ position: "absolute", top: 5, left: 5 }}><AvChip av={eq} t={t} /></div>
                   </div>
                   <div style={{ padding: "8px 10px 8px", flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
                     {eq.category && <span style={S.tag}>{eq.category}</span>}
                     <p style={{ margin: 0, fontWeight: 700, fontSize: 12, lineHeight: 1.3, color: "var(--text,#16324A)" }}>{eq.name}</p>
                     {eq.notes && <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#7B8FA3)", lineHeight: 1.3 }}>{eq.notes}</p>}
+                    <AvReasons av={eq} t={t} max={1} />
                     <div style={{ marginTop: "auto", paddingTop: 6, display: "flex", justifyContent: "flex-end" }}>
                       <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} title="View QR" onClick={() => printQRForItems([eq], false)}>
                         <Icon d={icons.qr || icons.camera} size={12} /> QR
@@ -4933,10 +5048,20 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 }
 
 // ─── REPORT MODAL (employee submits a damage report) ─────────────────────────
-function ReportModal({ employee, equipment, onSubmit, onClose }) {
+function ReportModal({ employee, equipment, jobs, checkouts, onSubmit, onClose }) {
   const t = useT();
   const [photos, setPhotos] = useState([]);
   const [description, setDescription] = useState("");
+  const [qty, setQty] = useState(1);        // P2-2: units taken out of service
+  const [jobId, setJobId] = useState("");   // P2-2: link to the job it happened on
+  // Jobs this crew member touched recently first, then every other live job.
+  const jobChoices = (() => {
+    const mine = new Set((checkouts || []).filter(c => c.employeeId === employee.id && c.jobId).map(c => c.jobId));
+    const live = (jobs || []).filter(j => j.status !== "Declined");
+    return [...live.filter(j => mine.has(j.id)), ...live.filter(j => !mine.has(j.id))]
+      .sort((a, b) => (mine.has(b.id) ? 1 : 0) - (mine.has(a.id) ? 1 : 0) || ((b.dates || [])[0] || "").localeCompare((a.dates || [])[0] || ""))
+      .slice(0, 40);
+  })();
   const [incidentTs, setIncidentTs] = useState(() => {
     const d = new Date();
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -4957,16 +5082,23 @@ function ReportModal({ employee, equipment, onSubmit, onClose }) {
   const submit = () => {
     if (!description.trim()) return;
     const eq = equipment.find(e => e.id === eqId);
+    const job = (jobs || []).find(j => j.id === jobId);
     onSubmit({
       id: "rep" + Date.now(),
       eqId: eqId === "" || eqId === "other" ? null : eqId,
       eqName: eqId === "other" ? customEqName.trim() : (eq?.name || ""),
+      qty: eq ? Math.min(Math.max(1, +qty || 1), +eq.total || 1) : 1,
+      jobId: job ? job.id : null,
+      jobName: job ? job.name : "",
+      production: job ? (job.production || "") : "",
       description: description.trim(),
       photos,
       ts: new Date(incidentTs).getTime() || Date.now(),
       reportedBy: { id: employee.id, name: employee.name },
+      employeeId: employee.id,
       status: "open",
       resolvedAt: null,
+      cost: null, vendor: "",
     });
     setSubmitted(true);
   };
@@ -4999,6 +5131,30 @@ function ReportModal({ employee, equipment, onSubmit, onClose }) {
           {eqId === "other" && (
             <input style={{ ...S.input, marginTop: 8 }} value={customEqName} onChange={e => setCustomEqName(e.target.value)} placeholder={t("reportOtherName")} autoFocus />
           )}
+          {(() => {
+            const eq = equipment.find(e => e.id === eqId);
+            if (!eq) return null;
+            return (
+              <div style={{ marginTop: 8 }}>
+                {(+eq.total || 1) > 1 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <label style={{ ...S.label, marginBottom: 0 }}>{t("reportQty")}</label>
+                    <input type="number" min={1} max={eq.total} style={{ ...S.input, width: 80 }} value={qty} onChange={e => setQty(e.target.value)} />
+                    <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>/ {eq.total}</span>
+                  </div>
+                )}
+                <p style={{ margin: "6px 0 0", fontSize: 11, color: "#C53030" }}>⚠ {t("reportOutOfService")}</p>
+              </div>
+            );
+          })()}
+        </div>
+
+        <div>
+          <label style={S.label}>{t("reportJob")}</label>
+          <select style={S.select} value={jobId} onChange={e => setJobId(e.target.value)}>
+            <option value="">{t("reportNoJob")}</option>
+            {jobChoices.map(j => <option key={j.id} value={j.id}>{j.name}{j.production ? ` · ${j.production}` : ""}{(j.dates || [])[0] ? ` · ${formatDate(j.dates[0])}` : ""}</option>)}
+          </select>
         </div>
 
         <div>
@@ -5036,13 +5192,25 @@ function ReportModal({ employee, equipment, onSubmit, onClose }) {
 }
 
 // ─── ADMIN REPORTS PAGE ───────────────────────────────────────────────────────
-function AdminReportsPage({ reports, setReports, equipment }) {
+function AdminReportsPage({ reports, setReports, equipment, jobs, productionCompanies }) {
   const t = useT();
   const [filter, setFilter] = useState("open");
   const [expandedId, setExpandedId] = useState(null);
+  const [detail, setDetail] = useState({}); // P2-2: per-report draft of qty / cost / vendor
+  const [savedFlash, setSavedFlash] = useState(null);
 
   const resolve = (id, status) =>
     setReports(p => p.map(r => r.id === id ? { ...r, status, resolvedAt: Date.now() } : r));
+  const draftFor = (r) => detail[r.id] || { qty: r.qty || 1, cost: r.cost ?? "", vendor: r.vendor || "" };
+  const saveDetail = (r) => {
+    const d = draftFor(r);
+    const eq = r.eqId ? equipment.find(e => e.id === r.eqId) : null;
+    const qty = eq ? Math.min(Math.max(1, +d.qty || 1), +eq.total || 1) : 1;
+    const cost = d.cost === "" || d.cost === null ? null : (+String(d.cost).replace(/,/g, "") || 0);
+    setReports(p => p.map(x => x.id === r.id ? { ...x, qty, cost, vendor: (d.vendor || "").trim() } : x));
+    setDetail(p => { const n = { ...p }; delete n[r.id]; return n; });
+    setSavedFlash(r.id); setTimeout(() => setSavedFlash(f => f === r.id ? null : f), 1500);
+  };
 
   const statusBadge = (status) =>
     ({ open: <span style={S.badge("red")}>{t("reportStatusOpen")}</span>, solved: <span style={S.badge("green")}>{t("reportStatusSolved")}</span>, discarded: <span style={S.badge("gray")}>{t("reportStatusDiscarded")}</span> }[status] || null);
@@ -5079,10 +5247,24 @@ function AdminReportsPage({ reports, setReports, equipment }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
                       {statusBadge(r.status)}
-                      {(eq || r.eqName) && <span style={S.tag}>{eq?.name || r.eqName}</span>}
+                      {(eq || r.eqName) && <span style={S.tag}>{eq?.name || r.eqName}{(r.qty || 1) > 1 ? ` ×${r.qty}` : ""}</span>}
+                      {r.status === "open" && eq && <span style={{ ...S.badge("red"), fontSize: 10 }}>{t("reportOutOfServiceBadge")} · {t("reportUnitsShort").replace("{n}", r.qty || 1)}</span>}
                     </div>
                     <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text,#16324A)", lineHeight: 1.4 }}>{r.description}</p>
-                    <p style={{ margin: "5px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("reportBy")} <strong style={{ color: "var(--text-muted,#4E6B84)" }}>{r.reportedBy?.name}</strong> · {formatDateTime(r.ts)}</p>
+                    <p style={{ margin: "5px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("reportBy")} <strong style={{ color: "var(--text-muted,#4E6B84)" }}>{r.reportedBy?.name || (typeof r.reportedBy === "string" ? r.reportedBy : "")}</strong> · {formatDateTime(r.ts)}</p>
+                    {(() => {
+                      const job = r.jobId ? (jobs || []).find(j => j.id === r.jobId) : null;
+                      const jobName = job ? job.name : r.jobName;
+                      const customer = job ? job.production : r.production;
+                      if (!jobName && !customer) return null;
+                      return (
+                        <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text,#16324A)" }}>
+                          {jobName ? <>🎬 {t("reportLinkedJob")}: <strong>{jobName}</strong>{job && (job.dates || [])[0] ? ` (${formatDate(job.dates[0])})` : ""}</> : null}
+                          {customer ? <>{jobName ? " · " : ""}{t("reportCustomer")}: <strong>{customer}</strong></> : null}
+                        </p>
+                      );
+                    })()}
+                    {(r.cost || r.vendor) && <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{r.vendor ? `🔧 ${r.vendor}` : ""}{r.vendor && r.cost ? " · " : ""}{r.cost ? `฿${Number(r.cost).toLocaleString()}` : ""}</p>}
                   </div>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
                     {r.photos?.length > 0 && <img src={r.photos[0]} alt="" style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 8 }} />}
@@ -5101,6 +5283,20 @@ function AdminReportsPage({ reports, setReports, equipment }) {
                         {r.photos.map((ph, i) => <img key={i} src={ph} alt="" style={{ width: 100, height: 100, objectFit: "cover", borderRadius: 8 }} />)}
                       </div>
                     )}
+                    {/* P2-2: claim record, editable any time */}
+                    {(() => {
+                      const d = draftFor(r);
+                      return (
+                        <div style={{ display: "grid", gridTemplateColumns: eq && (+eq.total || 1) > 1 ? "90px 1fr 1fr auto" : "1fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 14 }}>
+                          {eq && (+eq.total || 1) > 1 && (
+                            <div><label style={S.label}>{t("reportQty")}</label><input type="number" min={1} max={eq.total} style={S.input} value={d.qty} onChange={e => setDetail(p => ({ ...p, [r.id]: { ...d, qty: e.target.value } }))} /></div>
+                          )}
+                          <div><label style={S.label}>{t("reportCost")}</label><input style={S.input} inputMode="decimal" value={d.cost} onChange={e => setDetail(p => ({ ...p, [r.id]: { ...d, cost: e.target.value } }))} placeholder="0" /></div>
+                          <div><label style={S.label}>{t("reportVendor")}</label><input style={S.input} value={d.vendor} onChange={e => setDetail(p => ({ ...p, [r.id]: { ...d, vendor: e.target.value } }))} /></div>
+                          <button style={{ ...S.btn(savedFlash === r.id ? "success" : "ghost"), whiteSpace: "nowrap" }} onClick={() => saveDetail(r)}>{savedFlash === r.id ? t("reportDetailsSaved") : t("reportSaveDetails")}</button>
+                        </div>
+                      );
+                    })()}
                     {r.status === "open" ? (
                       <div style={{ display: "flex", gap: 8 }}>
                         <button style={S.btn("success")} onClick={() => resolve(r.id, "solved")}>
@@ -8862,7 +9058,10 @@ export default function App() {
   const pendingAdminRequests = (adminRequests || []).filter(r => r.status === "pending");
   const pendingEquipReqCount = (equipmentRequests || []).filter(r => r.status === "pending").length;
   const _tRoot = (key) => (LANG[lang] || LANG.en)[key] ?? LANG.en[key] ?? key;
+  // Overdue gear (checkout-derived, survives a deleted job) for the bell + dashboard.
+  const overdueCount = stillOutList({ checkouts, jobs, equipment, equipmentRequests, today: today(), tz: APP_TZ }).filter(i => i.overdue).length;
   const notifItems = [
+    overdueCount > 0 && { label: _tRoot("notifOverdue"), count: overdueCount, color: "#C53030", icon: icons.alert, onClick: () => { setActivePage("dashboard"); setTimeout(() => document.getElementById("stillout-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120); } },
     pendingAdminRequests.length > 0 && { label: _tRoot("notifAdminApprovals"), count: pendingAdminRequests.length, color: "var(--accent,#2563EB)", icon: icons.check, onClick: () => { setActivePage("dashboard"); setTimeout(() => document.getElementById("approvals-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120); } },
     pendingEquipReqCount > 0 && { label: _tRoot("notifEquipRequests"), count: pendingEquipReqCount, color: "#2563EB", icon: icons.gear, onClick: () => setActivePage("team") },
     unresolvedCount > 0 && { label: _tRoot("notifDamageReports"), count: unresolvedCount, color: "#C53030", icon: icons.alert, onClick: () => { setEqInitialTab("reports"); setActivePage("equipment"); } },
@@ -8889,6 +9088,20 @@ export default function App() {
   // go through the save effect (restore, clear history, tombstone).
   const notifyOthers = () => {
     if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "data_saved" }));
+  };
+
+  // Dashboard "Receive" on a Not Returned row (P1-11): the admin books the gear back
+  // in with the same append-only return write a geo-return approval makes. Closes
+  // every open verification lane so the unit really reads as returned. The checkout
+  // track may replace this with its own receive UI; the prop contract is
+  // onReceive(jobId, eqId, { requestId, qty, lanes, jobName, eqName, employeeId, employeeName }).
+  const receiveStillOut = (jobId, eqId, extra = {}) => {
+    const eq = equipment.find(e => e.id === eqId);
+    const item = (eq && eq.name) || extra.eqName || eqId;
+    const qty = Math.max(1, +extra.qty || 1);
+    if (!window.confirm(_tRoot("dashReceiveConfirm").replace("{n}", qty).replace("{item}", item).replace("{job}", extra.jobName || jobId || ""))) return;
+    const events = buildReceiveEvents({ jobId, requestId: extra.requestId, jobName: extra.jobName, eqId, qty, lanes: extra.lanes, receivedFor: extra.employeeName || null });
+    setCheckouts(p => [...p, ...events]);
   };
 
   const createBackup = async (label) => {
@@ -9059,9 +9272,9 @@ export default function App() {
                 </p>
               </div>
             )}
-            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} deleteRecord={deleteRecord} />}
-            {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} initialTab={eqInitialTab} onConsumeInitialTab={() => setEqInitialTab(null)} />}
-            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} />}
+            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} deleteRecord={deleteRecord} reports={reports} onReceive={receiveStillOut} />}
+            {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} equipmentRequests={equipmentRequests} productionCompanies={productionCompanies} initialTab={eqInitialTab} onConsumeInitialTab={() => setEqInitialTab(null)} />}
+            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} equipmentRequests={equipmentRequests} reports={reports} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} jobs={jobs} setJobs={setJobs} adminRequests={adminRequests} />}
             {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} deleteRecord={deleteRecord} />}
             {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} />}
