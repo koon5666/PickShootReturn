@@ -169,3 +169,20 @@ score, Thai mode on the checkout screen / Today / Gear / Invoice / both modals, 
 Both scripts log in through the auth-track Login (Crew / ทีมงาน, Rental house admin) and
 read KV through `tests/apiclient.mjs`; run them on a fresh default seed (walk-auth changes
 Nong's PIN, so reseed after it).
+
+## 8. Roster-ops track walk-through
+
+```sh
+node tests/walk-roster-ops.mjs $PORT   # needs a FRESH default seed (it edits jobs, sets lineGroupId, creates a job offline)
+```
+
+Admin (1280x900): 2-column dashboard (Needs action rail + schedule, header New Job, no
+FAB), the bell lists the same needs-action items and deep-links, Team only points at the
+Dashboard for gear requests, crew roster on a job (KV `crew` + `checkoutRoles`), LINE push
+gated on real changes (contact edit silent, roster / date change pushes once), Insights page
+(utilisation, not returned, customer history, crew statement), per-tenant `theme` in KV,
+QR label window with inline SVG and no CDN. Admin 390px: stacked + FAB + Insights in the
+bottom nav. Crew Nong / Arthit (390x844): my jobs first with pickup + call time, other
+crews' jobs collapsed, Invoice tab my jobs + show all. Offline (P1-14): boot from the
+cache with `/api/data` blocked, create a job, reconnect -> the job reaches KV; a crew
+profile save made offline is queued and drained. Screenshots in `tests/.walk-roster-shots/`.

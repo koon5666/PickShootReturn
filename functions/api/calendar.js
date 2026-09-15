@@ -3,7 +3,9 @@
 // The token is created at first login (functions/_lib/accounts.js) and shown in
 // Settings / crew Profile; rotating it there invalidates every old subscription.
 // No token in KV yet (nobody has logged in since the upgrade) -> 403 as well.
+// X-WR-TIMEZONE comes from the tenant's saved timezone (P3-8, functions/_lib/tz.js).
 import { readField } from "../_lib/store.js";
+import { calendarTimezone } from "../_lib/tz.js";
 
 function esc(str) {
   return (str || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
@@ -30,7 +32,11 @@ export async function onRequestGet({ env, request }) {
   if (!(typeof token === "string" && token.length >= 32 && sent === token)) {
     return new Response("calendar token required", { status: 403, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
   }
-  const jobs = await env.KV.get("jobs", "json") || [];
+  const [jobs, savedTz] = await Promise.all([
+    env.KV.get("jobs", "json").then(v => v || []),
+    env.KV.get("timezone", "json").catch(() => null),
+  ]);
+  const tz = calendarTimezone(savedTz);
   const stamp = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
 
   const lines = [
@@ -41,7 +47,7 @@ export async function onRequestGet({ env, request }) {
     "METHOD:PUBLISH",
     "X-WR-CALNAME:PickShootReturn",
     "X-WR-CALDESC:Film Production Schedule",
-    "X-WR-TIMEZONE:Asia/Bangkok",
+    `X-WR-TIMEZONE:${tz}`,
     "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
     "X-PUBLISHED-TTL:PT1H",
   ];

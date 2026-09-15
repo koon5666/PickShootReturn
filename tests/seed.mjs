@@ -86,7 +86,7 @@ export function buildDefaultSeed() {
     name: "Tilta Nucleus-M", category: "Accessories", total: 1, notes: "Follow focus for the FX6 kit", photo: null,
   }];
   const reports = [{
-    id: "rep_seed1", employeeId: E.nong, eqId: "eq_rs3", eqName: "DJI RS3 Pro", description: "Tilt motor makes a grinding noise when balancing.", photos: [], ts: at(-1, 18), status: "open", reportedBy: "Nong",
+    id: "rep_seed1", employeeId: E.nong, eqId: "eq_rs3", eqName: "DJI RS3 Pro", description: "Tilt motor makes a grinding noise when balancing.", photos: [], ts: at(-1, 18), status: "open", reportedBy: { id: E.nong, name: "Nong" },
   }];
   return {
     data: {

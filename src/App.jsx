@@ -13,6 +13,10 @@ import { ToastProvider, useToast } from "./components/toast.jsx";
 import { Dialog } from "./components/dialog.jsx";
 import { formatDate, formatDateTime, formatDay, formatLongDay, setFormatLang, tCount, shootTimeLabel, locationLabel, statusLabel } from "./i18n/format.js";
 import { kpiMax, kpiPeriod as kpiPeriodAt, kpiScore as kpiScoreAt, kpiStars, kpiEventsInPeriod as kpiEventsInPeriodAt, kpiDelta, isKpiAdd, buildKpiEvent, visibleKpiRules } from "./logic/kpi.js";
+import { normalizeCrew, hasRoster, isOnRoster, myRosterEntry, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage, EMPTY_CREW_ROW } from "./logic/roster.js";
+import { buildSavePayload, dirtyFields, queueProfile, drainProfileQueue } from "./logic/offline.js";
+import { utilisation, utilisationCsv, overdueCsv, customerHistory, customerHistoryCsv, customerNames, crewStatement, crewStatementCsv, periodPreset, monthOf } from "./logic/reports.js";
+import { qrSvg } from "./vendor/qrcodegen.js";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const JOB_STATUSES = ["Pencil", "Confirmed", "Cancelled", "Declined"];
@@ -88,7 +92,25 @@ const CACHE_KEY = "psr_cache"; // localStorage key for offline fallback cache
 // Top-level fields the client persists to KV (the server FIELDS list in
 // functions/_lib/store.js also holds the server-owned adminPinHash / staff /
 // calendarToken / auditLog, which the client only reads).
-const DATA_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled"];
+const DATA_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled", "theme"];
+
+// Admin theme (P3-8): saved per tenant in KV as { style, palette }; localStorage
+// only caches it so the first paint after a reload already has the right look.
+const THEME_STYLES = ["flat", "neumorphism", "glassmorphism", "skeuomorphism"];
+const DEFAULT_THEME = { style: "flat", palette: "white-blue" };
+function readCachedTheme() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("psr_theme") || "null");
+    if (raw && typeof raw === "object") return normalizeTheme(raw);
+    // pre-P3-8 per-device keys
+    return normalizeTheme({ style: localStorage.getItem("psr_theme_style2"), palette: localStorage.getItem("psr_theme_palette2") });
+  } catch { return DEFAULT_THEME; }
+}
+function normalizeTheme(t) {
+  const style = THEME_STYLES.includes(t && t.style) ? t.style : DEFAULT_THEME.style;
+  const palette = t && t.palette && Object.prototype.hasOwnProperty.call(PALETTES, t.palette) ? t.palette : DEFAULT_THEME.palette;
+  return { style, palette };
+}
 
 // Replace inline base64 verification photos with a lightweight marker before a
 // snapshot is cached. Keeps the localStorage cache well under quota (the full
@@ -173,6 +195,7 @@ const icons = {
   bell: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0",
   package: ["M16.5 9.4l-9-5.19", "M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z", "M3.27 6.96L12 12.01l8.73-5.05", "M12 22.08V12"],
   qr: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h3v3h-3z M17 17h3v3h-3z M14 20h3 M20 14v3",
+  chart: "M3 3v18h18 M7 15l4-5 4 3 5-7",
   chat: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   send: "M22 2L11 13 M22 2L15 22l-4-9-9-4 22-7z",
   save: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z M17 21v-8H7v8 M7 3v5h8",
@@ -319,6 +342,28 @@ const S = {
   chip: (active) => ({ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4, boxSizing: "border-box", minHeight: 32, padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit", transition: "all .12s",
     ...(active ? { background: "var(--accent,#2563EB)", color: "var(--accent-text,#FFFFFF)", border: "1px solid var(--accent,#2563EB)" } : { background: "var(--surface,#FFFFFF)", color: "var(--text-muted,#4E6B84)", border: "1px solid var(--border-color,#D8E1EC)" }) }),
 };
+
+// ─── VIEWPORT ────────────────────────────────────────────────────────────────
+// true when the viewport is at least `px` wide (re-evaluated on resize).
+function useMinWidth(px) {
+  const [ok, setOk] = useState(() => typeof window !== "undefined" && window.innerWidth >= px);
+  useEffect(() => {
+    const on = () => setOk(window.innerWidth >= px);
+    on();
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, [px]);
+  return ok;
+}
+
+// Sidebar / bottom-nav order: the saved navOrder first, then any page it does
+// not know yet (a page added after the order was saved still shows up).
+function orderNav(items, navOrder) {
+  if (!Array.isArray(navOrder) || navOrder.length === 0) return items;
+  const known = navOrder.map(k => items.find(n => n.key === k)).filter(Boolean);
+  const seen = new Set(known.map(n => n.key));
+  return [...known, ...items.filter(n => !seen.has(n.key))];
+}
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
 // Thin wrapper over the portal-rendered Dialog primitive (src/components/dialog.jsx,
@@ -691,39 +736,37 @@ function AvReasons({ av, t, max = 2, style }) {
 }
 
 // ─── EQUIPMENT PAGE ───────────────────────────────────────────────────────────
-function printQRForItems(items, autoprint = true) {
+// QR labels for laser/inkjet: one label per item TYPE, encoding "psr_eq:<eqId>"
+// (what QRScanner accepts). The QR is rendered as inline SVG by the vendored
+// encoder (src/vendor/qrcodegen.js), so the print window works offline (P3-8).
+function printQRForItems(items, autoprint = true, title = "QR Labels") {
+  const escHtml = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const rows = items.map(eq => `
     <div class="label">
-      <div class="qr" id="qr_${eq.id}"></div>
+      <div class="qr">${qrSvg("psr_eq:" + eq.id, { size: "100%", margin: 1 })}</div>
       <div class="info">
-        <div class="name">${eq.name.replace(/</g,"&lt;")}</div>
-        <div class="cat">${(eq.category||"").replace(/</g,"&lt;")}${eq.total > 1 ? ` · ×${eq.total}` : ""}</div>
-        <div class="code">psr_eq:${eq.id}</div>
+        <div class="name">${escHtml(eq.name)}</div>
+        <div class="cat">${escHtml(eq.category || "")}${eq.total > 1 ? ` · ×${+eq.total}` : ""}</div>
+        <div class="code">psr_eq:${escHtml(eq.id)}</div>
       </div>
     </div>`).join("");
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR Labels</title>
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title>
 <style>
   body{margin:0;padding:10mm;font-family:sans-serif;background:#fff;color:#000}
   .grid{display:flex;flex-wrap:wrap;gap:6mm}
-  .label{width:55mm;border:1px solid #ccc;border-radius:3mm;padding:4mm;display:flex;align-items:center;gap:3mm;page-break-inside:avoid}
+  .label{width:55mm;border:1px solid #ccc;border-radius:3mm;padding:4mm;display:flex;align-items:center;gap:3mm;page-break-inside:avoid;box-sizing:border-box}
   .qr{width:24mm;height:24mm;flex-shrink:0}
-  .qr canvas,.qr img{width:100%;height:100%}
+  .qr svg{width:100%;height:100%;display:block}
   .info{flex:1;min-width:0;overflow:hidden}
   .name{font-weight:700;font-size:10pt;line-height:1.2;word-break:break-word}
   .cat{font-size:8pt;color:#555;margin-top:2px}
   .code{font-size:6pt;color:#aaa;margin-top:3px;word-break:break-all}
   @media print{body{padding:5mm}@page{size:A4;margin:10mm}}
 </style></head><body>
-<h2 style="margin:0 0 6mm;font-size:13pt">QR Labels (${items.length} item${items.length!==1?"s":""})</h2>
+<h2 style="margin:0 0 6mm;font-size:13pt">${escHtml(title)} (${items.length} item${items.length !== 1 ? "s" : ""})</h2>
 <div class="grid">${rows}</div>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
-<script>
-  document.querySelectorAll(".label").forEach(function(el){
-    var id=el.querySelector(".qr").id.replace("qr_","");
-    new QRCode(el.querySelector(".qr"),{text:"psr_eq:"+id,width:90,height:90,correctLevel:QRCode.CorrectLevel.M});
-  });
-  ${autoprint ? "setTimeout(function(){window.print();},800);" : ""}
-<\/script></body></html>`;
+${autoprint ? "<script>setTimeout(function(){window.print();},400);<\/script>" : ""}
+</body></html>`;
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
   window.open(url, "_blank");
@@ -804,54 +847,9 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
   // P3-5: full per-item log, newest first, date-filterable, paged 20 at a time.
   const getHistory = (eqId) => filterHistory(checkouts, eqId, { from: histRange.from, to: histRange.to, limit: histLimit, tz: APP_TZ });
 
-  // Generate a printable A4 sheet of QR code labels for all equipment.
-  // Each QR encodes "psr_eq:{eqId}" — scanned by QRScanner in checkout flow.
-  const printQRLabels = () => {
-    const items = equipment.map(eq => ({ id: eq.id, name: eq.name, category: eq.category, total: eq.total }));
-    const rows = [];
-    items.forEach(eq => {
-      // For multi-unit items, repeat the label `total` times (one sticker per physical unit isn't required;
-      // one label per item type is enough — scan counts as confirming the assigned qty).
-      rows.push(`
-        <div class="label">
-          <div class="qr" id="qr_${eq.id}"></div>
-          <div class="info">
-            <div class="name">${eq.name.replace(/</g,"&lt;")}</div>
-            <div class="cat">${(eq.category||"").replace(/</g,"&lt;")}${eq.total > 1 ? ` · ×${eq.total}` : ""}</div>
-            <div class="code">psr_eq:${eq.id}</div>
-          </div>
-        </div>`);
-    });
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR Labels</title>
-<style>
-  body{margin:0;padding:10mm;font-family:sans-serif;background:#fff;color:#000}
-  .grid{display:flex;flex-wrap:wrap;gap:6mm}
-  .label{width:55mm;border:1px solid #ccc;border-radius:3mm;padding:4mm;display:flex;align-items:center;gap:3mm;page-break-inside:avoid}
-  .qr{width:24mm;height:24mm;flex-shrink:0}
-  .qr canvas,.qr img{width:100%;height:100%}
-  .info{flex:1;min-width:0;overflow:hidden}
-  .name{font-weight:700;font-size:10pt;line-height:1.2;word-break:break-word}
-  .cat{font-size:8pt;color:#555;margin-top:2px}
-  .code{font-size:6pt;color:#aaa;margin-top:3px;word-break:break-all}
-  @media print{body{padding:5mm}@page{size:A4;margin:10mm}}
-</style>
-</head><body>
-<h2 style="margin:0 0 6mm;font-size:13pt">Pick Shoot Return — QR Labels (${items.length} items)</h2>
-<div class="grid">${rows.join("")}</div>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script>
-  document.querySelectorAll(".label").forEach(function(el){
-    var id = el.querySelector(".qr").id.replace("qr_","");
-    new QRCode(el.querySelector(".qr"),{text:"psr_eq:"+id,width:90,height:90,correctLevel:QRCode.CorrectLevel.M});
-  });
-  setTimeout(function(){window.print();},800);
-<\/script>
-</body></html>`;
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  };
+  // Printable A4 sheet of QR labels for every item (same renderer as the
+  // selection print; inline SVG, no network).
+  const printQRLabels = () => printQRForItems(equipment, true, "Pick Shoot Return QR Labels");
 
   const AvStatus = ({ av }) => <AvChip av={av} t={t} />;
 
@@ -2036,8 +2034,15 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
   const conflictRef = useRef(null);
   useEffect(() => { if (conflicts && conflictRef.current) conflictRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [conflicts]);
   const CONTACT_PLATFORMS = ["Line", "Facebook", "WhatsApp", "Instagram", "Phone"];
-  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line", dateOverrides: {}, pickupDate: "", returnDate: "" };
-  const [form, setForm] = useState(editTarget ? { ...editTarget, dateOverrides: editTarget.dateOverrides || {} } : EMPTY);
+  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line", dateOverrides: {}, pickupDate: "", returnDate: "", crew: [] };
+  const [form, setForm] = useState(editTarget ? { ...editTarget, dateOverrides: editTarget.dateOverrides || {}, crew: Array.isArray(editTarget.crew) ? editTarget.crew.map(r => ({ ...EMPTY_CREW_ROW, ...r })) : [] } : EMPTY);
+  const lang = useContext(LangCtx);
+  const roleList = roleOptions(lang);
+  // Crew roster rows (P1-10): employee + role + pickup / call time. Rows are kept
+  // loose while editing; normalizeCrew() drops blank / duplicate ones on save.
+  const setCrewRow = (idx, patch) => setForm(p => ({ ...p, crew: (p.crew || []).map((r, i) => i === idx ? { ...r, ...patch } : r) }));
+  const addCrewRow = () => setForm(p => ({ ...p, crew: [...(p.crew || []), { ...EMPTY_CREW_ROW }] }));
+  const removeCrewRow = (idx) => setForm(p => ({ ...p, crew: (p.crew || []).filter((_, i) => i !== idx) }));
   const [jobErr, setJobErr] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = editTarget?.dates?.[0] ? new Date(editTarget.dates[0] + "T00:00:00") : new Date();
@@ -2077,7 +2082,12 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
       ...form,
       pickupDate: form.pickupDate && form.pickupDate < sorted[0] ? form.pickupDate : "",
       returnDate: form.returnDate && form.returnDate > sorted[sorted.length - 1] ? form.returnDate : "",
+      crew: normalizeCrew(form.crew),
     };
+    // The roster is the default for the checkout lanes: a new roster (or a changed
+    // one) re-derives checkoutRoles; the Assign Gear modal can still override it.
+    const changes = jobChangeSet(editTarget, clean);
+    if (isNew || changes.includes("roster")) clean.checkoutRoles = defaultCheckoutRoles(clean);
     // P1-9: a date / status / window edit re-checks the job's OWN gear against
     // everything else (other Confirmed jobs across their windows, gear still out,
     // loans, open damage) and names the colliding jobs before anything is saved.
@@ -2097,28 +2107,23 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
     } else {
       setJobs(p => [...p, { ...clean, id: "job" + Date.now(), assignedEquipment: [] }]);
     }
-    {
-      const emoji = form.status === "Confirmed" ? "✅" : form.status === "Cancelled" ? "❌" : "✏️";
-      const action = isNew ? "New Job" : statusChanged ? `Status → ${form.status}` : "Updated";
-      const groups = {};
-      [...(form.dates || [])].sort().forEach(d => {
-        const dt = new Date(d + "T00:00:00");
-        const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
-        const label = dt.toLocaleString("en-GB", { month: "short" });
-        if (!groups[key]) groups[key] = { label, days: [] };
-        groups[key].days.push(dt.getDate());
-      });
-      const dateStr = Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
-      const locationStr = form.location + (form.locationCity ? ` — ${form.locationCity}` : "");
-      const msg = `${emoji} [${action}] ${form.name}\n🎬 ${form.production || "—"}\n📅 ${dateStr}\n📍 ${locationStr}\n🔗 https://pickshootreturn.pages.dev`;
-      if (!lineNotifyMuted) {
-        if (lineGroupId) {
-          api.notify({ userIds: [lineGroupId], message: msg });
-        } else {
-          const lineIds = (employees || []).filter(e => e.lineUserId).map(e => e.lineUserId);
-          if (lineIds.length > 0) api.notify({ userIds: lineIds, message: msg });
-        }
-      }
+    // LINE push only when something the crew cares about changed (new job, dates,
+    // status, location, roster); a contact-person tweak stays silent (P1-10).
+    if (!lineNotifyMuted && shouldNotify(changes)) {
+      const formatDates = (dates) => {
+        const groups = {};
+        [...(dates || [])].sort().forEach(d => {
+          const dt = new Date(d + "T00:00:00");
+          const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
+          const label = dt.toLocaleString("en-GB", { month: "short" });
+          if (!groups[key]) groups[key] = { label, days: [] };
+          groups[key].days.push(dt.getDate());
+        });
+        return Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
+      };
+      const msg = buildJobMessage(clean, { changes, employees: employees || [], formatDates });
+      const to = pushRecipients(clean, employees || [], lineGroupId);
+      if (to.length > 0) api.notify({ userIds: to, message: msg });
     }
     onClose();
   };
@@ -2139,7 +2144,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
           <span style={{ flex: 1, textAlign: "center", fontWeight: 600, fontSize: 14 }}>{monthName}</span>
           <button style={{ ...S.btn("ghost"), padding: "5px 10px" }} onClick={() => setCalendarMonth(p => { const d = new Date(p.year, p.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>›</button>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+        <div data-testid="job-calendar" style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
           {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 10, color: "var(--text-muted,#5F7A91)", fontWeight: 600, paddingBottom: 4 }}>{d}</div>)}
           {cells.map((d, i) => {
             if (!d) return <div key={"e" + i} />;
@@ -2229,6 +2234,38 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
             </div>
           );
         })()}
+
+        {/* Crew roster (P1-10): who is on this job, their role and times */}
+        <div data-testid="job-crew">
+          <label style={S.label}>{t("jobCrewField")} <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>({t("jobCrewHint")})</span></label>
+          {(form.crew || []).length === 0 && <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("jobCrewEmpty")}</p>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(form.crew || []).map((row, idx) => {
+              const taken = new Set((form.crew || []).filter((_, i) => i !== idx).map(r => r.employeeId));
+              return (
+                <div key={idx} data-testid="crew-row" style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.3fr) minmax(110px,1.2fr) 92px 92px 32px", gap: 6, alignItems: "center", padding: "7px 10px", borderRadius: 8, border: "1px solid var(--border-color,#D8E1EC)", background: "var(--surface2,#EAF0F7)" }}>
+                  <select style={{ ...S.select, fontSize: 12, padding: "7px 8px" }} value={row.employeeId || ""} onChange={e => setCrewRow(idx, { employeeId: e.target.value })} aria-label={t("jobCrewMember")}>
+                    <option value="">{t("jobCrewPick")}</option>
+                    {(employees || []).filter(emp => !taken.has(emp.id) || emp.id === row.employeeId).map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                  </select>
+                  <input style={{ ...S.input, fontSize: 12, padding: "7px 8px" }} list={"crew-roles-" + idx} value={row.role || ""} onChange={e => setCrewRow(idx, { role: e.target.value })} placeholder={t("jobCrewRole")} aria-label={t("jobCrewRole")} />
+                  <datalist id={"crew-roles-" + idx}>{roleList.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}</datalist>
+                  <input type="time" style={{ ...S.input, fontSize: 12, padding: "7px 6px" }} value={row.pickupTime || ""} onChange={e => setCrewRow(idx, { pickupTime: e.target.value })} title={t("jobCrewPickupTime")} aria-label={t("jobCrewPickupTime")} />
+                  <input type="time" style={{ ...S.input, fontSize: 12, padding: "7px 6px" }} value={row.callTime || ""} onChange={e => setCrewRow(idx, { callTime: e.target.value })} title={t("jobCrewCallTime")} aria-label={t("jobCrewCallTime")} />
+                  <button style={{ ...S.btn("ghost"), padding: "5px 7px", fontSize: 12, justifyContent: "center" }} onClick={() => removeCrewRow(idx)} title={t("jobCrewRemove")}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+          {(form.crew || []).length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.3fr) minmax(110px,1.2fr) 92px 92px 32px", gap: 6, padding: "2px 10px 0", fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>
+              <span>{t("jobCrewMember")}</span><span>{t("jobCrewRole")}</span><span>{t("jobCrewPickupTime")}</span><span>{t("jobCrewCallTime")}</span><span />
+            </div>
+          )}
+          <button style={{ ...S.btn("ghost"), fontSize: 12, marginTop: 8 }} onClick={addCrewRow} disabled={(employees || []).length === 0} data-testid="add-crew">
+            <Icon d={icons.plus} size={13} /> {t("jobCrewAdd")}
+          </button>
+        </div>
 
         {/* Per-date location / time overrides */}
         {form.dates.length > 0 && (
@@ -2335,7 +2372,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
     setAssignForm(init);
     setAssignTarget(job);
     setAssignCheckoutMode(job.checkoutMode || "span");
-    setAssignRoles(job.checkoutRoles || { barcode: "anyone", photo: "anyone" });
+    setAssignRoles(job.checkoutRoles || defaultCheckoutRoles(job)); // roster = default lanes (P1-10)
     setModal("assign");
   };
 
@@ -2430,10 +2467,13 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                     {job.dates.length} day{job.dates.length !== 1 ? "s" : ""} · {job.dates[0] ? formatDate(job.dates[0]) : "No date"}{job.dates.length > 1 ? ` → ${formatDate(job.dates[job.dates.length - 1])}` : ""}
                   </p>
                   {outCount > 0 && <p style={{ margin: "4px 0 0", fontSize: 11, color: "#2563EB" }}>{outCount} assigned · {picked} picked · {returned} returned</p>}
+                  {hasRoster(job)
+                    ? <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }} data-testid="job-crew-line">👥 {crewNames(job, employees).join(", ")}</p>
+                    : <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#8CA2B5)" }}>👥 {t("jobNoCrewYet")}</p>}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                   {(job.status === "Confirmed" || job.status === "Pencil") && <button style={{ ...S.btn(job.status === "Confirmed" ? "success" : "ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => openAssign(job)}><Icon d={icons.gear} size={13} /> {t("jobAssignGear")}</button>}
-                  <button style={{ ...S.btn("ghost"), padding: "6px 8px" }} onClick={() => openEdit(job)}><Icon d={icons.edit} size={14} /></button>
+                  <button style={{ ...S.btn("ghost"), padding: "6px 8px" }} onClick={() => openEdit(job)} data-testid={"job-edit-" + job.id} title={t("editJob")}><Icon d={icons.edit} size={14} /></button>
                   <button style={{ ...S.btn("danger"), padding: "6px 8px" }} onClick={() => del(job.id)}><Icon d={icons.trash} size={14} /></button>
                 </div>
               </div>
@@ -2955,14 +2995,18 @@ function DashboardCalendar({ jobs, equipment, onEdit }) {
 }
 
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
-function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, lineNotifyMuted, deleteRecord, reports, onReceive }) {
+function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, lineNotifyMuted, deleteRecord, reports, onReceive, onOpenReports }) {
   const t = useT();
+  const wide = useMinWidth(1024);   // 2-column layout (P2-11)
+  const phone = !useMinWidth(768);  // FAB + jump banner only here
+  const openReports = (reports || []).filter(isOpenReport).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const todayStr = today();
   const todayJobs = jobs.filter(j => j.dates.includes(todayStr));
   const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
   const pencilJobs = jobs.filter(j => j.status === "Pencil");
   const avList = calcAvailable(equipment, todayStr, { jobs, checkouts, equipmentRequests, reports });
   const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
+  const needsActionTotal = (adminRequests || []).filter(r => r.status === "pending").length + pendingRequests.length + openReports.length; // + overdue / due today once stillOutItems exists
 
   // Gear that was picked up but never returned: computed from the checkout log keyed
   // by job / request, so a deleted or Cancelled job still lists (P1-12). Count-based
@@ -2970,6 +3014,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   // return leaves `missing` set ("Missing n"); lost / written-off units drop out.
   const stillOutItems = stillOutList({ checkouts, jobs, equipment, equipmentRequests, today: todayStr, tz: APP_TZ });
   const physOutUnits = stillOutItems.reduce((s, i) => s + i.qty, 0);
+  const needsActionCount = needsActionTotal + stillOutItems.filter(i => i.overdue || i.dueToday).length;
   // Crew phone for the Not Returned rows: lazy per-employee profile fetch (read-only).
   const [crewProfiles, setCrewProfiles] = useState({});
   const stillOutCrewIds = [...new Set(stillOutItems.map(i => i.pickedById).filter(Boolean))].join(",");
@@ -3034,383 +3079,25 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div>
-        <h1 style={{ ...S.pageTitle, marginBottom: 2 }}>{t("dashOverview")}</h1>
-        <p style={{ ...S.pageSubtitle, marginBottom: 0 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</p>
-      </div>
-
-      {/* Approvals attention banner — the Approvals card lives far down the page and
-          gates crew logins + field returns, so surface a jump-to link when anything waits. */}
-      {(adminRequests || []).filter(r => r.status === "pending").length > 0 && (
-        <div onClick={() => document.getElementById("approvals-card")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 16px", borderRadius: 10, cursor: "pointer", background: "rgba(var(--accent-rgb,37,99,235),0.1)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.35)" }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent,#2563EB)" }}>
-            {(adminRequests || []).filter(r => r.status === "pending").length} {t("dashApprovalsWaiting")}
-          </span>
-          <span style={{ ...S.btn("primary"), padding: "5px 12px", fontSize: 12 }}>{t("dashReview")}</span>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ ...S.pageTitle, marginBottom: 2 }}>{t("dashOverview")}</h1>
+          <p style={{ ...S.pageSubtitle, marginBottom: 0 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</p>
         </div>
-      )}
-
-      {/* Stats row — 3 tappable cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-        {Object.entries(statSections).map(([key, s]) => {
-          const isOpen = expandedStat === key;
-          return (
-            <div key={key}
-              onClick={() => setExpandedStat(isOpen ? null : key)}
-              style={{ ...S.card, textAlign: "center", padding: "14px 8px", cursor: "pointer",
-                border: isOpen ? `1px solid ${s.color}` : "1px solid var(--divider-color,#D8E1EC)",
-                background: isOpen ? `${s.color}12` : "var(--surface,#FFFFFF)",
-                transition: "all 0.15s" }}>
-              <p style={{ margin: 0, fontSize: 28, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.jobs.length}</p>
-              <p style={{ margin: "5px 0 0", fontSize: 9, color: isOpen ? s.color : "var(--text-muted,#5F7A91)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1.3 }}>{s.label}</p>
-              <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke={isOpen ? s.color : "var(--text-muted,#8CA2B5)"} strokeWidth={2.5} strokeLinecap="round" style={{ marginTop: 6, transition: "transform 0.15s", transform: isOpen ? "rotate(180deg)" : "none" }}>
-                <path d="M6 9l6 6 6-6" />
-              </svg>
-            </div>
-          );
-        })}
+        {!phone && (
+          <button data-testid="dash-new-job" style={S.btn("primary")} onClick={() => setDashJobModal("new")}><Icon d={icons.plus} size={15} /> {t("jobNewJob")}</button>
+        )}
       </div>
 
-      {/* Expanded job list under the stat cards */}
-      {expandedStat && (() => {
-        const s = statSections[expandedStat];
-        return (
-          <div style={{ ...S.card, padding: "14px 16px", marginTop: -6, borderTop: `2px solid ${s.color}`, borderRadius: "0 0 10px 10px" }}>
-            <p style={{ ...S.sectionTitle, color: s.color, marginBottom: 12 }}>{s.label}</p>
-            {s.jobs.length === 0 ? (
-              <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>{t("dashNoJobsCategory")}</p>
-            ) : s.jobs.map((j, i) => (
-              <div key={j.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < s.jobs.length - 1 ? 12 : 0, marginBottom: i < s.jobs.length - 1 ? 12 : 0, borderBottom: i < s.jobs.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
-                    <span style={S.badge(statusColor[j.status] || "gray")}>{j.status}</span>
-                    <span style={S.badge(locationColor[j.location] || "gray")}>{j.location}{j.locationCity ? ` · ${j.locationCity}` : ""}</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{j.name}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{j.production} · {j.shootTime}</p>
-                  <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>
-                    {j.dates.length} day{j.dates.length !== 1 ? "s" : ""}
-                    {j.dates[0] ? ` · ${formatDate(j.dates[0])}${j.dates.length > 1 ? " →" : ""}` : ""}
-                    {j.dates.length > 1 ? ` ${formatDate(j.dates[j.dates.length - 1])}` : ""}
-                  </p>
-                </div>
-                <div style={{ display: "flex", gap: 5, flexShrink: 0, flexDirection: "column", alignItems: "flex-end" }}>
-                  {(j.assignedEquipment || []).length > 0 && (
-                    <span style={{ ...S.badge("blue") }}>{j.assignedEquipment.length} items</span>
-                  )}
-                  <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={e => { e.stopPropagation(); setDashJobModal(j); }}>
-                    <Icon d={icons.edit} size={12} /> {t("dashEdit")}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-
-      {/* Calendar */}
-      <DashboardCalendar jobs={jobs} equipment={equipment} onEdit={(job) => setDashJobModal(job)} />
-
-      {/* Equipment status: bookings (assignment-based) vs gear physically out (checkout-based) */}
-      {(() => {
-        const outJobs = jobs.filter(j => j.status === "Confirmed" && j.dates.includes(todayStr) && (j.assignedEquipment || []).length > 0);
-        const totalBooked = avList.filter(e => e.hard && e.hard.jobs > 0).length;
-        const physOutTypes = new Set(stillOutItems.map(i => i.eqId)).size;
-        return (
-          <div style={S.card} data-testid="booked-today">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
-              <p style={{ ...S.sectionTitle, margin: 0 }}>{t("dashBookedToday")}</p>
-              <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)", flexShrink: 0 }}>{t("dashBookedCount").replace("{n}", totalBooked).replace("{t}", equipment.length)}</span>
-            </div>
-            <div onClick={() => document.getElementById("stillout-card")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderRadius: 8, marginBottom: outJobs.length ? 10 : 0, cursor: "pointer",
-                background: physOutUnits > 0 ? (stillOutItems.some(i => i.overdue) ? "rgba(197,48,48,0.06)" : "rgba(var(--accent-rgb,37,99,235),0.06)") : "var(--surface2,#EAF0F7)",
-                border: `1px solid ${stillOutItems.some(i => i.overdue) ? "rgba(197,48,48,0.3)" : "var(--divider-color,#D8E1EC)"}` }}>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: stillOutItems.some(i => i.overdue) ? "#C53030" : "var(--text-muted,#4E6B84)" }}>📦 {t("dashPhysOut")}</span>
-              <span data-testid="phys-out" style={{ fontSize: 12, fontWeight: 700, color: physOutUnits > 0 ? (stillOutItems.some(i => i.overdue) ? "#C53030" : "var(--accent,#2563EB)") : "#2F855A" }}>{t("dashPhysOutCount").replace("{u}", physOutUnits).replace("{n}", physOutTypes)}</span>
-            </div>
-            {outJobs.length === 0
-              ? <p style={{ color: "#2F855A", fontSize: 13, margin: 0 }}>{t("dashAllAvail")}</p>
-              : <div style={S.col}>
-                  {outJobs.map(job => {
-                    const eqCount = (job.assignedEquipment || []).length;
-                    return (
-                      <button key={job.id} onClick={() => setEqOutJob(job)}
-                        style={{ ...S.card, background: "var(--surface2,#EAF0F7)", border: "1px solid var(--divider-color,#D8E1EC)", cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", margin: 0 }}>
-                        <div style={{ minWidth: 0 }}>
-                          <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.name}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.production || "—"}</p>
-                        </div>
-                        <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{eqCount} item{eqCount !== 1 ? "s" : ""}</span>
-                      </button>
-                    );
-                  })}
-                </div>}
-          </div>
-        );
-      })()}
-
-      {eqOutJob && (
-        <Modal title={eqOutJob.name} onClose={() => setEqOutJob(null)}>
-          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>{eqOutJob.production || "—"}</p>
-          <div style={S.col}>
-            {(eqOutJob.assignedEquipment || []).map(ae => {
-              const eq = equipment.find(e => e.id === ae.eqId);
-              if (!eq) return null;
-              const avItem = avList.find(e => e.id === ae.eqId);
-              const allOut = avItem ? avItem.available <= 0 : false;
-              return (
-                <div key={ae.eqId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: "var(--text,#16324A)" }}>{eq.name}</p>
-                    {eq.category && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{eq.category}</p>}
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: allOut ? "#C53030" : "var(--accent,#2563EB)", flexShrink: 0 }}>×{ae.qty}</span>
-                </div>
-              );
-            })}
-          </div>
-        </Modal>
-      )}
-
-      {/* Not Returned: from the checkout log (P1-11 / P1-12) */}
-      <div id="stillout-card" data-testid="stillout-card" style={{ ...S.card, border: stillOutItems.some(i => i.overdue) ? "1px solid rgba(197,48,48,0.35)" : "1px solid var(--divider-color,#D8E1EC)", padding: "10px 14px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stillOutItems.length ? 8 : 0 }}>
-          <p style={{ ...S.sectionTitle, margin: 0, fontSize: 12 }}>{t("dashStillOut")}</p>
-          {stillOutItems.length > 0 && (
-            <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{t("dashPhysOutCount").replace("{u}", physOutUnits).replace("{n}", stillOutItems.length)}</span>
-          )}
+      {/* Two columns from 1024px (P2-11): a "Needs action" rail on the left, the
+          schedule (stats, calendar, bookings, activity) on the right. Narrower
+          screens stack the rail first so the actionable cards stay above the fold. */}
+      <div data-testid="dash-grid" style={wide ? { display: "grid", gridTemplateColumns: "minmax(360px, 5fr) minmax(0, 7fr)", gap: 16, alignItems: "start" } : { display: "flex", flexDirection: "column", gap: 16 }}>
+      <div data-testid="needs-action-rail" style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <p style={{ ...S.sectionTitle, margin: 0 }}>{t("dashNeedsAction")}</p>
+          {needsActionCount > 0 ? <span style={S.badge("red")}>{needsActionCount}</span> : <span style={{ fontSize: 11, color: "#2F855A", fontWeight: 600 }}>{t("dashAllClear")}</span>}
         </div>
-        {stillOutItems.length === 0
-          ? <p style={{ color: "#2F855A", fontSize: 12, margin: 0 }}>{t("dashStillOutEmpty")}</p>
-          : stillOutItems.map((item, idx, arr) => {
-              const color = item.overdue ? "#C53030" : item.dueToday ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)";
-              const prof = item.pickedById ? crewProfiles[item.pickedById] : null;
-              const phone = prof && prof.phone ? prof.phone : "";
-              const picked = item.daysOut > 0 ? t("dashPickedAgo").replace("{n}", item.daysOut) : t("dashPickedToday");
-              const due = item.overdue ? null : item.dueToday ? t("dashDueToday") : item.dueDate ? t("dashDue").replace("{date}", formatDate(item.dueDate)) : t("dashNoDue");
-              return (
-                <div key={item.key} data-testid="stillout-row" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
-                  <div style={{ width: 3, alignSelf: "stretch", borderRadius: 2, background: item.overdue ? "#C53030" : "var(--accent,#2563EB)", flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text,#16324A)" }}>{item.qty} × {item.eqName}</span>
-                      {item.missing && <span style={{ ...S.badge("red"), fontSize: 10 }}>{t("missingN").replace("{n}", item.qty)}</span>}
-                      {item.overdue
-                        ? <span style={{ ...S.badge("red"), fontSize: 10, fontWeight: 800 }}>{t("dashOverdueDays").replace("{n}", item.daysOverdue)}</span>
-                        : item.dueToday ? <span style={{ ...S.badge("amber"), fontSize: 10 }}>{t("dashDueToday")}</span> : <span style={{ ...S.badge("gray"), fontSize: 10 }}>{t("dashStillOutActive")}</span>}
-                    </div>
-                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {item.jobName}{item.jobGone ? ` (${t("dashJobGone")})` : ""}{item.job && item.job.production ? ` · ${item.job.production}` : ""}
-                    </p>
-                    <p style={{ margin: "2px 0 0", fontSize: 11, color, fontVariantNumeric: "tabular-nums" }}>
-                      {picked}{due ? ` · ${due}` : item.dueDate ? ` · ${t("dashDue").replace("{date}", formatDate(item.dueDate))}` : ""}
-                    </p>
-                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text,#16324A)" }}>
-                      👤 {item.pickedBy || "?"}{phone ? <> · <a href={`tel:${phone.replace(/[^+\d]/g, "")}`} style={{ color: "var(--accent,#2563EB)", textDecoration: "none", fontWeight: 600 }}>{phone}</a></> : ""}
-                    </p>
-                  </div>
-                  {onReceive && (
-                    <button data-testid="receive-btn" style={{ ...S.btn("success"), padding: "5px 10px", fontSize: 11, flexShrink: 0 }}
-                      onClick={() => onReceive(item.jobId, item.eqId, { requestId: item.requestId, qty: item.qty, lanes: item.lanes, jobName: item.jobName, eqName: item.eqName, employeeId: item.pickedById, employeeName: item.pickedBy })}>
-                      ✓ {t("dashReceive")}
-                    </button>
-                  )}
-                </div>
-              );
-            })
-        }
-      </div>
-
-      {/* Recent activity */}
-      <div style={S.card}>
-        <p style={S.sectionTitle}>{t("dashRecentActivity")}</p>
-        {activityGroups.length === 0 ? (
-          <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{t("dashNoActivity")}</p>
-        ) : activityGroups.map((group, i, arr) => {
-          const isExpanded = expandedActivityKeys.has(group.key);
-          const sortedItems = [...group.items].sort((a, b) => b.ts - a.ts);
-          const latestType = sortedItems[0]?.type;
-          const isPick = latestType === "pick" || latestType === "checkout";
-          const empNames = [...group.empNames].join(", ");
-          return (
-            <div key={group.key} style={{ paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
-              <div onClick={() => toggleActivity(group.key)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                <span style={S.badge(isPick ? "amber" : "green")}>{isPick ? t("dashPicked") : t("dashReturned")}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{group.label}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{empNames} · {formatDateTime(group.latestTs)}</p>
-                </div>
-                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted,#5F7A91)" strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}><path d="M9 18l6-6-6-6" /></svg>
-              </div>
-              {isExpanded && (
-                <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid var(--divider-color,#D8E1EC)" }}>
-                  {sortedItems.map((c, ci) => {
-                    const eq = equipment.find(e => e.id === c.eqId);
-                    const cIsPick = isPickEvt(c.type);
-                    return (
-                      <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: ci < sortedItems.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
-                        <span style={S.badge(cIsPick ? "amber" : isLostEvt(c.type) ? "red" : "green")}>{cIsPick ? t("pickEvt") : isLostEvt(c.type) ? t("condLost") : t("returnEvt")}</span>
-                        <div style={{ flex: 1 }}>
-                          <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || "—"} ×{c.qty}</p>
-                          <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>{c.employeeName} · {formatDateTime(c.ts)}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Floating + FAB */}
-      <button
-        onClick={() => setDashJobModal("new")}
-        style={{
-          position: "fixed", bottom: 78, right: 20, width: 52, height: 52,
-          borderRadius: "50%", background: "var(--btn-primary-bg,#2563EB)", color: "var(--btn-primary-color,#FFFFFF)",
-          border: "none", fontSize: 28, fontWeight: 300, cursor: "pointer",
-          boxShadow: "0 4px 16px rgba(22,50,74,0.14)", display: "flex", alignItems: "center", justifyContent: "center",
-          zIndex: 90,
-        }}
-        title="New Job"
-      >+</button>
-
-      {/* Gear Requests */}
-      <div style={S.card}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <p style={{ ...S.sectionTitle, margin: 0 }}>
-            {t("dashGearRequests")}
-            {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pendingRequests.length} {t("dashPending")}</span>}
-          </p>
-        </div>
-        {(equipmentRequests || []).length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>{t("dashNoRequests")}</p>
-        ) : [...(equipmentRequests || [])].reverse().slice(0, 10).map((req, i, arr) => {
-          const itemLabel = req.items
-            ? req.items.map(it => { const e = equipment.find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
-            : `${equipment.find(e => e.id === req.eqId)?.name || req.eqName} ×${req.qty}`;
-          const dateLabel = req.useDates?.length > 0 ? req.useDates.map(formatDate).join(", ") : req.useDate ? formatDate(req.useDate) : null;
-          return (
-            <div key={req.id}
-              onClick={() => setDashReqModal(req)}
-              style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", cursor: "pointer" }}>
-              <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{statusLabel(t, req.status)}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)" }}>{req.employeeName}</p>
-                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{itemLabel}</p>
-                {dateLabel && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{dateLabel}</p>}
-              </div>
-              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted,#8CA2B5)" strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M9 18l6-6-6-6" /></svg>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Request Detail Modal */}
-      {dashReqModal && (() => {
-        const req = dashReqModal;
-        const items = req.items || [{ eqId: req.eqId, eqName: req.eqName, qty: req.qty }];
-        const dateLabel = req.useDates?.length > 0 ? req.useDates.map(formatDate).join(", ") : req.useDate ? formatDate(req.useDate) : null;
-        return (
-          <Modal title={t("dashGearReqDetail")} onClose={() => setDashReqModal(null)}>
-            <div style={S.col}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{statusLabel(t, req.status)}</span>
-                <span style={{ fontWeight: 700, fontSize: 15 }}>{req.employeeName}</span>
-              </div>
-
-              <div style={{ borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 12 }}>
-                <p style={{ ...S.label, marginBottom: 8 }}>{t("dashRequestedItems")}</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {items.map((item, i) => {
-                    const eq = equipment.find(e => e.id === item.eqId);
-                    return (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--surface2,#EAF0F7)", borderRadius: 8, border: "1px solid var(--divider-color,#D8E1EC)" }}>
-                        {eq?.photo
-                          ? <img src={eq.photo} alt="" style={{ width: 36, height: 32, objectFit: "cover", borderRadius: 5, flexShrink: 0 }} />
-                          : <div style={{ width: 36, height: 32, borderRadius: 5, background: "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon d={icons.camera} size={12} color="var(--text-muted,#8CA2B5)" /></div>
-                        }
-                        <div style={{ flex: 1 }}>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{eq?.name || item.eqName}</p>
-                          {eq?.category && <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{eq.category}</p>}
-                        </div>
-                        <span style={{ ...S.badge("blue"), flexShrink: 0 }}>×{item.qty}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {dateLabel && (
-                <div>
-                  <p style={S.label}>{req.useDates?.length > 1 ? t("dashDatesNeeded") : t("dashDateNeeded")}</p>
-                  <p style={{ fontSize: 13, color: "var(--text,#16324A)", margin: 0 }}>{dateLabel}</p>
-                </div>
-              )}
-
-              <div>
-                <p style={S.label}>{t("dashPurpose")}</p>
-                <p style={{ fontSize: 13, color: "var(--text,#16324A)", margin: 0 }}>
-                  {req.purpose === "work" ? `${t("teamWork")} — ${req.jobName || ""}${req.productionName ? ` (${req.productionName})` : ""}` : t("purposePractice")}
-                </p>
-              </div>
-
-              {req.reason && (
-                <div>
-                  <p style={S.label}>{t("dashReason")}</p>
-                  <p style={{ fontSize: 13, color: "var(--text-muted,#4E6B84)", margin: 0 }}>{req.reason}</p>
-                </div>
-              )}
-
-              <p style={{ fontSize: 11, color: "var(--text-muted,#8CA2B5)", margin: 0 }}>Requested {new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
-
-              {req.status === "pending" && (
-                <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
-                  <button style={{ ...S.btn("ghost"), flexShrink: 0 }} title="Delete request" onClick={() => deleteRequest(req)}><Icon d={icons.trash} size={14} /></button>
-                  <button style={{ ...S.btn("danger"), flex: 1 }} onClick={() => denyRequest(req)}>{t("dashDeny")}</button>
-                  <button style={{ ...S.btn("success"), flex: 1 }} onClick={() => approveRequest(req)}>{t("dashApprove")}</button>
-                </div>
-              )}
-              {req.status === "approved" && (() => {
-                const reqCheckouts = checkouts.filter(c => c.requestId === req.id);
-                const pickedIds = new Set(reqCheckouts.filter(c => isPickEvt(c.type)).map(c => c.eqId));
-                const returnedIds = new Set(reqCheckouts.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
-                return (
-                  <div style={{ borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 12 }}>
-                    <p style={{ ...S.label, marginBottom: 8 }}>{t("dashCheckoutStatus")}</p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {items.map((item, i) => {
-                        const eq = equipment.find(e => e.id === item.eqId);
-                        const returned = returnedIds.has(item.eqId);
-                        const picked = pickedIds.has(item.eqId);
-                        return (
-                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: "var(--surface2,#EAF0F7)", borderRadius: 8, border: "1px solid var(--divider-color,#D8E1EC)" }}>
-                            <div style={{ flex: 1 }}>
-                              <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || item.eqName} ×{item.qty}</p>
-                            </div>
-                            <span style={S.badge(returned ? "green" : picked ? "amber" : "gray")}>{returned ? "RETURNED" : picked ? "OUT" : "NOT YET"}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-              {req.status !== "pending" && (
-                <div style={{ display: "flex", gap: 10 }}>
-                  <button style={{ ...S.btn("ghost"), flexShrink: 0 }} title="Delete request" onClick={() => deleteRequest(req)}><Icon d={icons.trash} size={14} /></button>
-                  <button style={{ ...S.btn("ghost"), flex: 1 }} onClick={() => setDashReqModal(null)}>{t("dashClose")}</button>
-                </div>
-              )}
-            </div>
-          </Modal>
-        );
-      })()}
-
       {/* Admin Approvals — dedicated, filterable history */}
       {(() => {
         const allReqs = adminRequests || [];
@@ -3530,6 +3217,393 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         );
       })()}
 
+      {/* Not Returned: from the checkout log (P1-11 / P1-12) */}
+      <div id="stillout-card" data-testid="stillout-card" style={{ ...S.card, border: stillOutItems.some(i => i.overdue) ? "1px solid rgba(197,48,48,0.35)" : "1px solid var(--divider-color,#D8E1EC)", padding: "10px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stillOutItems.length ? 8 : 0 }}>
+          <p style={{ ...S.sectionTitle, margin: 0, fontSize: 12 }}>{t("dashStillOut")}</p>
+          {stillOutItems.length > 0 && (
+            <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{t("dashPhysOutCount").replace("{u}", physOutUnits).replace("{n}", stillOutItems.length)}</span>
+          )}
+        </div>
+        {stillOutItems.length === 0
+          ? <p style={{ color: "#2F855A", fontSize: 12, margin: 0 }}>{t("dashStillOutEmpty")}</p>
+          : stillOutItems.map((item, idx, arr) => {
+              const color = item.overdue ? "#C53030" : item.dueToday ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)";
+              const prof = item.pickedById ? crewProfiles[item.pickedById] : null;
+              const phone = prof && prof.phone ? prof.phone : "";
+              const picked = item.daysOut > 0 ? t("dashPickedAgo").replace("{n}", item.daysOut) : t("dashPickedToday");
+              const due = item.overdue ? null : item.dueToday ? t("dashDueToday") : item.dueDate ? t("dashDue").replace("{date}", formatDate(item.dueDate)) : t("dashNoDue");
+              return (
+                <div key={item.key} data-testid="stillout-row" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+                  <div style={{ width: 3, alignSelf: "stretch", borderRadius: 2, background: item.overdue ? "#C53030" : "var(--accent,#2563EB)", flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text,#16324A)" }}>{item.qty} × {item.eqName}</span>
+                      {item.missing && <span style={{ ...S.badge("red"), fontSize: 10 }}>{t("missingN").replace("{n}", item.qty)}</span>}
+                      {item.overdue
+                        ? <span style={{ ...S.badge("red"), fontSize: 10, fontWeight: 800 }}>{t("dashOverdueDays").replace("{n}", item.daysOverdue)}</span>
+                        : item.dueToday ? <span style={{ ...S.badge("amber"), fontSize: 10 }}>{t("dashDueToday")}</span> : <span style={{ ...S.badge("gray"), fontSize: 10 }}>{t("dashStillOutActive")}</span>}
+                    </div>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {item.jobName}{item.jobGone ? ` (${t("dashJobGone")})` : ""}{item.job && item.job.production ? ` · ${item.job.production}` : ""}
+                    </p>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color, fontVariantNumeric: "tabular-nums" }}>
+                      {picked}{due ? ` · ${due}` : item.dueDate ? ` · ${t("dashDue").replace("{date}", formatDate(item.dueDate))}` : ""}
+                    </p>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text,#16324A)" }}>
+                      👤 {item.pickedBy || "?"}{phone ? <> · <a href={`tel:${phone.replace(/[^+\d]/g, "")}`} style={{ color: "var(--accent,#2563EB)", textDecoration: "none", fontWeight: 600 }}>{phone}</a></> : ""}
+                    </p>
+                  </div>
+                  {onReceive && (
+                    <button data-testid="receive-btn" style={{ ...S.btn("success"), padding: "5px 10px", fontSize: 11, flexShrink: 0 }}
+                      onClick={() => onReceive(item.jobId, item.eqId, { requestId: item.requestId, qty: item.qty, lanes: item.lanes, jobName: item.jobName, eqName: item.eqName, employeeId: item.pickedById, employeeName: item.pickedBy })}>
+                      ✓ {t("dashReceive")}
+                    </button>
+                  )}
+                </div>
+              );
+            })
+        }
+      </div>
+
+      {/* Gear Requests */}
+      <div id="gear-requests-card" data-testid="gear-requests-card" style={{ ...S.card, scrollMarginTop: 70 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <p style={{ ...S.sectionTitle, margin: 0 }}>
+            {t("dashGearRequests")}
+            {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pendingRequests.length} {t("dashPending")}</span>}
+          </p>
+        </div>
+        {(equipmentRequests || []).length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>{t("dashNoRequests")}</p>
+        ) : [...(equipmentRequests || [])].reverse().slice(0, 10).map((req, i, arr) => {
+          const itemLabel = req.items
+            ? req.items.map(it => { const e = equipment.find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
+            : `${equipment.find(e => e.id === req.eqId)?.name || req.eqName} ×${req.qty}`;
+          const dateLabel = req.useDates?.length > 0 ? req.useDates.map(formatDate).join(", ") : req.useDate ? formatDate(req.useDate) : null;
+          return (
+            <div key={req.id}
+              onClick={() => setDashReqModal(req)}
+              style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", cursor: "pointer" }}>
+              <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{statusLabel(t, req.status)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)" }}>{req.employeeName}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{itemLabel}</p>
+                {dateLabel && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{dateLabel}</p>}
+              </div>
+              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted,#8CA2B5)" strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M9 18l6-6-6-6" /></svg>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Open damage reports (P2-11): the fourth thing that needs the owner's hand */}
+      <div data-testid="damage-card" style={{ ...S.card, padding: "10px 14px", border: openReports.length ? "1px solid rgba(197,48,48,0.35)" : "1px solid var(--divider-color,#D8E1EC)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: openReports.length ? 8 : 0 }}>
+          <p style={{ ...S.sectionTitle, margin: 0, fontSize: 12 }}>{t("dashOpenDamage")}{openReports.length > 0 && <span style={{ ...S.badge("red"), marginLeft: 8 }}>{openReports.length}</span>}</p>
+          {openReports.length > 0 && onOpenReports && <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 11 }} onClick={onOpenReports}>{t("dashViewReports")} ›</button>}
+        </div>
+        {openReports.length === 0
+          ? <p style={{ color: "#2F855A", fontSize: 12, margin: 0 }}>{t("dashOpenDamageEmpty")}</p>
+          : openReports.slice(0, 5).map((r, i, arr) => (
+            <div key={r.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "6px 0", borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", cursor: onOpenReports ? "pointer" : "default" }} onClick={onOpenReports}>
+              <div style={{ width: 3, alignSelf: "stretch", borderRadius: 2, background: "#C53030", flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#16324A)" }}>{(equipment.find(e => e.id === r.eqId) || {}).name || r.eqName || r.eqId}{r.qty > 1 ? ` ×${r.qty}` : ""}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>{r.reportedBy?.name || (typeof r.reportedBy === "string" ? r.reportedBy : "") || r.employeeName || ""}{r.ts ? ` · ${formatDateTime(r.ts)}` : ""}</p>
+              </div>
+            </div>
+          ))}
+      </div>
+
+      </div>
+
+      <div data-testid="schedule-column" style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+      {/* Stats row — 3 tappable cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        {Object.entries(statSections).map(([key, s]) => {
+          const isOpen = expandedStat === key;
+          return (
+            <div key={key}
+              onClick={() => setExpandedStat(isOpen ? null : key)}
+              style={{ ...S.card, textAlign: "center", padding: "14px 8px", cursor: "pointer",
+                border: isOpen ? `1px solid ${s.color}` : "1px solid var(--divider-color,#D8E1EC)",
+                background: isOpen ? `${s.color}12` : "var(--surface,#FFFFFF)",
+                transition: "all 0.15s" }}>
+              <p style={{ margin: 0, fontSize: 28, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.jobs.length}</p>
+              <p style={{ margin: "5px 0 0", fontSize: 9, color: isOpen ? s.color : "var(--text-muted,#5F7A91)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1.3 }}>{s.label}</p>
+              <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke={isOpen ? s.color : "var(--text-muted,#8CA2B5)"} strokeWidth={2.5} strokeLinecap="round" style={{ marginTop: 6, transition: "transform 0.15s", transform: isOpen ? "rotate(180deg)" : "none" }}>
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Expanded job list under the stat cards */}
+      {expandedStat && (() => {
+        const s = statSections[expandedStat];
+        return (
+          <div style={{ ...S.card, padding: "14px 16px", marginTop: -6, borderTop: `2px solid ${s.color}`, borderRadius: "0 0 10px 10px" }}>
+            <p style={{ ...S.sectionTitle, color: s.color, marginBottom: 12 }}>{s.label}</p>
+            {s.jobs.length === 0 ? (
+              <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>{t("dashNoJobsCategory")}</p>
+            ) : s.jobs.map((j, i) => (
+              <div key={j.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < s.jobs.length - 1 ? 12 : 0, marginBottom: i < s.jobs.length - 1 ? 12 : 0, borderBottom: i < s.jobs.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
+                    <span style={S.badge(statusColor[j.status] || "gray")}>{j.status}</span>
+                    <span style={S.badge(locationColor[j.location] || "gray")}>{j.location}{j.locationCity ? ` · ${j.locationCity}` : ""}</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{j.name}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{j.production} · {j.shootTime}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>
+                    {j.dates.length} day{j.dates.length !== 1 ? "s" : ""}
+                    {j.dates[0] ? ` · ${formatDate(j.dates[0])}${j.dates.length > 1 ? " →" : ""}` : ""}
+                    {j.dates.length > 1 ? ` ${formatDate(j.dates[j.dates.length - 1])}` : ""}
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: 5, flexShrink: 0, flexDirection: "column", alignItems: "flex-end" }}>
+                  {(j.assignedEquipment || []).length > 0 && (
+                    <span style={{ ...S.badge("blue") }}>{j.assignedEquipment.length} items</span>
+                  )}
+                  <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={e => { e.stopPropagation(); setDashJobModal(j); }}>
+                    <Icon d={icons.edit} size={12} /> {t("dashEdit")}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Calendar */}
+      <DashboardCalendar jobs={jobs} equipment={equipment} onEdit={(job) => setDashJobModal(job)} />
+
+      {/* Equipment status: bookings (assignment-based) vs gear physically out (checkout-based) */}
+      {(() => {
+        const outJobs = jobs.filter(j => j.status === "Confirmed" && j.dates.includes(todayStr) && (j.assignedEquipment || []).length > 0);
+        const totalBooked = avList.filter(e => e.hard && e.hard.jobs > 0).length;
+        const physOutTypes = new Set(stillOutItems.map(i => i.eqId)).size;
+        return (
+          <div style={S.card} data-testid="booked-today">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
+              <p style={{ ...S.sectionTitle, margin: 0 }}>{t("dashBookedToday")}</p>
+              <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)", flexShrink: 0 }}>{t("dashBookedCount").replace("{n}", totalBooked).replace("{t}", equipment.length)}</span>
+            </div>
+            <div onClick={() => document.getElementById("stillout-card")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderRadius: 8, marginBottom: outJobs.length ? 10 : 0, cursor: "pointer",
+                background: physOutUnits > 0 ? (stillOutItems.some(i => i.overdue) ? "rgba(197,48,48,0.06)" : "rgba(var(--accent-rgb,37,99,235),0.06)") : "var(--surface2,#EAF0F7)",
+                border: `1px solid ${stillOutItems.some(i => i.overdue) ? "rgba(197,48,48,0.3)" : "var(--divider-color,#D8E1EC)"}` }}>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: stillOutItems.some(i => i.overdue) ? "#C53030" : "var(--text-muted,#4E6B84)" }}>📦 {t("dashPhysOut")}</span>
+              <span data-testid="phys-out" style={{ fontSize: 12, fontWeight: 700, color: physOutUnits > 0 ? (stillOutItems.some(i => i.overdue) ? "#C53030" : "var(--accent,#2563EB)") : "#2F855A" }}>{t("dashPhysOutCount").replace("{u}", physOutUnits).replace("{n}", physOutTypes)}</span>
+            </div>
+            {outJobs.length === 0
+              ? <p style={{ color: "#2F855A", fontSize: 13, margin: 0 }}>{t("dashAllAvail")}</p>
+              : <div style={S.col}>
+                  {outJobs.map(job => {
+                    const eqCount = (job.assignedEquipment || []).length;
+                    return (
+                      <button key={job.id} onClick={() => setEqOutJob(job)}
+                        style={{ ...S.card, background: "var(--surface2,#EAF0F7)", border: "1px solid var(--divider-color,#D8E1EC)", cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", margin: 0 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.name}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.production || "—"}</p>
+                        </div>
+                        <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{eqCount} item{eqCount !== 1 ? "s" : ""}</span>
+                      </button>
+                    );
+                  })}
+                </div>}
+          </div>
+        );
+      })()}
+
+      {/* Recent activity */}
+      <div style={S.card}>
+        <p style={S.sectionTitle}>{t("dashRecentActivity")}</p>
+        {activityGroups.length === 0 ? (
+          <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{t("dashNoActivity")}</p>
+        ) : activityGroups.map((group, i, arr) => {
+          const isExpanded = expandedActivityKeys.has(group.key);
+          const sortedItems = [...group.items].sort((a, b) => b.ts - a.ts);
+          const latestType = sortedItems[0]?.type;
+          const isPick = latestType === "pick" || latestType === "checkout";
+          const empNames = [...group.empNames].join(", ");
+          return (
+            <div key={group.key} style={{ paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+              <div onClick={() => toggleActivity(group.key)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                <span style={S.badge(isPick ? "amber" : "green")}>{isPick ? t("dashPicked") : t("dashReturned")}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{group.label}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{empNames} · {formatDateTime(group.latestTs)}</p>
+                </div>
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted,#5F7A91)" strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}><path d="M9 18l6-6-6-6" /></svg>
+              </div>
+              {isExpanded && (
+                <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid var(--divider-color,#D8E1EC)" }}>
+                  {sortedItems.map((c, ci) => {
+                    const eq = equipment.find(e => e.id === c.eqId);
+                    const cIsPick = isPickEvt(c.type);
+                    return (
+                      <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: ci < sortedItems.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+                        <span style={S.badge(cIsPick ? "amber" : isLostEvt(c.type) ? "red" : "green")}>{cIsPick ? t("pickEvt") : isLostEvt(c.type) ? t("condLost") : t("returnEvt")}</span>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || "—"} ×{c.qty}</p>
+                          <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>{c.employeeName} · {formatDateTime(c.ts)}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      </div>
+      </div>
+
+      {eqOutJob && (
+        <Modal title={eqOutJob.name} onClose={() => setEqOutJob(null)}>
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>{eqOutJob.production || "—"}</p>
+          <div style={S.col}>
+            {(eqOutJob.assignedEquipment || []).map(ae => {
+              const eq = equipment.find(e => e.id === ae.eqId);
+              if (!eq) return null;
+              const avItem = avList.find(e => e.id === ae.eqId);
+              const allOut = avItem ? avItem.available <= 0 : false;
+              return (
+                <div key={ae.eqId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: "var(--text,#16324A)" }}>{eq.name}</p>
+                    {eq.category && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{eq.category}</p>}
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: allOut ? "#C53030" : "var(--accent,#2563EB)", flexShrink: 0 }}>×{ae.qty}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
+
+      {/* Request Detail Modal */}
+      {dashReqModal && (() => {
+        const req = dashReqModal;
+        const items = req.items || [{ eqId: req.eqId, eqName: req.eqName, qty: req.qty }];
+        const dateLabel = req.useDates?.length > 0 ? req.useDates.map(formatDate).join(", ") : req.useDate ? formatDate(req.useDate) : null;
+        return (
+          <Modal title={t("dashGearReqDetail")} onClose={() => setDashReqModal(null)}>
+            <div style={S.col}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{statusLabel(t, req.status)}</span>
+                <span style={{ fontWeight: 700, fontSize: 15 }}>{req.employeeName}</span>
+              </div>
+
+              <div style={{ borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 12 }}>
+                <p style={{ ...S.label, marginBottom: 8 }}>{t("dashRequestedItems")}</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {items.map((item, i) => {
+                    const eq = equipment.find(e => e.id === item.eqId);
+                    return (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--surface2,#EAF0F7)", borderRadius: 8, border: "1px solid var(--divider-color,#D8E1EC)" }}>
+                        {eq?.photo
+                          ? <img src={eq.photo} alt="" style={{ width: 36, height: 32, objectFit: "cover", borderRadius: 5, flexShrink: 0 }} />
+                          : <div style={{ width: 36, height: 32, borderRadius: 5, background: "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon d={icons.camera} size={12} color="var(--text-muted,#8CA2B5)" /></div>
+                        }
+                        <div style={{ flex: 1 }}>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{eq?.name || item.eqName}</p>
+                          {eq?.category && <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{eq.category}</p>}
+                        </div>
+                        <span style={{ ...S.badge("blue"), flexShrink: 0 }}>×{item.qty}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {dateLabel && (
+                <div>
+                  <p style={S.label}>{req.useDates?.length > 1 ? t("dashDatesNeeded") : t("dashDateNeeded")}</p>
+                  <p style={{ fontSize: 13, color: "var(--text,#16324A)", margin: 0 }}>{dateLabel}</p>
+                </div>
+              )}
+
+              <div>
+                <p style={S.label}>{t("dashPurpose")}</p>
+                <p style={{ fontSize: 13, color: "var(--text,#16324A)", margin: 0 }}>
+                  {req.purpose === "work" ? `${t("teamWork")} — ${req.jobName || ""}${req.productionName ? ` (${req.productionName})` : ""}` : t("purposePractice")}
+                </p>
+              </div>
+
+              {req.reason && (
+                <div>
+                  <p style={S.label}>{t("dashReason")}</p>
+                  <p style={{ fontSize: 13, color: "var(--text-muted,#4E6B84)", margin: 0 }}>{req.reason}</p>
+                </div>
+              )}
+
+              <p style={{ fontSize: 11, color: "var(--text-muted,#8CA2B5)", margin: 0 }}>Requested {new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+
+              {req.status === "pending" && (
+                <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
+                  <button style={{ ...S.btn("ghost"), flexShrink: 0 }} title="Delete request" onClick={() => deleteRequest(req)}><Icon d={icons.trash} size={14} /></button>
+                  <button style={{ ...S.btn("danger"), flex: 1 }} onClick={() => denyRequest(req)}>{t("dashDeny")}</button>
+                  <button style={{ ...S.btn("success"), flex: 1 }} onClick={() => approveRequest(req)}>{t("dashApprove")}</button>
+                </div>
+              )}
+              {req.status === "approved" && (() => {
+                const reqCheckouts = checkouts.filter(c => c.requestId === req.id);
+                const pickedIds = new Set(reqCheckouts.filter(c => isPickEvt(c.type)).map(c => c.eqId));
+                const returnedIds = new Set(reqCheckouts.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
+                return (
+                  <div style={{ borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 12 }}>
+                    <p style={{ ...S.label, marginBottom: 8 }}>{t("dashCheckoutStatus")}</p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {items.map((item, i) => {
+                        const eq = equipment.find(e => e.id === item.eqId);
+                        const returned = returnedIds.has(item.eqId);
+                        const picked = pickedIds.has(item.eqId);
+                        return (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: "var(--surface2,#EAF0F7)", borderRadius: 8, border: "1px solid var(--divider-color,#D8E1EC)" }}>
+                            <div style={{ flex: 1 }}>
+                              <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || item.eqName} ×{item.qty}</p>
+                            </div>
+                            <span style={S.badge(returned ? "green" : picked ? "amber" : "gray")}>{returned ? "RETURNED" : picked ? "OUT" : "NOT YET"}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+              {req.status !== "pending" && (
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button style={{ ...S.btn("ghost"), flexShrink: 0 }} title="Delete request" onClick={() => deleteRequest(req)}><Icon d={icons.trash} size={14} /></button>
+                  <button style={{ ...S.btn("ghost"), flex: 1 }} onClick={() => setDashReqModal(null)}>{t("dashClose")}</button>
+                </div>
+              )}
+            </div>
+          </Modal>
+        );
+      })()}
+
+      {/* Floating + FAB: phones only (desktop has the header New Job button, P2-11) */}
+      {phone && <button
+        onClick={() => setDashJobModal("new")}
+        style={{
+          position: "fixed", bottom: 78, right: 20, width: 52, height: 52,
+          borderRadius: "50%", background: "var(--btn-primary-bg,#2563EB)", color: "var(--btn-primary-color,#FFFFFF)",
+          border: "none", fontSize: 28, fontWeight: 300, cursor: "pointer",
+          boxShadow: "0 4px 16px rgba(22,50,74,0.14)", display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 90,
+        }}
+        title={t("jobNewJob")}
+        data-testid="dash-fab"
+      >+</button>}
+
       {dashJobModal && (
         <JobFormModal
           editTarget={dashJobModal === "new" ? null : dashJobModal}
@@ -3539,6 +3613,10 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           employees={employees}
           lineGroupId={lineGroupId}
           lineNotifyMuted={lineNotifyMuted}
+          equipment={equipment}
+          checkouts={checkouts}
+          equipmentRequests={equipmentRequests}
+          reports={reports}
           onClose={() => setDashJobModal(null)}
         />
       )}
@@ -3574,7 +3652,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, setProductionCompanies, companyName, setLang, onLogout, calendarToken, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, setProductionCompanies, companyName, setLang, onLogout, calendarToken, employees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, offlinePendingCount = 0, putProfile = api.putProfile, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | gear | invoice
@@ -3616,6 +3694,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [invSort, setInvSort] = useState("date"); // date | amount
   const [invDocType, setInvDocType] = useState("all"); // all | invoice | quotation | receipt
   const [invSending, setInvSending] = useState(null); // invoice id currently being sent
+  const [invShowAllJobs, setInvShowAllJobs] = useState(false); // P1-10: invoice tab lists my jobs unless toggled
   const [revPeriod, setRevPeriod] = useState("all"); // all | year | custom
   const [revYear, setRevYear] = useState(new Date().getFullYear().toString());
   const [showAdminReqModal, setShowAdminReqModal] = useState(null); // null | "production-house" | "equipment"
@@ -3654,6 +3733,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const earlyReturnApproved = (j) => (adminRequests || []).some(r => r.type === "early-return" && r.status === "approved" && r.jobId === j.id && r.employeeId === employee.id && r.requestedDate === todayStr);
   const inJobWindow = (j) => { const p = effPickupDate(j), r = effReturnDate(j); return p && r && todayStr >= p && todayStr <= r; };
   const availableJobs = jobs.filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0 && (inJobWindow(j) || earlyPickupApproved(j)));
+  // Roster (P1-10): "mine" = I am on the crew, or the job has no roster yet (open);
+  // "other" = staffed with someone else. Other jobs stay reachable but collapsed.
+  const isOtherJob = (j) => jobVisibility(j, employee.id) === "other";
+  const myEntry = (j) => myRosterEntry(j, employee.id);
+  const [showOthers, setShowOthers] = useState({}); // { [statKey]: true }
   const myReports = [...(reports || [])].sort((a, b) => b.ts - a.ts);
 
   // ── Approved gear requests behave like a job in the checkout flow ──────────
@@ -3736,10 +3820,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       if (cleanInfo.invoicePrefix !== profileInfo.invoicePrefix) setProfileInfo(p => ({ ...p, invoicePrefix: cleanInfo.invoicePrefix }));
       const consent = { ...docConsent };
       if (!idCard) delete consent.idCard; if (!signature) delete consent.signature; if (!promptPayQR) delete consent.promptPayQR;
-      const res = await api.putProfile(employee.id, { photo: profilePhoto, ...cleanInfo, idCard, promptPayQR, signature, consent, positions: cleanPositions });
+      const res = await putProfile(employee.id, { photo: profilePhoto, ...cleanInfo, idCard, promptPayQR, signature, consent, positions: cleanPositions });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
-      setProfileSaveStatus("saved");
-      setTimeout(() => setProfileSaveStatus(null), 3000);
+      setProfileSaveStatus(res.queued ? "queued" : "saved");
+      setTimeout(() => setProfileSaveStatus(null), res.queued ? 5000 : 3000);
     } catch {
       setProfileSaveStatus("error");
       setTimeout(() => setProfileSaveStatus(null), 3500);
@@ -4175,7 +4259,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", borderBottom: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
           <Icon d={icons.alert} size={15} color="var(--accent,#2563EB)" />
           <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
-            <strong>{t("offlineBanner")}</strong>: {t("offlineBannerDesc")}
+            <strong>{t("offlineTitle")}</strong> {t("offlineCrewBody")} {(offlinePendingCount || 0) > 0 ? t("offlinePendingN").replace("{n}", offlinePendingCount) : t("offlineClean")}
           </p>
         </div>
       )}
@@ -4262,7 +4346,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Gear currently out — jobs + my approved gear requests */}
             {(() => {
               const myReqJobs = myRequests.filter(r => r.status === "approved").map(reqAsJob);
-              const outJobs = [...jobs, ...myReqJobs].filter(j => getJobCheckoutState(j).outCount > 0);
+              const myEvents = (j) => (checkouts || []).some(c => c && c.employeeId === employee.id && evtMatchesJob(c, j));
+              const outJobs = [...jobs, ...myReqJobs].filter(j => getJobCheckoutState(j).outCount > 0 && (!isOtherJob(j) || myEvents(j)));
               if (outJobs.length === 0) return null;
               return (
                 <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.06)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)" }} data-testid="gear-out-card">
@@ -4345,7 +4430,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Early pickup — jobs whose pickup day is tomorrow can be requested 1 day ahead */}
             {(() => {
               const tomorrow = addDaysStr(todayStr, 1);
-              const upcoming = jobs.filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0 && effPickupDate(j) === tomorrow && !earlyPickupApproved(j));
+              const upcoming = jobs.filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0 && effPickupDate(j) === tomorrow && !earlyPickupApproved(j) && !isOtherJob(j));
               if (upcoming.length === 0) return null;
               return (
                 <div style={{ ...S.card, background: "rgba(37,99,235,0.05)", border: "1px solid rgba(37,99,235,0.2)" }}>
@@ -4372,12 +4457,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               );
             })()}
 
-            {/* Stats — clickable, expand one at a time */}
+            {/* Stats — clickable, expand one at a time. Counts are MY jobs (roster or open). */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               {[
-                { key: "today", label: t("tabToday"), value: availableJobs.length, color: "var(--accent,#2563EB)" },
-                { key: "confirmed", label: t("statusConfirmed"), value: confirmedJobs.length, color: "#2F855A" },
-                { key: "pencil", label: t("statusPencil"), value: pencilJobs.length, color: "var(--accent,#2563EB)" },
+                { key: "today", label: t("tabToday"), value: splitJobsForEmployee(availableJobs, employee.id).mine.length, color: "var(--accent,#2563EB)" },
+                { key: "confirmed", label: t("statusConfirmed"), value: splitJobsForEmployee(confirmedJobs, employee.id).mine.length, color: "#2F855A" },
+                { key: "pencil", label: t("statusPencil"), value: splitJobsForEmployee(pencilJobs, employee.id).mine.length, color: "var(--accent,#2563EB)" },
               ].map(stat => (
                 <div key={stat.key} onClick={() => setExpandedStat(expandedStat === stat.key ? null : stat.key)} style={{ ...S.card, textAlign: "center", padding: "12px 6px", cursor: "pointer", border: expandedStat === stat.key ? `1px solid ${stat.color}40` : undefined, transition: "border-color .15s" }}>
                   <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
@@ -4387,15 +4472,19 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               ))}
             </div>
 
-            {/* Expanded stat job list */}
+            {/* Expanded stat job list: my jobs first, other crews' jobs collapsed (P1-10) */}
             {expandedStat && (() => {
-              const statJobs = statJobMap[expandedStat] || [];
-              if (statJobs.length === 0) return <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)", textAlign: "center" }}>{t("noJobs")}</p>;
-              return statJobs.map(job => {
+              const { mine, others } = splitJobsForEmployee(statJobMap[expandedStat] || [], employee.id);
+              const othersOpen = !!showOthers[expandedStat];
+              if (mine.length === 0 && others.length === 0) return <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)", textAlign: "center" }}>{t("crewNoJobs")}</p>;
+              const list = othersOpen ? [...mine, ...others] : mine;
+              const cards = list.map(job => {
                 const { allPicked, allReturned } = getJobCheckoutState(job);
                 const isToday = expandedStat === "today";
+                const other = isOtherJob(job);
+                const me = myEntry(job);
                 return (
-                  <div key={job.id} style={{ ...S.card, cursor: "pointer" }} onClick={() => isToday ? selectJob(job) : setEmpDetailJob(job)}>
+                  <div key={job.id} data-testid={other ? "other-job-card" : "my-job-card"} style={{ ...S.card, cursor: "pointer", opacity: other ? 0.75 : 1 }} onClick={() => isToday ? selectJob(job) : setEmpDetailJob(job)}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
@@ -4406,16 +4495,35 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                             return <span style={S.badge("amber")}>{t("onShoot")}</span>;
                           })() : <span style={S.badge("blue")}>{t("readyPick")}</span>) : <span style={S.badge(JOB_STATUS_BADGE[job.status] || "gray")}>{t("status" + job.status)}</span>}
                           <span style={S.badge("gray")}>{shootTimeLabel(t, job.shootTime)}</span>
+                          {other && <span style={S.badge("gray")}>{t("crewOtherJobBadge")}</span>}
+                          {me && me.role && <span style={S.badge("blue")}>{me.role}</span>}
                         </div>
                         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{job.name}</h3>
                         <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {locationLabel(t, job.location)}{job.locationCity ? ` · ${job.locationCity}` : ""}</p>
                         <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
+                        {me && (me.pickupTime || me.callTime) && (
+                          <p style={{ margin: "4px 0 0", fontSize: 12, fontWeight: 600, color: "var(--accent,#2563EB)" }} data-testid="my-times">
+                            {me.pickupTime ? `${t("crewPickupAt")} ${fmtClock(me.pickupTime)}` : ""}{me.pickupTime && me.callTime ? " · " : ""}{me.callTime ? `${t("crewCallAt")} ${fmtClock(me.callTime)}` : ""}
+                          </p>
+                        )}
+                        {other && <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#8CA2B5)" }}>👥 {crewNames(job, employees || []).join(", ")}</p>}
                       </div>
                       <Icon d={icons.chevron_right} size={16} color="var(--text-muted,#5F7A91)" strokeW={2} />
                     </div>
                   </div>
                 );
               });
+              return (
+                <>
+                  {mine.length === 0 && <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)", textAlign: "center", margin: 0 }}>{t("crewNoMyJobs")}</p>}
+                  {cards}
+                  {others.length > 0 && (
+                    <button data-testid="toggle-other-jobs" style={{ ...S.btn("ghost"), width: "100%", justifyContent: "center", fontSize: 12 }} onClick={() => setShowOthers(p => ({ ...p, [expandedStat]: !othersOpen }))}>
+                      {othersOpen ? t("crewHideOtherJobs") : t("crewShowOtherJobs").replace("{n}", others.length)}
+                    </button>
+                  )}
+                </>
+              );
             })()}
 
             {/* Job detail modal for Confirmed/Pencil jobs */}
@@ -5276,11 +5384,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Save Profile: sticks ABOVE the 62px bottom nav + the phone's home indicator (P1-3) */}
             <div data-sticky-primary="profile-save" style={{ position: "sticky", bottom: "calc(62px + 16px + env(safe-area-inset-bottom, 0px))", zIndex: 10 }}>
               <button
-                style={{ ...S.btn(profileSaveStatus === "saved" ? "success" : profileSaveStatus === "error" ? "danger" : "primary", "lg"), width: "100%", padding: "15px", fontSize: 15, fontWeight: 700, opacity: profileSaveStatus === "saving" ? 0.75 : 1, boxShadow: "0 4px 24px rgba(22,50,74,0.17)" }}
+                style={{ ...S.btn(profileSaveStatus === "saved" || profileSaveStatus === "queued" ? "success" : profileSaveStatus === "error" ? "danger" : "primary", "lg"), width: "100%", padding: "15px", fontSize: 15, fontWeight: 700, opacity: profileSaveStatus === "saving" ? 0.75 : 1, boxShadow: "0 4px 24px rgba(22,50,74,0.17)" }}
                 disabled={profileSaveStatus === "saving"}
                 onClick={saveProfile}
               >
-                {profileSaveStatus === "saving" ? t("profileSaving") : profileSaveStatus === "saved" ? t("profileSaved") : profileSaveStatus === "error" ? t("profileSaveFail") : t("profileSaveBtn")}
+                {profileSaveStatus === "saving" ? t("profileSaving") : profileSaveStatus === "saved" ? t("profileSaved") : profileSaveStatus === "queued" ? t("profileSaveQueued") : profileSaveStatus === "error" ? t("profileSaveFail") : t("profileSaveBtn")}
               </button>
             </div>
 
@@ -5337,7 +5445,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
         {/* INVOICE TAB */}
         {tab === "invoice" && (() => {
-          const confirmedJobs = jobs.filter(j => j.status === "Confirmed").sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1);
+          const allConfirmed = jobs.filter(j => j.status === "Confirmed").sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1);
+          // Only jobs I am on (or unstaffed ones) are offered for invoicing; "show all" is one tap away (P1-10).
+          const { mine: myConfirmed, others: otherConfirmed } = splitJobsForEmployee(allConfirmed, employee.id);
+          const confirmedJobs = invShowAllJobs ? allConfirmed : myConfirmed;
           const allMyInvoices = invoices.filter(inv => inv.employeeId === employee.id && !inv._deleted);
           // Revenue = invoices only: a quotation is not income and a receipt repeats its invoice's amount.
           const revenueDocs = allMyInvoices.filter(inv => inv.status !== "Void" && (inv.docType === "invoice" || !inv.docType));
@@ -5512,17 +5623,24 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </div>
 
               {/* Confirmed jobs to invoice */}
-              <div style={S.card}>
-                <p style={S.sectionTitle}>{t("confirmJobs")}</p>
+              <div style={S.card} data-testid="invoice-jobs-card">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                  <p style={{ ...S.sectionTitle, margin: 0 }}>{invShowAllJobs ? t("confirmJobs") : t("crewMyJobsToInvoice")}</p>
+                  {otherConfirmed.length > 0 && (
+                    <button data-testid="invoice-show-all" style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: "var(--accent,#2563EB)", fontWeight: 600, padding: 0 }} onClick={() => setInvShowAllJobs(v => !v)}>
+                      {invShowAllJobs ? t("crewShowMyJobsOnly") : t("crewShowAllJobs").replace("{n}", otherConfirmed.length)}
+                    </button>
+                  )}
+                </div>
                 {confirmedJobs.length === 0
-                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("noConfirmedJobs")}</p>
+                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: "8px 0 0" }}>{t("crewNoJobsToInvoice")}</p>
                   : confirmedJobs.map(job => {
                     // Any live document of mine for this job, regardless of the list filter (P2-4).
                     const hasInvoice = allMyInvoices.some(inv => inv.jobId === job.id);
                     return (
                       <div key={job.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
                         <div style={{ flex: 1 }}>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{job.name}</p>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{job.name}{isOtherJob(job) && <span style={{ ...S.badge("gray"), marginLeft: 6 }}>{t("crewOtherJobBadge")}</span>}</p>
                           <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {(job.dates || []).slice(0, 2).map(d => formatDay(d)).join(", ")}</p>
                         </div>
                         {hasInvoice
@@ -6190,7 +6308,7 @@ function Login({ onLogin, info, refreshInfo, setLang }) {
 }
 
 // ─── TEAM PAGE ────────────────────────────────────────────────────────────────
-function TeamPage({ employees, setEmployees, setEmployeePin, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, kpiConfig, setKpiConfig, kpiEvents, setKpiEvents, punishments, setPunishments, deleteRecord }) {
+function TeamPage({ employees, setEmployees, setEmployeePin, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, kpiConfig, setKpiConfig, kpiEvents, setKpiEvents, punishments, setPunishments, deleteRecord, onOpenRequests }) {
   const t = useT();
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
@@ -6214,20 +6332,8 @@ function TeamPage({ employees, setEmployees, setEmployeePin, equipmentRequests, 
     api.getProfile(emp.id).then(d => setProfileData(d)).catch(() => {}).finally(() => setProfileLoading(false));
   };
 
+  // Gear requests are approved / denied / deleted on the Dashboard only (P2-11).
   const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
-
-  const approveRequest = (req) => {
-    // Approval only unlocks the request — the employee still picks up with photo verification
-    setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: Date.now() } : r));
-  };
-
-  const denyRequest = (id) => setEquipmentRequests(p => p.map(r => r.id === id ? { ...r, status: "denied", resolvedAt: Date.now() } : r));
-  const deleteRequest = async (req) => {
-    const hasEvents = checkouts.some(c => c.requestId === req.id);
-    if (!window.confirm(`Delete this gear request from ${req.employeeName}?${hasEvents ? " Its checkout history will be kept." : ""}`)) return;
-    if (deleteRecord && !(await deleteRecord("equipmentRequests", req.id))) return; // server tombstone first
-    setEquipmentRequests(p => p.filter(r => r.id !== req.id));
-  };
   const openAdd = () => { setForm({ name: "", pin: "", confirm: "" }); setEditTarget(null); setFormErr(""); setModal("add"); };
   const openEdit = (emp) => { setForm({ name: emp.name, pin: "", confirm: "" }); setEditTarget(emp); setFormErr(""); setModal("edit"); };
   const openPin = (emp) => { setPinTarget(emp); setForm({ name: emp.name, pin: "", confirm: "" }); setFormErr(""); setModal("pin"); };
@@ -6308,38 +6414,13 @@ function TeamPage({ employees, setEmployees, setEmployeePin, equipmentRequests, 
         </div>
       </div>
 
-      <div style={{ ...S.card, marginBottom: 20 }}>
-        <p style={S.sectionTitle}>{t("teamEqRequests")} {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} {t("teamPendingReqs")}</span>}</p>
-        {(equipmentRequests || []).length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("teamNoEqRequests")}</p>
-        ) : [...(equipmentRequests || [])].reverse().map((req, i, arr) => {
-          const itemLabel = req.items
-            ? req.items.map(it => { const e = (equipment || []).find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
-            : `${(equipment || []).find(e => e.id === req.eqId)?.name || req.eqName} ×${req.qty}`;
-          return (
-            <div key={req.id} style={{ paddingBottom: i < arr.length - 1 ? 14 : 0, marginBottom: i < arr.length - 1 ? 14 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{statusLabel(t, req.status)}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.employeeName}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>
-                    {itemLabel} · {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}
-                    {req.useDates?.length > 0 ? ` · ${req.useDates.map(formatDate).join(", ")}` : req.useDate ? ` · ${formatDate(req.useDate)}` : ""}
-                  </p>
-                  {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{req.reason}</p>}
-                  <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#8CA2B5)" }}>{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
-                </div>
-                <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
-                  {req.status === "pending" && (<>
-                    <button style={{ ...S.btn("success"), padding: "5px 10px", fontSize: 12 }} onClick={() => approveRequest(req)}>{t("teamApprove")}</button>
-                    <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 12 }} onClick={() => denyRequest(req.id)}>{t("teamDeny")}</button>
-                  </>)}
-                  <button style={{ ...S.btn("ghost"), padding: "5px 9px" }} title="Delete request" onClick={() => deleteRequest(req)}><Icon d={icons.trash} size={13} /></button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+      {/* Gear requests live in ONE place, the Dashboard's Needs action rail (P2-11); this only points there. */}
+      <div style={{ ...S.card, marginBottom: 20, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }} data-testid="team-requests-link">
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <p style={{ ...S.sectionTitle, margin: 0 }}>{t("teamEqRequests")} {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{t("teamPendingReqsN").replace("{n}", pendingRequests.length)}</span>}</p>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("teamRequestsMoved")}</p>
+        </div>
+        {onOpenRequests && <button style={S.btn(pendingRequests.length > 0 ? "primary" : "ghost")} onClick={onOpenRequests}>{t("teamRequestsGo")} ›</button>}
       </div>
 
       {(modal === "add" || modal === "edit" || modal === "pin") && (
@@ -6601,8 +6682,9 @@ function SettingsPage({ companyName, setCompanyName, user, onUserUpdate, staff, 
           { key: "invoice", label: t("navInvoice"), icon: icons.invoice },
           { key: "team", label: t("navTeam"), icon: icons.user },
           { key: "checkout", label: t("navCheckout"), icon: icons.package },
+          { key: "reports", label: t("navReports"), icon: icons.chart },
         ];
-        const currentOrder = navOrder ? navOrder.map(k => baseItems.find(i => i.key === k)).filter(Boolean) : baseItems;
+        const currentOrder = orderNav(baseItems, navOrder);
         const move = (idx, dir) => {
           const arr = [...currentOrder];
           const swap = idx + dir;
@@ -6643,6 +6725,7 @@ function SettingsPage({ companyName, setCompanyName, user, onUserUpdate, staff, 
 
       <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>{t("settingsTheme")}</p>
+        <p style={{ margin: "0 0 12px", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("settingsThemeTenantHint")}</p>
         <div style={{ marginBottom: 14 }}>
           <p style={{ ...S.label, marginBottom: 8 }}>{t("settingsThemeStyle")}</p>
           <div style={{ display: "flex", gap: 6 }}>
@@ -8591,6 +8674,214 @@ function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettin
   );
 }
 
+// ─── REPORTS PAGE (P2-16) ─────────────────────────────────────────────────────
+// Owner reports computed client-side (src/logic/reports.js) from the data the
+// app already holds: utilisation per item, the Not Returned list as CSV,
+// per-customer gear history and a month-end statement of crew invoices.
+function ReportsPage({ equipment, checkouts, jobs, equipmentRequests, productionCompanies, invoices, employees }) {
+  const t = useT();
+  const todayStr = today();
+  const [tab, setTab] = useState("util"); // util | overdue | customer | statement
+  const [preset, setPreset] = useState("thisMonth");
+  const [range, setRange] = useState(() => periodPreset("thisMonth", todayStr));
+  const [onlyOverdue, setOnlyOverdue] = useState(false);
+  const [customer, setCustomer] = useState("");
+  const [month, setMonth] = useState(monthOf(todayStr));
+  const pickPreset = (k) => { setPreset(k); if (k !== "custom") setRange(periodPreset(k, todayStr)); };
+  const fmtN = (v) => (Math.round(v * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tabs = [["util", t("reportsUtil")], ["overdue", t("reportsOverdue")], ["customer", t("reportsCustomer")], ["statement", t("reportsStatement")]];
+  const th = { textAlign: "left", fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)", padding: "6px 8px", borderBottom: "1px solid var(--divider-color,#D8E1EC)", whiteSpace: "nowrap" };
+  const td = { fontSize: 12, padding: "7px 8px", borderBottom: "1px solid var(--divider-color,#D8E1EC)", color: "var(--text,#16324A)", verticalAlign: "top" };
+  const num = { ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
+  const exportBtn = (label, onClick) => <button style={{ ...S.btn("ghost"), fontSize: 12 }} onClick={onClick} data-testid="report-export"><Icon d={icons.invoice} size={13} /> {label}</button>;
+
+  const utilRows = tab === "util" ? utilisation({ equipment, checkouts, jobs, from: range.from, to: range.to }) : [];
+  const stillOut = tab === "overdue" ? stillOutList({ checkouts, jobs, equipment, equipmentRequests, today: todayStr, tz: APP_TZ }) : [];
+  const custList = customerNames(jobs, productionCompanies);
+  const hist = tab === "customer" && customer ? customerHistory({ jobs, equipment, checkouts, company: customer }) : null;
+  const st = tab === "statement" ? crewStatement({ invoices, employees, month, tz: APP_TZ }) : null;
+  const safe = (v) => String(v || "").replace(/[^\w.-]+/g, "_");
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <h1 style={S.pageTitle}>{t("reportsTitle")}</h1>
+        <p style={S.pageSubtitle}>{t("reportsSubtitle")}</p>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        {tabs.map(([k, l]) => <button key={k} data-testid={"reports-tab-" + k} style={{ ...S.btn(tab === k ? "primary" : "ghost"), padding: "7px 14px", fontSize: 12 }} onClick={() => setTab(k)}>{l}</button>)}
+      </div>
+
+      {tab === "util" && (
+        <div style={S.card}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ ...S.label, margin: 0 }}>{t("reportsPeriod")}</span>
+            {[["thisMonth", t("reportsThisMonth")], ["lastMonth", t("reportsLastMonth")], ["last30", t("reportsLast30")], ["thisYear", t("reportsThisYear")], ["custom", t("reportsCustom")]].map(([k, l]) => (
+              <button key={k} style={{ ...S.btn(preset === k ? "primary" : "ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => pickPreset(k)}>{l}</button>
+            ))}
+            <span style={{ flex: 1 }} />
+            {exportBtn(t("reportsExportCsv"), () => downloadText(`utilisation-${range.from}-${range.to}.csv`, utilisationCsv(utilRows, range)))}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+            <label style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("reportsFrom")}</label>
+            <input type="date" style={{ ...S.input, width: 150 }} value={range.from} onChange={e => { setPreset("custom"); setRange(r => ({ ...r, from: e.target.value })); }} />
+            <label style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("reportsTo")}</label>
+            <input type="date" style={{ ...S.input, width: 150 }} value={range.to} onChange={e => { setPreset("custom"); setRange(r => ({ ...r, to: e.target.value })); }} />
+          </div>
+          <p style={{ margin: "0 0 10px", fontSize: 11, color: "var(--text-muted,#5F7A91)", lineHeight: 1.5 }}>{t("reportsUtilHint")}</p>
+          {utilRows.length === 0 ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("reportsNoData")}</p> : (
+            <div style={{ overflowX: "auto" }}>
+              <table data-testid="util-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr><th style={th}>{t("reportsColItem")}</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColUnits")}</th><th style={{ ...th, minWidth: 160 }}>{t("reportsColOut")} %</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColBooked")} %</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColPicks")}</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColJobs")}</th></tr></thead>
+                <tbody>
+                  {utilRows.map(r => (
+                    <tr key={r.eqId}>
+                      <td style={td}><span style={{ fontWeight: 600 }}>{r.name}</span>{r.category ? <span style={{ color: "var(--text-muted,#5F7A91)" }}> · {r.category}</span> : null}</td>
+                      <td style={num}>{r.total}</td>
+                      <td style={td}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--surface2,#EAF0F7)", overflow: "hidden", minWidth: 80 }}><div style={{ width: `${Math.min(100, r.outPct)}%`, height: "100%", background: r.outPct >= 60 ? "#2F855A" : r.outPct >= 25 ? "var(--accent,#2563EB)" : "#B7791F" }} /></div>
+                          <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 44, textAlign: "right", fontWeight: 700 }}>{r.outPct}%</span>
+                        </div>
+                        <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>{t("reportsUnitDays").replace("{n}", r.unitDaysOut)}</p>
+                      </td>
+                      <td style={num}>{r.bookedPct}%</td>
+                      <td style={num}>{r.picks}</td>
+                      <td style={num}>{r.jobs}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "overdue" && (
+        <div style={S.card}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+            <button style={{ ...S.btn(onlyOverdue ? "primary" : "ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => setOnlyOverdue(v => !v)}>{t("reportsOnlyOverdue")}</button>
+            <span style={{ flex: 1 }} />
+            {exportBtn(t("reportsExportCsv"), () => downloadText(`not-returned-${todayStr}.csv`, overdueCsv(stillOut, { tz: APP_TZ, onlyOverdue })))}
+          </div>
+          <p style={{ margin: "0 0 10px", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("reportsOverdueHint")}</p>
+          {(() => {
+            const rows = stillOut.filter(i => !onlyOverdue || i.overdue);
+            if (rows.length === 0) return <p style={{ fontSize: 13, color: "#2F855A", margin: 0 }}>{t("dashStillOutEmpty")}</p>;
+            return (
+              <div style={{ overflowX: "auto" }}>
+                <table data-testid="overdue-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr><th style={th}>{t("reportsColStatus")}</th><th style={th}>{t("reportsColItem")}</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColQty")}</th><th style={th}>{t("reportsColJob")}</th><th style={th}>{t("reportsColPickedBy")}</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColDaysOut")}</th><th style={th}>{t("reportsColDue")}</th></tr></thead>
+                  <tbody>
+                    {rows.map(i => (
+                      <tr key={i.key}>
+                        <td style={td}>{i.overdue ? <span style={S.badge("red")}>{t("dashOverdueDays").replace("{n}", i.daysOverdue)}</span> : i.dueToday ? <span style={S.badge("amber")}>{t("dashDueToday")}</span> : <span style={S.badge("gray")}>{t("dashStillOutActive")}</span>}</td>
+                        <td style={{ ...td, fontWeight: 600 }}>{i.eqName}{i.missing ? <span style={{ ...S.badge("red"), marginLeft: 6, fontSize: 10 }}>{t("missingN").replace("{n}", i.qty)}</span> : null}</td>
+                        <td style={num}>{i.qty}</td>
+                        <td style={td}>{i.jobName}{i.job && i.job.production ? <span style={{ color: "var(--text-muted,#5F7A91)" }}> · {i.job.production}</span> : null}</td>
+                        <td style={td}>{i.pickedBy || "?"}</td>
+                        <td style={num}>{i.daysOut}</td>
+                        <td style={{ ...td, whiteSpace: "nowrap" }}>{i.dueDate ? formatDate(i.dueDate) : t("dashNoDue")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {tab === "customer" && (
+        <div style={S.card}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+            <label style={{ ...S.label, margin: 0 }}>{t("reportsCustomerPick")}</label>
+            <select data-testid="customer-select" style={{ ...S.select, width: "auto", minWidth: 220 }} value={customer} onChange={e => setCustomer(e.target.value)}>
+              <option value="">{t("reportsCustomerPickHint")}</option>
+              {custList.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <span style={{ flex: 1 }} />
+            {hist && hist.rows.length > 0 && exportBtn(t("reportsExportCsv"), () => downloadText(`customer-${safe(customer)}.csv`, customerHistoryCsv(hist)))}
+          </div>
+          {!hist ? null : hist.rows.length === 0 ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("reportsNoCustomerJobs")}</p> : (
+            <>
+              <p data-testid="customer-totals" style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 600, color: "var(--accent,#2563EB)" }}>
+                {t("reportsCustomerTotals").replace("{jobs}", hist.totals.jobs).replace("{days}", hist.totals.shootDays).replace("{units}", hist.totals.units).replace("{unitDays}", hist.totals.unitDays)}
+              </p>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr><th style={th}>{t("reportsColJob")}</th><th style={th}>{t("reportsColStatus")}</th><th style={th}>{t("reportsColDates")}</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColShootDays")}</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColHoldDays")}</th><th style={th}>{t("reportsColGear")}</th></tr></thead>
+                  <tbody>
+                    {hist.rows.map(r => (
+                      <tr key={r.jobId}>
+                        <td style={{ ...td, fontWeight: 600 }}>{r.name}</td>
+                        <td style={td}><span style={S.badge(JOB_STATUS_BADGE[r.status] || "gray")}>{r.status}</span></td>
+                        <td style={{ ...td, whiteSpace: "nowrap" }}>{r.first ? formatDate(r.first) : ""}{r.last && r.last !== r.first ? ` → ${formatDate(r.last)}` : ""}</td>
+                        <td style={num}>{r.shootDays}</td>
+                        <td style={num}>{r.holdDays}</td>
+                        <td style={td}>{r.items.length === 0 ? <span style={{ color: "var(--text-muted,#8CA2B5)" }}>-</span> : r.items.map(it => <span key={it.eqId} style={{ ...S.tag, marginRight: 4, marginBottom: 4, display: "inline-block" }}>{it.name}{it.qty > 1 ? ` ×${it.qty}` : ""}</span>)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === "statement" && st && (
+        <div style={S.card}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+            <label style={{ ...S.label, margin: 0 }}>{t("reportsMonth")}</label>
+            <input type="month" data-testid="statement-month" style={{ ...S.input, width: 170 }} value={month} onChange={e => setMonth(e.target.value || monthOf(todayStr))} />
+            <span style={{ flex: 1 }} />
+            {st.companies.length > 0 && exportBtn(t("reportsExportCsv"), () => downloadText(`crew-statement-${month}.csv`, crewStatementCsv(st)))}
+          </div>
+          <p style={{ margin: "0 0 12px", fontSize: 11, color: "var(--text-muted,#5F7A91)", lineHeight: 1.5 }}>{t("reportsStatementHint")}</p>
+          {st.companies.length === 0 ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("reportsNoStatement")}</p> : (
+            <div style={S.col}>
+              {st.companies.map(g => (
+                <div key={g.company} data-testid="statement-company" style={{ border: "1px solid var(--divider-color,#D8E1EC)", borderRadius: 8, overflow: "hidden" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--surface2,#EAF0F7)", flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, flex: 1 }}>{g.company}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("reportsInvoicesN").replace("{n}", g.rows.length)} · {t("reportsPaidUnpaid").replace("{paid}", "฿" + fmtN(g.paid)).replace("{unpaid}", "฿" + fmtN(g.unpaid))}</span>
+                    <span style={{ fontWeight: 800, fontSize: 13, fontVariantNumeric: "tabular-nums" }}>฿{fmtN(g.net)}</span>
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead><tr><th style={th}>{t("reportsColCrew")}</th><th style={th}>{t("reportsColInvoice")}</th><th style={th}>{t("reportsColJob")}</th><th style={th}>{t("reportsColIssued")}</th><th style={th}>{t("reportsColStatus")}</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColTotal")}</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColWht")}</th><th style={{ ...th, textAlign: "right" }}>{t("reportsColNet")}</th></tr></thead>
+                      <tbody>
+                        {g.rows.map(r => (
+                          <tr key={r.id}>
+                            <td style={{ ...td, fontWeight: 600 }}>{r.employee}{r.position ? <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400 }}> · {r.position}</span> : null}</td>
+                            <td style={{ ...td, whiteSpace: "nowrap" }}>{r.no}</td>
+                            <td style={td}>{r.job}</td>
+                            <td style={{ ...td, whiteSpace: "nowrap" }}>{r.issued ? formatDate(r.issued) : ""}</td>
+                            <td style={td}><span style={S.badge(r.status === "Paid" ? "green" : "amber")}>{r.status === "Paid" ? `${t("reportsColPaid")}${r.paidDate ? " " + formatDate(r.paidDate) : ""}` : r.status}</span></td>
+                            <td style={num}>{fmtN(r.total)}</td>
+                            <td style={num}>{r.wht ? fmtN(r.wht) : "-"}</td>
+                            <td style={{ ...num, fontWeight: 700 }}>{fmtN(r.net)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+              <div data-testid="statement-grand" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, background: "rgba(var(--accent-rgb,37,99,235),0.06)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)", flexWrap: "wrap" }}>
+                <span style={{ fontWeight: 700, fontSize: 13, flex: 1 }}>{t("reportsGrand")} · {t("reportsInvoicesN").replace("{n}", st.grand.count)}</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("reportsColTotal")} ฿{fmtN(st.grand.total)} · {t("reportsColWht")} ฿{fmtN(st.grand.wht)} · {t("reportsPaidUnpaid").replace("{paid}", "฿" + fmtN(st.grand.paid)).replace("{unpaid}", "฿" + fmtN(st.grand.unpaid))}</span>
+                <span style={{ fontWeight: 800, fontSize: 15, fontVariantNumeric: "tabular-nums", color: "var(--accent,#2563EB)" }}>฿{fmtN(st.grand.net)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ADMIN CHECKOUT PAGE ──────────────────────────────────────────────────────
 function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificationConfig, employees, equipmentRequests }) {
   const t = useT();
@@ -9180,8 +9471,9 @@ function AdminSidebarNav({ activePage, setActivePage, unresolvedCount, navOrder,
     { key: "invoice", label: t("navInvoice"), icon: icons.invoice },
     { key: "team", label: t("navTeam"), icon: icons.user },
     { key: "checkout", label: t("navCheckout"), icon: icons.package },
+    { key: "reports", label: t("navReports"), icon: icons.chart },
   ];
-  const orderedItems = navOrder ? navOrder.map(k => navItems.find(n => n.key === k)).filter(Boolean) : navItems;
+  const orderedItems = orderNav(navItems, navOrder);
   const notifCount = (notifItems || []).reduce((s, n) => s + n.count, 0);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef(null);
@@ -9240,9 +9532,7 @@ function AdminSidebarNav({ activePage, setActivePage, unresolvedCount, navOrder,
             >
               <div style={{ position: "relative", flexShrink: 0 }}>
                 <Icon d={n.icon} size={18} color={active ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)"} />
-                {n.key === "reports" && unresolvedCount > 0 && (
-                  <div style={{ position: "absolute", top: -4, right: -6, background: "#C53030", color: "#fff", fontSize: 9, fontWeight: 800, borderRadius: 8, padding: "1px 4px", minWidth: 14, textAlign: "center", lineHeight: "14px" }}>{unresolvedCount}</div>
-                )}
+
               </div>
               <span>{n.label}</span>
             </button>
@@ -9262,16 +9552,16 @@ function AdminSidebarNav({ activePage, setActivePage, unresolvedCount, navOrder,
               <Icon d={icons.bell} size={18} color={notifCount > 0 ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)"} />
               {notifCount > 0 && <div style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: "#C53030", border: "1.5px solid var(--nav-bg,#FFFFFF)" }} />}
             </div>
-            <span>Notifications {notifCount > 0 && <span style={{ background: "#C53030", color: "#fff", fontSize: 10, fontWeight: 800, borderRadius: 10, padding: "1px 5px" }}>{notifCount}</span>}</span>
+            <span>{t("notifTitle")} {notifCount > 0 && <span style={{ background: "#C53030", color: "#fff", fontSize: 10, fontWeight: 800, borderRadius: 10, padding: "1px 5px" }}>{notifCount}</span>}</span>
           </button>
           {notifOpen && (
             <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, right: 0, background: "var(--surface,#FFFFFF)", border: "var(--card-border,1px solid #D8E1EC)", borderRadius: 12, boxShadow: "0 8px 32px rgba(22,50,74,0.21)", zIndex: 300, overflow: "hidden" }}>
               <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
-                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#16324A)" }}>Notifications</p>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#16324A)" }}>{t("notifTitle")}</p>
               </div>
               {notifCount === 0 ? (
                 <div style={{ padding: "16px 14px", textAlign: "center" }}>
-                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>All caught up!</p>
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("notifAllCaughtUp")}</p>
                 </div>
               ) : (
                 <div>
@@ -9282,7 +9572,7 @@ function AdminSidebarNav({ activePage, setActivePage, unresolvedCount, navOrder,
                       </div>
                       <div style={{ flex: 1 }}>
                         <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: "var(--text,#16324A)" }}>{item.label}</p>
-                        <p style={{ margin: "1px 0 0", fontSize: 10, color: item.color }}>{item.count} need attention</p>
+                        <p style={{ margin: "1px 0 0", fontSize: 10, color: item.color }}>{item.count} {t("notifItemsAttention")}</p>
                       </div>
                     </div>
                   ))}
@@ -9320,8 +9610,9 @@ function AdminBottomNav({ activePage, setActivePage, unresolvedCount, navOrder }
     { key: "invoice", label: t("navInvoice"), icon: icons.invoice },
     { key: "team", label: t("navTeam"), icon: icons.user },
     { key: "checkout", label: t("navCheckout"), icon: icons.package },
+    { key: "reports", label: t("navReports"), icon: icons.chart },
   ];
-  const orderedItems = navOrder ? navOrder.map(k => navItems.find(n => n.key === k)).filter(Boolean) : navItems;
+  const orderedItems = orderNav(navItems, navOrder);
 
   return (
     <nav style={{
@@ -9352,11 +9643,7 @@ function AdminBottomNav({ activePage, setActivePage, unresolvedCount, navOrder }
             {active && <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: "var(--accent,#2563EB)", borderRadius: "0 0 3px 3px" }} />}
             <div style={{ position: "relative" }}>
               <Icon d={n.icon} size={20} color={active ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)"} />
-              {n.key === "reports" && unresolvedCount > 0 && (
-                <div style={{ position: "absolute", top: -4, right: -6, background: "#C53030", color: "#fff", fontSize: 9, fontWeight: 800, borderRadius: 8, padding: "1px 4px", minWidth: 14, textAlign: "center", lineHeight: "14px" }}>
-                  {unresolvedCount}
-                </div>
-              )}
+
             </div>
             <span style={{ fontSize: 9.5, fontWeight: active ? 700 : 500, letterSpacing: "0.02em" }}>{n.label}</span>
           </button>
@@ -9475,8 +9762,10 @@ export default function App() {
   const pendingSaveRef = useRef(null);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
   setFormatLang(lang); // date helpers follow the UI language in this same render pass (P1-6)
-  const [themeStyle, setThemeStyle] = useState(() => { try { return localStorage.getItem("psr_theme_style2") || "flat"; } catch { return "flat"; } });
-  const [themePalette, setThemePalette] = useState(() => { try { return localStorage.getItem("psr_theme_palette2") || "white-blue"; } catch { return "white-blue"; } });
+  const [theme, setTheme] = useState(readCachedTheme);
+  const themeStyle = theme.style, themePalette = theme.palette;
+  const setThemeStyle = (style) => setTheme(t => normalizeTheme({ ...t, style }));
+  const setThemePalette = (palette) => setTheme(t => normalizeTheme({ ...t, palette }));
   const [navOrder, setNavOrder] = useState(null);
   const [invoicePresets, setInvoicePresets] = useState([]);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -9709,7 +9998,7 @@ export default function App() {
     let el = document.getElementById(id);
     if (!el) { el = document.createElement("style"); el.id = id; document.head.appendChild(el); }
     el.textContent = buildThemeCss(themeStyle, themePalette);
-    try { localStorage.setItem("psr_theme_style2", themeStyle); localStorage.setItem("psr_theme_palette2", themePalette); } catch {}
+    try { localStorage.setItem("psr_theme", JSON.stringify({ style: themeStyle, palette: themePalette })); } catch {}
   }, [themeStyle, themePalette]);
 
   // Stable data-apply function — used by both the initial load and the offline reconnect loop.
@@ -9745,6 +10034,13 @@ export default function App() {
     }
     if (d.invoicePresets != null) { setInvoicePresets(d.invoicePresets); kl.add("invoicePresets"); }
     if (d.chatEnabled != null) { setChatEnabled(d.chatEnabled); kl.add("chatEnabled"); }
+    if (d.theme && typeof d.theme === "object") {
+      // Keep KV's own object when it is already valid, so the reference matches
+      // lastSavedRef and the loaded theme is not re-uploaded as a "change".
+      const th = normalizeTheme(d.theme);
+      setTheme(th.style === d.theme.style && th.palette === d.theme.palette ? d.theme : th);
+      kl.add("theme");
+    }
     // Mark every applied field as already-persisted (same reference now lives in
     // state), so the debounced save effect skips re-uploading freshly loaded or
     // remotely-synced data. Only fields actually present are recorded.
@@ -9861,84 +10157,130 @@ export default function App() {
   useEffect(() => {
     if (!loaded || !cloudSynced || snapTakenRef.current) return;
     snapTakenRef.current = true;
-    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
+    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme };
   }, [loaded, cloudSynced]); // intentionally omits data deps — captures post-load state once
 
-  // Phase 1 reconnect loop: when offlineMode is active, poll every 20s and on the
-  // browser's "online" event. On success, reload the page so KV data is applied cleanly.
+  // Everything the save rules look at, as one object. latestStateRef mirrors it
+  // every render so the offline reconnect (an effect with no data deps) can read
+  // the current edits instead of a stale closure.
+  const dataState = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme };
+  const latestStateRef = useRef(dataState);
+  latestStateRef.current = dataState;
+  const userRef = useRef(user);
+  userRef.current = user;
+  const saveRules = () => ({ lastSaved: lastSavedRef.current, kvLoaded: kvLoadedRef.current, snapshot: postLoadSnapRef.current, user });
+  // Fields edited while offline (shown in the banner; gates the reconnect reload).
+  const offlinePending = offlineMode ? dirtyFields(dataState, { lastSaved: lastSavedRef.current, kvLoaded: kvLoadedRef.current, snapshot: null, user }) : [];
+
+  // Profile PUTs made while offline wait here (P1-14) and drain on reconnect, so a
+  // crew member's bank details / positions typed on the road are not lost.
+  const profileQueueRef = useRef([]);
+  const [profileQueueSize, setProfileQueueSize] = useState(0);
+  const putProfileQueued = async (empId, profile) => {
+    if (!offlineMode) {
+      try {
+        const res = await api.putProfile(empId, profile);
+        if (res.ok) return res;
+        return res; // server error: caller shows it
+      } catch {
+        // network dropped mid-session: fall through to the queue
+      }
+    }
+    profileQueueRef.current = queueProfile(profileQueueRef.current, empId, profile);
+    setProfileQueueSize(profileQueueRef.current.length);
+    return { ok: true, queued: true };
+  };
+
+  // Offline reconnect (P1-14): poll every 20s and on the browser's "online" event.
+  // Once the server answers, first drain the queued profile saves, then PUT the
+  // dirty delta (edits made from the cached copy; a 409 rebases them onto whatever
+  // changed meanwhile), and only when nothing is pending reload the page so every
+  // view starts from KV. Nothing typed offline is discarded any more.
   useEffect(() => {
     if (!offlineMode) return;
+    let busy = false;
     const tryReconnect = async () => {
+      if (busy) return;
+      busy = true;
       try {
         const d = await api.getData();
-        if (d && typeof d === "object") {
-          writeCache(d);
-          window.location.reload();
+        if (!d || typeof d !== "object") return;
+        // (versionsRef is deliberately NOT refreshed here: the PUT below carries the
+        // versions the cache was loaded with, so anything another device wrote while
+        // this one was offline surfaces as a 409 and is merged, never overwritten.)
+        // 1. queued profile saves
+        if (profileQueueRef.current.length) {
+          profileQueueRef.current = await drainProfileQueue(profileQueueRef.current, (id, prof) => api.putProfile(id, prof));
+          setProfileQueueSize(profileQueueRef.current.length);
+          if (profileQueueRef.current.length) return; // still failing: try again next tick
         }
-      } catch {}
+        // 2. the dirty delta (the cache never loaded photos, so nothing here can strip one)
+        const state = latestStateRef.current;
+        const { payload, sent } = buildSavePayload(state, { lastSaved: lastSavedRef.current, kvLoaded: kvLoadedRef.current, snapshot: null, user: userRef.current });
+        if (Object.keys(payload).length) {
+          const r = await putSynced(payload);
+          if (!r.ok) { if (r.status === 413) showToast("error", "syncTooBig", { field: r.field || "", mb: r.bytes ? (r.bytes / 1048576).toFixed(1) : "?" }); return; }
+          Object.assign(lastSavedRef.current, sent, r.sent || {});
+          try { sessionStorage.setItem("psr_offline_synced", String(Object.keys(sent).length)); } catch {}
+        }
+        // 3. clean: start fresh from KV (the "synced" toast shows after the reload)
+        const fresh = await api.getData();
+        writeCache(fresh);
+        window.location.reload();
+      } catch (e) {
+        // The server is back but the session ended while we were offline (P0-2):
+        // nothing can be sent with this cookie, so go to the Login screen instead
+        // of polling an "offline" that never ends. Any other error: still offline.
+        if (e && (e.status === 401 || e.status === 403)) { try { localStorage.removeItem(SESSION_KEY); } catch {} window.location.reload(); }
+      } finally { busy = false; }
     };
     window.addEventListener("online", tryReconnect);
     const interval = setInterval(tryReconnect, 20000);
     return () => { window.removeEventListener("online", tryReconnect); clearInterval(interval); };
-  }, [offlineMode]);
+  }, [offlineMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Save to cloud whenever data changes (debounced 800ms).
-  // Triple guard: loaded + cloudSynced + field-level safety check.
-  // safeSave(key, val) returns true if the field should be included in the payload:
-  //   - it was loaded from KV (kvLoadedRef), OR
-  //   - it changed from the post-load snapshot (user modified it), OR
-  //   - it's a brand-new account (all KV keys were null → safe to write initial state)
+  // After the reconnect reload: tell the user their offline edits made it.
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      const n = sessionStorage.getItem("psr_offline_synced");
+      if (n) { sessionStorage.removeItem("psr_offline_synced"); showToast("info", "offlineSynced", { n }); }
+    } catch {}
+  }, [loaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A profile PUT that failed mid-session (network blip, not boot-time offline)
+  // is queued too; drain it on "online" and every 20 s until it lands.
+  useEffect(() => {
+    if (offlineMode || profileQueueSize === 0) return;
+    let busy = false;
+    const drain = async () => {
+      if (busy || !navigator.onLine) return;
+      busy = true;
+      try {
+        profileQueueRef.current = await drainProfileQueue(profileQueueRef.current, (id, prof) => api.putProfile(id, prof));
+        setProfileQueueSize(profileQueueRef.current.length);
+      } finally { busy = false; }
+    };
+    window.addEventListener("online", drain);
+    const interval = setInterval(drain, 20000);
+    drain();
+    return () => { window.removeEventListener("online", drain); clearInterval(interval); };
+  }, [offlineMode, profileQueueSize]);
+
+  // Save to cloud whenever data changes (debounced 1.5 s).
+  // Triple guard: loaded + cloudSynced + the per-field rules in
+  // src/logic/offline.js buildSavePayload (loaded-from-KV OR changed-vs-snapshot,
+  // AND reference !== lastSaved; employees send only their own invoices).
   useEffect(() => {
     if (!loaded || !cloudSynced) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const kl = kvLoadedRef.current;
-      const snap = postLoadSnapRef.current;
-      // kl.size === 0 means admin just initialized a fresh account (needsInit was shown
-      // and they clicked Initialize — initializeAccount() populated kl manually).
-      // The newAccount path no longer auto-triggers; initialization is always explicit.
-      const safeSave = (key, val) => kl.has(key) || (snap !== null && val !== snap[key]);
-      // Delta gate: only include a field whose reference actually changed since it
-      // was last saved or loaded. `sent` records what we persist so lastSavedRef can
-      // advance on success. This only NARROWS what safeSave already permits, so the
-      // loaded/cloudSynced + kvLoaded/snapshot data-safety guards are unchanged.
-      const ls = lastSavedRef.current;
-      const sent = {};
-      const changed = (key, val) => { const ok = safeSave(key, val) && ls[key] !== val; if (ok) sent[key] = val; return ok; };
-
-      const savePayload = {};
-      if (changed("equipment", equipment)) savePayload.equipment = equipment;
-      if (changed("jobs", jobs)) savePayload.jobs = jobs;
-      if (changed("checkouts", checkouts)) savePayload.checkouts = checkouts;
-      if (changed("employees", employees)) savePayload.employees = employees;
-      if (changed("reports", reports)) savePayload.reports = reports;
-      if (changed("productionCompanies", productionCompanies)) savePayload.productionCompanies = productionCompanies;
-      if (changed("invoices", invoices)) {
-        const isEmployee = user != null && user.role !== "admin";
-        // Employees only submit their own invoices so they can't overwrite admin's changes.
-        // Admin submits all invoices (including soft-deletes for auto-generated ones).
-        savePayload.invoices = isEmployee ? invoices.filter(inv => inv.employeeId === user.id) : invoices;
-        savePayload._invoiceEmployeeId = isEmployee ? user.id : "admin";
-      }
-      if (changed("companyName", companyName)) savePayload.companyName = companyName;
-      if (changed("equipmentRequests", equipmentRequests)) savePayload.equipmentRequests = equipmentRequests;
-      if (changed("adminRequests", adminRequests)) savePayload.adminRequests = adminRequests;
-      if (changed("timezone", timezone)) savePayload.timezone = timezone;
-      if (changed("timeFormat", timeFormat)) savePayload.timeFormat = timeFormat;
-      if (changed("kpiConfig", kpiConfig)) savePayload.kpiConfig = kpiConfig;
-      if (changed("punishments", punishments)) savePayload.punishments = punishments;
-      if (changed("kpiEvents", kpiEvents)) savePayload.kpiEvents = kpiEvents;
-      if (changed("photoVerification", photoVerification)) savePayload.photoVerification = photoVerification;
-      if (changed("navOrder", navOrder)) savePayload.navOrder = navOrder;
-      if (changed("verificationConfig", verificationConfig)) savePayload.verificationConfig = verificationConfig;
-      if (changed("invoicePresets", invoicePresets)) savePayload.invoicePresets = invoicePresets;
-      if (changed("chatEnabled", chatEnabled)) savePayload.chatEnabled = chatEnabled;
-      // lineGroupId: null means "don't touch KV"; only save if truthy or user cleared it
-      if (lineGroupId !== null && changed("lineGroupId", lineGroupId)) savePayload.lineGroupId = lineGroupId;
-
+      // kvLoaded.size === 0 means admin just initialized a fresh account (needsInit was
+      // shown and they clicked Initialize — initializeAccount() populated it manually).
+      const { payload: savePayload, sent } = buildSavePayload(dataState, saveRules());
       if (Object.keys(savePayload).length === 0) return;
       // Phase 1: build a full-state snapshot for the cache (saved on every success)
-      const fullSnapshot = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
+      const fullSnapshot = dataState;
       const onSuccess = (r) => {
         setSaveErr(false);
         pendingSaveRef.current = null;
@@ -9979,7 +10321,7 @@ export default function App() {
             .then(onSuccess)
             .catch(onFail));
     }, 1500);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, loaded, cloudSynced]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme, loaded, cloudSynced]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase 2: when a save has failed, retry automatically when the browser comes back online
   // or every 30 seconds. This drains without user action and clears the ⚠ SYNC indicator.
@@ -9999,7 +10341,7 @@ export default function App() {
   }, [saveErr]);
 
   // Setters the conflict path needs to drop a merged field back into state.
-  const FIELD_SETTERS = { equipment: setEquipment, jobs: setJobs, employees: setEmployees, reports: setReports, productionCompanies: setProductionCompanies, companyName: setCompanyName, timezone: setTimezone, timeFormat: setTimeFormat, kpiConfig: setKpiConfig, punishments: setPunishments, kpiEvents: setKpiEvents, photoVerification: setPhotoVerification, navOrder: setNavOrder, verificationConfig: setVerificationConfig, invoicePresets: setInvoicePresets, chatEnabled: setChatEnabled };
+  const FIELD_SETTERS = { equipment: setEquipment, jobs: setJobs, employees: setEmployees, reports: setReports, productionCompanies: setProductionCompanies, companyName: setCompanyName, timezone: setTimezone, timeFormat: setTimeFormat, kpiConfig: setKpiConfig, punishments: setPunishments, kpiEvents: setKpiEvents, photoVerification: setPhotoVerification, navOrder: setNavOrder, verificationConfig: setVerificationConfig, invoicePresets: setInvoicePresets, chatEnabled: setChatEnabled, theme: setTheme };
 
   // PUT with optimistic versions (P1-13). Sends `_v` for the whole-value fields in
   // the payload; on 409 (another device wrote one of them first) it re-GETs, keeps
@@ -10050,10 +10392,11 @@ export default function App() {
   const saveSettingsNow = async () => {
     if (!loaded || !cloudSynced) return { ok: false, error: "Still syncing with the cloud — wait a moment, then try again." };
     const ls = lastSavedRef.current;
-    const state = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, chatEnabled };
-    const payload = {}, sent = {};
-    for (const [k, v] of Object.entries(state)) if (ls[k] !== v) { payload[k] = v; sent[k] = v; }
-    if (lineGroupId !== null && ls.lineGroupId !== lineGroupId) { payload.lineGroupId = lineGroupId; sent.lineGroupId = lineGroupId; }
+    // Same rules as the debounced save (src/logic/offline.js): loaded-or-changed
+    // guard, employees only their own invoices and only crew-writable fields. A
+    // plain "!== lastSaved" scan used to PUT the never-loaded `theme` from a crew
+    // session, and the server's role check 403'd the whole save.
+    const { payload, sent } = buildSavePayload(dataState, saveRules());
     if (Object.keys(payload).length === 0) return { ok: true }; // nothing changed since last save
     try {
       const res = await putSynced(payload);
@@ -10080,7 +10423,7 @@ export default function App() {
     const payload = {
       equipment, jobs, checkouts, employees, reports, productionCompanies, invoices,
       companyName, equipmentRequests, adminRequests,
-      timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets,
+      timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, theme,
     };
     try {
       const res = await api.putData(payload);
@@ -10140,13 +10483,21 @@ export default function App() {
   const pendingAdminRequests = (adminRequests || []).filter(r => r.status === "pending");
   const pendingEquipReqCount = (equipmentRequests || []).filter(r => r.status === "pending").length;
   const _tRoot = (key) => (LANG[lang] || LANG.en)[key] ?? LANG.en[key] ?? key;
-  // Overdue gear (checkout-derived, survives a deleted job) for the bell + dashboard.
-  const overdueCount = stillOutList({ checkouts, jobs, equipment, equipmentRequests, today: today(), tz: APP_TZ }).filter(i => i.overdue).length;
+  // The ONE "needs action" list (P2-11): overdue gear, gear due back today, admin
+  // approvals, crew gear requests, open damage reports. It feeds the bell in the
+  // sidebar / top bar and the Dashboard rail shows the same cards, so an item is
+  // never listed in one place and missing from the other.
+  const stillOutNow = stillOutList({ checkouts, jobs, equipment, equipmentRequests, today: today(), tz: APP_TZ });
+  const overdueCount = stillOutNow.filter(i => i.overdue).length;
+  const dueTodayCount = stillOutNow.filter(i => i.dueToday && !i.overdue).length;
+  const goDashboard = (cardId) => () => { setActivePage("dashboard"); setTimeout(() => document.getElementById(cardId)?.scrollIntoView({ behavior: "smooth", block: "start" }), 120); };
+  const openDamageReports = () => { setEqInitialTab("reports"); setActivePage("equipment"); };
   const notifItems = [
-    overdueCount > 0 && { label: _tRoot("notifOverdue"), count: overdueCount, color: "#C53030", icon: icons.alert, onClick: () => { setActivePage("dashboard"); setTimeout(() => document.getElementById("stillout-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120); } },
-    pendingAdminRequests.length > 0 && { label: _tRoot("notifAdminApprovals"), count: pendingAdminRequests.length, color: "var(--accent,#2563EB)", icon: icons.check, onClick: () => { setActivePage("dashboard"); setTimeout(() => document.getElementById("approvals-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120); } },
-    pendingEquipReqCount > 0 && { label: _tRoot("notifEquipRequests"), count: pendingEquipReqCount, color: "#2563EB", icon: icons.gear, onClick: () => setActivePage("team") },
-    unresolvedCount > 0 && { label: _tRoot("notifDamageReports"), count: unresolvedCount, color: "#C53030", icon: icons.alert, onClick: () => { setEqInitialTab("reports"); setActivePage("equipment"); } },
+    overdueCount > 0 && { key: "overdue", label: _tRoot("notifOverdue"), count: overdueCount, color: "#C53030", icon: icons.alert, onClick: goDashboard("stillout-card") },
+    dueTodayCount > 0 && { key: "dueToday", label: _tRoot("notifDueToday"), count: dueTodayCount, color: "var(--accent,#2563EB)", icon: icons.package, onClick: goDashboard("stillout-card") },
+    pendingAdminRequests.length > 0 && { key: "approvals", label: _tRoot("notifAdminApprovals"), count: pendingAdminRequests.length, color: "var(--accent,#2563EB)", icon: icons.check, onClick: goDashboard("approvals-card") },
+    pendingEquipReqCount > 0 && { key: "gearRequests", label: _tRoot("notifEquipRequests"), count: pendingEquipReqCount, color: "#2563EB", icon: icons.gear, onClick: goDashboard("gear-requests-card") },
+    unresolvedCount > 0 && { key: "damage", label: _tRoot("notifDamageReports"), count: unresolvedCount, color: "#C53030", icon: icons.alert, onClick: openDamageReports },
   ].filter(Boolean);
 
   // Member registration is resolved SERVER-side (P2-8): the requested PIN only
@@ -10355,7 +10706,7 @@ export default function App() {
           {saveErr && <p style={{ color: "#C53030", fontSize: 12 }}>Save failed — check your connection and try again.</p>}
         </div>
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={onLogout} calendarToken={calendarToken} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={onLogout} calendarToken={calendarToken} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} offlinePendingCount={offlinePending.length + profileQueueSize} putProfile={putProfileQueued} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
       ) : (
         <div id="admin-layout" style={S.app}>
           {isMobile ? (
@@ -10388,7 +10739,7 @@ export default function App() {
             <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", borderBottom: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 13 }}>⚠️</span>
               <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
-                <strong>Offline</strong> — showing cached data. Changes will not be saved until connection is restored. Reconnecting automatically…
+                <strong>{_tRoot("offlineTitle")}</strong> {_tRoot("offlineBody")} {offlinePending.length + profileQueueSize > 0 ? _tRoot("offlinePendingN").replace("{n}", offlinePending.length + profileQueueSize) : _tRoot("offlineClean")}
               </p>
             </div>
           )}
@@ -10397,16 +10748,17 @@ export default function App() {
               <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
                 <span style={{ fontSize: 13 }}>⚠️</span>
                 <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
-                  <strong>Offline</strong> — showing cached data. Changes will not be saved until connection is restored.
+                  <strong>{_tRoot("offlineTitle")}</strong> {_tRoot("offlineBody")} {offlinePending.length + profileQueueSize > 0 ? _tRoot("offlinePendingN").replace("{n}", offlinePending.length + profileQueueSize) : _tRoot("offlineClean")}
                 </p>
               </div>
             )}
-            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} deleteRecord={deleteRecord} reports={reports} onReceive={receiveStillOut} />}
+            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} deleteRecord={deleteRecord} reports={reports} onReceive={receiveStillOut} onOpenReports={openDamageReports} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} equipmentRequests={equipmentRequests} productionCompanies={productionCompanies} initialTab={eqInitialTab} onConsumeInitialTab={() => setEqInitialTab(null)} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} equipmentRequests={equipmentRequests} reports={reports} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} jobs={jobs} setJobs={setJobs} adminRequests={adminRequests} saveNow={saveSettingsNow} />}
-            {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} setEmployeePin={setEmployeePinAndAdopt} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} deleteRecord={deleteRecord} />}
+            {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} setEmployeePin={setEmployeePinAndAdopt} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} deleteRecord={deleteRecord} onOpenRequests={goDashboard("gear-requests-card")} />}
             {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} equipmentRequests={equipmentRequests} />}
+            {activePage === "reports" && <ReportsPage equipment={equipment} checkouts={checkouts} jobs={jobs} equipmentRequests={equipmentRequests} productionCompanies={productionCompanies} invoices={invoices} employees={employees} />}
           </main>
           {isMobile && <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} navOrder={navOrder} />}
           {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} user={user} onUserUpdate={setUser} staff={staff} setStaff={setStaff} calendarToken={calendarToken} setCalendarToken={setCalendarToken} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} clearHistory={clearHistory} migratePhotos={migratePhotos} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} chatEnabled={chatEnabled} setChatEnabled={setChatEnabled} onClose={() => setSettingsPanelOpen(false)} />}

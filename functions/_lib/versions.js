@@ -15,6 +15,7 @@ export const VERSIONED = new Set([
   "equipment", "jobs", "employees", "reports", "productionCompanies", "companyName",
   "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents",
   "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled",
+  "theme",
 ]);
 
 // sent: the `_v` map from the PUT body (may be absent for old clients / scripts).
