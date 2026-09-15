@@ -34,7 +34,6 @@ export default {
     missingN: "Missing {n}",
     outOfN: "{out} of {total} out",
     stillOutN: "{n} still out",
-    confirmReturn: "Confirm return",
     returnDetailsTitle: "Return details",
     partialHint: "Fewer than {n}? The rest stays out under your name until it comes back.",
     // geo gate (P1-5)
@@ -130,7 +129,6 @@ export default {
     missingN: "ขาด {n}",
     outOfN: "ยืมอยู่ {out} จาก {total}",
     stillOutN: "ยังไม่คืน {n}",
-    confirmReturn: "ยืนยันคืนของ",
     returnDetailsTitle: "รายละเอียดการคืน",
     partialHint: "คืนไม่ครบ {n}? ที่เหลือยังค้างในชื่อคุณจนกว่าจะเอามาคืน",
     geoTooFar: "คุณอยู่ห่างจากจุดรับของ {dist} การคืนต้องอยู่ในระยะ {m} ม. จากจุดรับของหรือที่ร้าน ไม่งั้นต้องรอแอดมินอนุมัติ",
