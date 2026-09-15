@@ -36,6 +36,7 @@ export default {
     stillOutN: "{n} still out",
     returnDetailsTitle: "Return details",
     partialHint: "Fewer than {n}? The rest stays out under your name until it comes back.",
+    partialHintAdmin: "Fewer than {n}? The rest stays out under the crew member who picked it, as Missing.",
     // geo gate (P1-5)
     geoTooFar: "You are {dist} from the pick-up point. Returns must be within {m} m of where the gear was picked up (or the shop), or an admin has to approve.",
     geoNoGps: "No GPS fix on this photo. Returns need a location within {m} m of the pick-up point (or the shop), or an admin has to approve.",
@@ -86,6 +87,8 @@ export default {
     adminMarkReturned: "Mark returned",
     adminPickedBy: "Picked by {name}",
     adminLostDone: "Written off",
+    rowReturned: "Returned",
+    rowPicked: "Picked",
     adminNothingActive: "No active jobs. Nothing is out and no confirmed job is in its pick-up window.",
     adminRequestBadge: "REQUEST",
     // settings (P1-2 / P1-5)
@@ -131,6 +134,7 @@ export default {
     stillOutN: "ยังไม่คืน {n}",
     returnDetailsTitle: "รายละเอียดการคืน",
     partialHint: "คืนไม่ครบ {n}? ที่เหลือยังค้างในชื่อคุณจนกว่าจะเอามาคืน",
+    partialHintAdmin: "คืนไม่ครบ {n}? ที่เหลือจะค้างในชื่อคนที่รับของไป แสดงเป็นขาด",
     geoTooFar: "คุณอยู่ห่างจากจุดรับของ {dist} การคืนต้องอยู่ในระยะ {m} ม. จากจุดรับของหรือที่ร้าน ไม่งั้นต้องรอแอดมินอนุมัติ",
     geoNoGps: "รูปนี้ไม่มี GPS การคืนต้องมีตำแหน่งในระยะ {m} ม. จากจุดรับของหรือที่ร้าน ไม่งั้นต้องรอแอดมินอนุมัติ",
     geoNoPickupGps: "ตอนรับของไม่มี GPS เลยเทียบตำแหน่งตอนคืนไม่ได้ ต้องรอแอดมินอนุมัติ",
@@ -178,6 +182,8 @@ export default {
     adminMarkReturned: "บันทึกคืนของ",
     adminPickedBy: "{name} รับไป",
     adminLostDone: "ตัดจำหน่ายแล้ว",
+    rowReturned: "คืนแล้ว",
+    rowPicked: "รับแล้ว",
     adminNothingActive: "ไม่มีงานที่กำลังใช้ของ ไม่มีของค้าง และไม่มีงานยืนยันในช่วงรับของ",
     adminRequestBadge: "คำขอยืม",
     settingsDayStart: "วันทำงานเริ่มเวลา",

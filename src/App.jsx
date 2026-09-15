@@ -426,7 +426,7 @@ function GeoPhoto({ capture, label, onUse, useLabel, children, disabled }) {
 // Return details (P1-1): units coming back (capped at what is out), condition, note.
 // Shared by the crew preview screen, the crew none-mode modal, the barcode-lane
 // modal and the admin Receive modal.
-function ReturnDetailsFields({ value, onChange, outstanding, showQty = true, compact }) {
+function ReturnDetailsFields({ value, onChange, outstanding, showQty = true, compact, hintKey = "partialHint" }) {
   const t = useT();
   const set = (patch) => onChange({ ...value, ...patch });
   const minQty = value.condition === "missing" ? 0 : 1;
@@ -443,7 +443,7 @@ function ReturnDetailsFields({ value, onChange, outstanding, showQty = true, com
             <button type="button" aria-label="plus" style={{ ...S.btn("ghost"), padding: "8px 14px", fontSize: 16 }} disabled={qty >= outstanding} onClick={() => set({ qty: Math.min(outstanding, qty + 1) })}>+</button>
             {qty < outstanding && <span style={{ ...S.badge("red") }}>{t("missingN").replace("{n}", outstanding - qty)}</span>}
           </div>
-          <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "6px 0 0" }}>{t("partialHint").replace("{n}", outstanding)}</p>
+          <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "6px 0 0" }}>{t(hintKey).replace("{n}", outstanding)}</p>
         </div>
       )}
       <div>
@@ -3004,7 +3004,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
       {(() => {
         const allReqs = adminRequests || [];
         const pendingCount = allReqs.filter(r => r.status === "pending").length;
-        const isResolved = (r) => r.status === "approved" || r.status === "rejected";
+        const isResolved = (r) => r.status === "approved" || r.status === "rejected" || r.status === "withdrawn"; // withdrawn = crew re-shot at the shop (P1-5)
         const filtered = allReqs.filter(r => approvalFilter === "all" ? true : approvalFilter === "pending" ? r.status === "pending" : isResolved(r));
         const typeLabel = { "production-house": t("dashTypeProductionHouse"), "equipment": t("dashTypeEquipment"), "member-register": t("dashTypeNewMember"), "early-pickup": "Early Pickup", "early-return": "Early Return" };
         // Geo-return requests consolidate into one collapsible row per job; others stay individual.
@@ -3065,7 +3065,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                       <div style={{ marginTop: 10, paddingLeft: 10, borderLeft: "2px solid var(--divider-color,#D8E1EC)", display: "flex", flexDirection: "column", gap: 12 }}>
                         {g.items.map(req => (
                           <div key={req.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                            <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
+                            <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : req.status === "withdrawn" ? "gray" : "amber")}>{req.status}</span>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.eqName || req.eqId}</p>
                               <p style={{ margin: "2px 0 0", fontSize: 11, color: req.distance !== null ? (req.distance > 50 ? "#C53030" : "#2F855A") : "var(--text-muted,#6E8398)" }}>
@@ -3090,7 +3090,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
               const req = row.req;
               return (
                 <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, ...divider }}>
-                  <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
+                  <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : req.status === "withdrawn" ? "gray" : "amber")}>{req.status}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.name}</p>
                     <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>
@@ -3462,9 +3462,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     const isReturn = phase === "return";
     const jobState = getJobCheckoutState(selectedJob);
     const { pickedIds, returnedIds } = jobState;
-    // Pick: all assigned items that still exist. Return: only items with units OUT (count based, any date).
+    // Pick: all assigned items that still exist. Return: items with units OUT (count
+    // based, any date) plus rows returned this session, so the ✓ stays visible.
     const items = (selectedJob.assignedEquipment || []).filter(ae =>
-      equipment.some(e => e.id === ae.eqId) && (isReturn ? outstandingQty(jobState, ae.eqId) > 0 : true)
+      equipment.some(e => e.id === ae.eqId) && (isReturn ? (outstandingQty(jobState, ae.eqId) > 0 || !!itemResults[ae.eqId] || !!barcodeResults[ae.eqId]) : true)
     );
     const pendingReturn = (ae) => myPendingGeo(selectedJob, ae.eqId).length > 0;
     const myLanes = getMyLanes(selectedJob);
@@ -7895,7 +7896,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
             useLabel={isReturnPhase ? t("confirmReturn") : t("photoUse")}
             onUse={(dataUrl, loc) => { commitItem(captureAe, dataUrl, loc, isReturnPhase ? returnDetails : null); setCaptureAe(null); capture.reset(); }}
           >
-            {isReturnPhase && <ReturnDetailsFields value={returnDetails} onChange={setReturnDetails} outstanding={out} />}
+            {isReturnPhase && <ReturnDetailsFields value={returnDetails} onChange={setReturnDetails} outstanding={out} hintKey="partialHintAdmin" />}
           </GeoPhoto>
         </div>
       </div>
@@ -7971,7 +7972,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
                   )}
                 </div>
                 {done ? (
-                  <span style={{ ...S.badge("green"), flexShrink: 0 }}>✓ {isReturn ? (lostUnits > 0 && (counts?.returned || 0) === 0 ? t("adminLostDone") : t("adminAllReturned")) : t("adminAllPicked")}</span>
+                  <span style={{ ...S.badge("green"), flexShrink: 0 }}>✓ {isReturn ? (lostUnits > 0 && (counts?.returned || 0) === 0 ? t("adminLostDone") : t("rowReturned")) : t("rowPicked")}</span>
                 ) : (
                   <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
                     <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12 }} onClick={() => onTapItem(ae, "receive")}>
@@ -8010,7 +8011,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
           return (
             <Modal title={`${t("adminReceiveTitle")} · ${eq?.name || ""}`} onClose={() => setReceiveAe(null)}>
               <p style={{ margin: "0 0 4px", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("adminReceiveHint")}</p>
-              <ReturnDetailsFields value={returnDetails} onChange={setReturnDetails} outstanding={out} compact />
+              <ReturnDetailsFields value={returnDetails} onChange={setReturnDetails} outstanding={out} compact hintKey="partialHintAdmin" />
               <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", marginTop: 16, padding: "12px" }} data-testid="receive-confirm" onClick={() => {
                 if (receiveAe.lane === "barcode") commitBarcode(receiveAe.ae, receiveAe.loc, returnDetails);
                 else commitItem(receiveAe.ae, null, receiveAe.loc, returnDetails);
@@ -8044,7 +8045,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
                 ))}
               </div>
               <label style={S.label}>{t("returnNote")}</label>
-              <input style={S.input} value={lostForm.note} onChange={e => setLostForm(f => ({ ...f, note: e.target.value }))} />
+              <input style={S.input} value={lostForm.note} onChange={e => setLostForm(f => ({ ...f, note: e.target.value }))} data-testid="lost-note" />
               <button style={{ ...S.btn("danger"), width: "100%", justifyContent: "center", marginTop: 16, padding: "12px" }} data-testid="lost-confirm" onClick={() => { commitLost(lostAe, q, lostForm.condition, lostForm.note); setLostAe(null); }}>
                 <Icon d={icons.alert} size={15} /> {t("adminMarkLost")}
               </button>
@@ -8146,7 +8147,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
                     <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#16324A)" }}>{job.name}{job.__reqId ? <span style={{ ...S.badge("blue"), marginLeft: 6 }}>{t("adminRequestBadge")}</span> : null}</p>
                     {job.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#2563EB)", fontWeight: 600 }}>{job.production}</p>}
                     <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
-                      {(job.assignedEquipment || []).length} items · {fmtRange(job.dates) || "—"}
+                      {(job.assignedEquipment || []).length} item{(job.assignedEquipment || []).length !== 1 ? "s" : ""} · {fmtRange(job.dates) || "—"}
                       {dueDate && st.outCount > 0 ? ` · ${overdue ? t("adminOverdue") : dueToday ? t("adminDueToday") : t("adminDue").replace("{d}", formatDate(dueDate))}` : ""}
                     </p>
                   </div>
