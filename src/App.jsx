@@ -52,7 +52,7 @@ const PALETTES = {
   "black-white":  { bg: "#111", s1: "#1e1e1e", s2: "#2b2b2b", bdr: "#3a3a3a", text: "#f0f0f0", muted: "#888", acc: "#e0e0e0", accT: "#111" },
   "teal-orange":  { bg: "#051414", s1: "#0c2424", s2: "#153535", bdr: "#225050", text: "#dff5f0", muted: "#5a9a8a", acc: "#ff6a2a", accT: "#fff" },
   "black-red":    { bg: "#0e0808", s1: "#1c0e0e", s2: "#281414", bdr: "#3e1818", text: "#f0dddd", muted: "#9a6060", acc: "#dd3333", accT: "#fff" },
-  "white-blue":   { bg: "#edf2f8", s1: "#ffffff", s2: "#dce8f5", bdr: "#b8d0e8", text: "#162030", muted: "#5878a0", acc: "#1a60d0", accT: "#fff" },
+  "white-blue":   { bg: "#F4F7FB", s1: "#FFFFFF", s2: "#EAF0F7", bdr: "#D8E1EC", text: "#16324A", muted: "#4E6B84", acc: "#2563EB", accT: "#FFFFFF" },
   "black-yellow": { bg: "#0e0e08", s1: "#191910", s2: "#232318", bdr: "#353520", text: "#f0f0dc", muted: "#8a8a68", acc: "#e8b84b", accT: "#0e0e08" },
   "black-blue":   { bg: "#07090e", s1: "#0e121e", s2: "#151c2c", bdr: "#1c2c44", text: "#c8d8f0", muted: "#5878a8", acc: "#3a80e8", accT: "#fff" },
 };
@@ -64,10 +64,14 @@ function buildThemeCss(style, palette) {
   const light = isLight(p.bg);
   const [accR, s1R, bgR, txtR] = [hexRgb(p.acc), hexRgb(p.s1), hexRgb(p.bg), hexRgb(p.text)];
 
-  const base = `#admin-layout{--bg:${p.bg};--surface:${p.s1};--surface2:${p.s2};--border-color:${p.bdr};--text:${p.text};--text-muted:${p.muted};--accent:${p.acc};--accent-text:${p.accT};--btn-primary-bg:${p.acc};--btn-primary-color:${p.accT};--section-title-color:${p.muted};--divider-color:${p.bdr};--tag-bg:${p.s2};--tag-color:${p.muted};}`;
+  const base = `#admin-layout{--bg:${p.bg};--surface:${p.s1};--surface2:${p.s2};--border-color:${p.bdr};--text:${p.text};--text-muted:${p.muted};--accent:${p.acc};--accent-rgb:${accR};--accent-text:${p.accT};--logo-bg:${light ? "#16324A" : p.s2};--btn-primary-bg:${p.acc};--btn-primary-color:${p.accT};--section-title-color:${p.muted};--divider-color:${p.bdr};--tag-bg:${p.s2};--tag-color:${p.muted};}`;
 
   let sv = "";
-  if (style === "neumorphism") {
+  if (style === "flat") {
+    // Shop Job Board look: plain white planes, hairline borders, one soft shadow, no blur
+    const sh = light ? "0 1px 2px rgba(22,50,74,0.06),0 4px 16px rgba(22,50,74,0.08)" : "0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.3)";
+    sv = `#admin-layout{--card-border:1px solid ${p.bdr};--card-radius:10px;--card-backdrop:none;--card-shadow:${sh};--input-bg:${p.s1};--input-border:1px solid ${p.bdr};--input-shadow:none;--btn-radius:6px;--btn-shadow:none;--topbar-bg:${p.s1};--topbar-border:1px solid ${p.bdr};--topbar-shadow:none;--nav-bg:${p.s1};--nav-border:1px solid ${p.bdr};--nav-shadow:none;}`;
+  } else if (style === "neumorphism") {
     const dSh = light ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.48)";
     const lSh = light ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.04)";
     sv = `#admin-layout{--card-border:none;--card-radius:18px;--card-backdrop:none;--card-shadow:8px 8px 18px ${dSh},-5px -5px 12px ${lSh};--input-bg:${p.bg};--input-border:none;--input-shadow:inset 4px 4px 9px ${dSh},inset -3px -3px 6px ${lSh};--btn-radius:12px;--btn-shadow:5px 5px 12px ${dSh},-3px -3px 7px ${lSh};--topbar-bg:${p.s1};--topbar-border:none;--topbar-shadow:0 4px 18px ${dSh};--nav-bg:${p.s1};--nav-border:none;--nav-shadow:0 -4px 18px ${dSh};}`;
@@ -240,8 +244,8 @@ function StarRating({ value, size = 18 }) {
   const pct = Math.max(0, Math.min(100, (value / 5) * 100));
   return (
     <div style={{ position: "relative", display: "inline-block", fontSize: size, lineHeight: 1, letterSpacing: 2, fontFamily: "Arial, sans-serif" }}>
-      <div style={{ color: "#3a3f4a" }}>★★★★★</div>
-      <div style={{ position: "absolute", top: 0, left: 0, width: pct + "%", overflow: "hidden", whiteSpace: "nowrap", color: "#e8b84b" }}>★★★★★</div>
+      <div style={{ color: "var(--border-color,#D8E1EC)" }}>★★★★★</div>
+      <div style={{ position: "absolute", top: 0, left: 0, width: pct + "%", overflow: "hidden", whiteSpace: "nowrap", color: "var(--accent,#2563EB)" }}>★★★★★</div>
     </div>
   );
 }
@@ -275,38 +279,38 @@ function compressImage(input, { maxDim = 1200, quality = 0.72 } = {}) {
 // CSS variables with fallbacks — admin layout overrides via #admin-layout selector.
 // Employee view never has #admin-layout so always uses the fallback (dark cinema).
 const S = {
-  app: { minHeight: "100vh", background: "var(--bg,#0f1117)", color: "var(--text,#e8e4dc)", fontFamily: "'Inter','SF Pro Display',system-ui,sans-serif", fontSize: 14 },
-  topbar: { height: 54, background: "var(--topbar-bg,#161920)", borderBottom: "var(--topbar-border,1px solid #252830)", boxShadow: "var(--topbar-shadow,none)", backdropFilter: "var(--card-backdrop,none)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", position: "sticky", top: 0, zIndex: 100 },
+  app: { minHeight: "100vh", background: "var(--bg,#F4F7FB)", color: "var(--text,#16324A)", fontFamily: "'Inter','SF Pro Display',system-ui,sans-serif", fontSize: 14 },
+  topbar: { height: 54, background: "var(--topbar-bg,#FFFFFF)", borderBottom: "var(--topbar-border,1px solid #D8E1EC)", boxShadow: "var(--topbar-shadow,none)", backdropFilter: "var(--card-backdrop,none)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", position: "sticky", top: 0, zIndex: 100 },
   main: { minHeight: "calc(100vh - 54px)", padding: "20px 16px" },
   logo: { display: "flex", alignItems: "center", gap: 8 },
-  logoText: { fontSize: 15, fontWeight: 700, letterSpacing: "0.04em", color: "var(--accent,#e8b84b)" },
-  logoSub: { fontSize: 10, color: "var(--text-muted,#666)", letterSpacing: "0.12em", textTransform: "uppercase" },
-  navItem: (active) => ({ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", cursor: "pointer", color: active ? "var(--accent,#e8b84b)" : "var(--text,#e8e4dc)", background: active ? "rgba(232,184,75,0.07)" : "transparent", borderLeft: active ? "3px solid var(--accent,#e8b84b)" : "3px solid transparent", fontSize: 14, fontWeight: active ? 700 : 400 }),
-  card: { background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: "var(--card-radius,10px)", padding: 20, boxShadow: "var(--card-shadow,none)", backdropFilter: "var(--card-backdrop,none)" },
+  logoText: { fontSize: 15, fontWeight: 700, letterSpacing: "0.04em", color: "var(--accent,#2563EB)" },
+  logoSub: { fontSize: 10, color: "var(--text-muted,#5F7A91)", letterSpacing: "0.12em", textTransform: "uppercase" },
+  navItem: (active) => ({ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", cursor: "pointer", color: active ? "var(--accent,#2563EB)" : "var(--text,#16324A)", background: active ? "rgba(var(--accent-rgb,37,99,235),0.07)" : "transparent", borderLeft: active ? "3px solid var(--accent,#2563EB)" : "3px solid transparent", fontSize: 14, fontWeight: active ? 700 : 400 }),
+  card: { background: "var(--surface,#FFFFFF)", border: "var(--card-border,1px solid #D8E1EC)", borderRadius: "var(--card-radius,10px)", padding: 20, boxShadow: "var(--card-shadow,0 1px 2px rgba(22,50,74,0.06),0 4px 16px rgba(22,50,74,0.08))", backdropFilter: "var(--card-backdrop,none)" },
   cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(260px,1fr))", gap: 14 },
-  badge: (color) => ({ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", ...(color === "green" ? { background: "rgba(52,211,153,0.12)", color: "#34d399" } : color === "amber" ? { background: "rgba(232,184,75,0.12)", color: "#e8b84b" } : color === "red" ? { background: "rgba(239,68,68,0.12)", color: "#f87171" } : color === "blue" ? { background: "rgba(96,165,250,0.12)", color: "#60a5fa" } : color === "gray" ? { background: "rgba(148,163,184,0.1)", color: "#94a3b8" } : {}) }),
-  input: { width: "100%", background: "var(--input-bg,#0f1117)", border: "var(--input-border,1px solid #2e3340)", boxShadow: "var(--input-shadow,none)", borderRadius: "var(--btn-radius,7px)", padding: "9px 12px", color: "var(--text,#e8e4dc)", fontSize: 13, outline: "none", boxSizing: "border-box" },
-  select: { width: "100%", background: "var(--input-bg,#0f1117)", border: "var(--input-border,1px solid #2e3340)", boxShadow: "var(--input-shadow,none)", borderRadius: "var(--btn-radius,7px)", padding: "9px 12px", color: "var(--text,#e8e4dc)", fontSize: 13, outline: "none", boxSizing: "border-box", cursor: "pointer" },
-  label: { display: "block", marginBottom: 5, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", color: "var(--section-title-color,#8a8f9d)", textTransform: "uppercase" },
+  badge: (color) => ({ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", ...(color === "green" ? { background: "rgba(47,133,90,0.12)", color: "#2F855A" } : color === "amber" ? { background: "rgba(var(--accent-rgb,37,99,235),0.12)", color: "var(--accent,#2563EB)" } : color === "red" ? { background: "rgba(197,48,48,0.12)", color: "#C53030" } : color === "blue" ? { background: "rgba(37,99,235,0.12)", color: "#2563EB" } : color === "gray" ? { background: "rgba(148,163,184,0.1)", color: "#7B8794" } : {}) }),
+  input: { width: "100%", background: "var(--input-bg,#FFFFFF)", border: "var(--input-border,1px solid #D8E1EC)", boxShadow: "var(--input-shadow,none)", borderRadius: "var(--btn-radius,7px)", padding: "9px 12px", color: "var(--text,#16324A)", fontSize: 13, outline: "none", boxSizing: "border-box" },
+  select: { width: "100%", background: "var(--input-bg,#FFFFFF)", border: "var(--input-border,1px solid #D8E1EC)", boxShadow: "var(--input-shadow,none)", borderRadius: "var(--btn-radius,7px)", padding: "9px 12px", color: "var(--text,#16324A)", fontSize: 13, outline: "none", boxSizing: "border-box", cursor: "pointer" },
+  label: { display: "block", marginBottom: 5, fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", color: "var(--section-title-color,#4E6B84)", textTransform: "uppercase" },
   btn: (variant = "primary") => ({
     display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: "var(--btn-radius,7px)", fontSize: 13, fontWeight: 600, cursor: "pointer", border: "none", transition: "all 0.15s",
-    ...(variant === "primary" ? { background: "var(--btn-primary-bg,#e8b84b)", color: "var(--btn-primary-color,#0f1117)", boxShadow: "var(--btn-shadow,none)" } : variant === "ghost" ? { background: "transparent", color: "var(--text-muted,#8a8f9d)", border: "var(--input-border,1px solid #2e3340)" } : variant === "danger" ? { background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.2)" } : variant === "success" ? { background: "rgba(52,211,153,0.12)", color: "#34d399", border: "1px solid rgba(52,211,153,0.2)" } : {})
+    ...(variant === "primary" ? { background: "var(--btn-primary-bg,#2563EB)", color: "var(--btn-primary-color,#FFFFFF)", boxShadow: "var(--btn-shadow,none)" } : variant === "ghost" ? { background: "transparent", color: "var(--text-muted,#4E6B84)", border: "var(--input-border,1px solid #D8E1EC)" } : variant === "danger" ? { background: "rgba(197,48,48,0.12)", color: "#C53030", border: "1px solid rgba(197,48,48,0.2)" } : variant === "success" ? { background: "rgba(47,133,90,0.12)", color: "#2F855A", border: "1px solid rgba(47,133,90,0.2)" } : {})
   }),
-  sectionTitle: { fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--section-title-color,#8a8f9d)", marginBottom: 16 },
-  pageTitle: { fontSize: 22, fontWeight: 700, marginBottom: 4, color: "var(--text,#e8e4dc)" },
-  pageSubtitle: { fontSize: 13, color: "var(--text-muted,#666)", marginBottom: 28 },
-  divider: { borderTop: "1px solid var(--divider-color,#252830)", margin: "20px 0" },
+  sectionTitle: { fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--section-title-color,#4E6B84)", marginBottom: 16 },
+  pageTitle: { fontSize: 22, fontWeight: 700, marginBottom: 4, color: "var(--text,#16324A)" },
+  pageSubtitle: { fontSize: 13, color: "var(--text-muted,#5F7A91)", marginBottom: 28 },
+  divider: { borderTop: "1px solid var(--divider-color,#D8E1EC)", margin: "20px 0" },
   row: { display: "flex", alignItems: "center", gap: 12 },
   col: { display: "flex", flexDirection: "column", gap: 12 },
-  tag: { display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, background: "var(--tag-bg,#252830)", color: "var(--tag-color,#8a8f9d)", fontWeight: 500 },
+  tag: { display: "inline-block", padding: "2px 8px", borderRadius: 4, fontSize: 11, background: "var(--tag-bg,#D8E1EC)", color: "var(--tag-color,#4E6B84)", fontWeight: 500 },
 };
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
 function Modal({ title, onClose, children, wide }) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div style={{ background: "#1a1e27", border: "1px solid #2e3340", borderRadius: 12, width: "100%", maxWidth: wide ? 700 : 480, maxHeight: "90vh", overflow: "auto" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", borderBottom: "1px solid #252830" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(22,50,74,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ background: "var(--surface,#FFFFFF)", border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 12, width: "100%", maxWidth: wide ? 700 : 480, maxHeight: "90vh", overflow: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{title}</h3>
           <button onClick={onClose} style={{ ...S.btn("ghost"), padding: "4px 8px" }}><Icon d={icons.x} size={16} /></button>
         </div>
@@ -331,7 +335,7 @@ function LazyPhoto({ field, id, photo, hasPhoto, style, alt }) {
     return () => { alive = false; };
   }, [field, id, photo, hasPhoto]);
   if (!src && !hasPhoto) return null;
-  if (!src) return <div style={{ ...style, background: "#12151c", border: "1px dashed #2e3340", display: "flex", alignItems: "center", justifyContent: "center", color: "#4a5060", fontSize: 10 }}>…</div>;
+  if (!src) return <div style={{ ...style, background: "var(--surface2,#EAF0F7)", border: "1px dashed var(--border-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", color: "#4a5060", fontSize: 10 }}>…</div>;
   return <img src={src} alt={alt || ""} style={style} />;
 }
 
@@ -340,7 +344,7 @@ function AvailBar({ available, total }) {
   return (
     <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
       {Array.from({ length: total }).map((_, i) => (
-        <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: i < available ? "#e8b84b" : "#2e3340" }} />
+        <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: i < available ? "var(--accent,#2563EB)" : "var(--border-color,#D8E1EC)" }} />
       ))}
     </div>
   );
@@ -412,7 +416,7 @@ function GeoPhoto({ onCapture, label }) {
   };
 
   return (
-    <div style={{ ...S.card, background: "#0f1117" }}>
+    <div style={{ ...S.card, background: "var(--surface2,#EAF0F7)" }}>
       <p style={S.label}>{label || "Capture Verification Photo"}</p>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={onFilePicked} />
       {!photo && (
@@ -420,11 +424,11 @@ function GeoPhoto({ onCapture, label }) {
           <Icon d={icons.camera} size={18} /> {busy ? "Processing…" : "Open Camera"}
         </button>
       )}
-      {locErr && <p style={{ fontSize: 12, color: "#f59e0b", marginTop: 8 }}>{locErr}</p>}
+      {locErr && <p style={{ fontSize: 12, color: "#B7791F", marginTop: 8 }}>{locErr}</p>}
       {photo && (
         <div style={{ marginTop: 12 }}>
           <img src={photo} alt="captured" style={{ width: "100%", borderRadius: 8 }} />
-          <p style={{ fontSize: 11, color: "#34d399", margin: "8px 0 0" }}>✓ Photo captured with timestamp{location ? " & GPS" : ""}</p>
+          <p style={{ fontSize: 11, color: "#2F855A", margin: "8px 0 0" }}>✓ Photo captured with timestamp{location ? " & GPS" : ""}</p>
           <button style={{ ...S.btn("ghost"), marginTop: 8, justifyContent: "center", width: "100%" }} onClick={() => { setPhoto(null); setLocation(null); setLocErr(null); fileRef.current && fileRef.current.click(); }}>↻ Retake Photo</button>
         </div>
       )}
@@ -503,25 +507,25 @@ function QRScanner({ onScan, onClose, label }) {
         {/* Viewfinder overlay */}
         {status === "scanning" && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-            <div style={{ width: "55%", aspectRatio: "1", border: "2px solid rgba(232,184,75,0.8)", borderRadius: 16, boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)" }} />
+            <div style={{ width: "55%", aspectRatio: "1", border: "2px solid rgba(var(--accent-rgb,37,99,235),0.8)", borderRadius: 16, boxShadow: "0 0 0 9999px rgba(22,50,74,0.12)" }} />
           </div>
         )}
         {status === "found" && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(52,211,153,0.15)" }}>
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(47,133,90,0.15)" }}>
             <div style={{ textAlign: "center" }}>
               <div style={{ fontSize: 52 }}>✓</div>
-              <p style={{ color: "#34d399", fontWeight: 700, fontSize: 16, margin: "6px 0 0" }}>QR Detected</p>
-              <p style={{ color: "#8a8f9d", fontSize: 12, margin: "4px 0 0" }}>Capturing GPS…</p>
+              <p style={{ color: "#2F855A", fontWeight: 700, fontSize: 16, margin: "6px 0 0" }}>QR Detected</p>
+              <p style={{ color: "var(--text-muted,#4E6B84)", fontSize: 12, margin: "4px 0 0" }}>Capturing GPS…</p>
             </div>
           </div>
         )}
         {err && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, background: "#0f1117" }}>
-            <p style={{ color: "#f87171", fontSize: 13, textAlign: "center" }}>{err}</p>
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, background: "var(--surface2,#EAF0F7)" }}>
+            <p style={{ color: "#C53030", fontSize: 13, textAlign: "center" }}>{err}</p>
           </div>
         )}
       </div>
-      {status === "scanning" && <p style={{ fontSize: 11, color: "#8a8f9d", textAlign: "center", marginTop: 8 }}>Point camera at the QR code on the gear</p>}
+      {status === "scanning" && <p style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)", textAlign: "center", marginTop: 8 }}>Point camera at the QR code on the gear</p>}
       {onClose && <button style={{ ...S.btn("ghost"), marginTop: 10, width: "100%", justifyContent: "center" }} onClick={onClose}>Cancel</button>}
     </div>
   );
@@ -610,6 +614,9 @@ const LANG = {
     purposePractice: "Practice / Personal Use", purposeWork: "Work (Production)",
     productionHouse: "Production House", reasonLabel: "Reason", reasonPlaceholder: "Why do you need this gear?",
     submitRequest: "Submit Request",
+    prodHousesTitle: "Production Houses", addProdHouse: "+ Add", prodHouseAddTitle: "Add Production House", prodHouseEditTitle: "Edit Production House",
+    prodHouseName: "Production House Name", billingAddress: "Billing Address", billingAddressPh: "Full billing address…", noBillingAddress: "No billing address",
+    prodHouseEmpty: "No production houses yet. Add one to use in invoices.", prodHouseHint: "Tap a production house to edit its billing address.", prodHouseNameRequired: "Name is required.",
     // Profile
     firstName: "First Name", lastName: "Last Name", nickname: "Nickname", shownInPortal: "(shown in portal)",
     bankDetails: "Bank Details", bankNameLabel: "Bank Name", accountNameLabel: "Account Name", accountNumberLabel: "Account Number",
@@ -865,6 +872,9 @@ const LANG = {
     purposePractice: "ฝึกซ้อม / ใช้ส่วนตัว", purposeWork: "งาน (กองถ่าย)",
     productionHouse: "บริษัทผลิต", reasonLabel: "เหตุผล", reasonPlaceholder: "ทำไมต้องการอุปกรณ์นี้?",
     submitRequest: "ส่งคำขอ",
+    prodHousesTitle: "บริษัทผลิต", addProdHouse: "+ เพิ่ม", prodHouseAddTitle: "เพิ่มบริษัทผลิต", prodHouseEditTitle: "แก้ไขบริษัทผลิต",
+    prodHouseName: "ชื่อบริษัทผลิต", billingAddress: "ที่อยู่ออกบิล", billingAddressPh: "ที่อยู่ออกบิลเต็ม…", noBillingAddress: "ยังไม่มีที่อยู่ออกบิล",
+    prodHouseEmpty: "ยังไม่มีบริษัทผลิต เพิ่มเพื่อใช้ในใบแจ้งหนี้", prodHouseHint: "แตะบริษัทผลิตเพื่อแก้ไขที่อยู่ออกบิล", prodHouseNameRequired: "กรุณากรอกชื่อ",
     // Profile
     firstName: "ชื่อจริง", lastName: "นามสกุล", nickname: "ชื่อเล่น", shownInPortal: "(แสดงในระบบ)",
     bankDetails: "ข้อมูลธนาคาร", bankNameLabel: "ชื่อธนาคาร", accountNameLabel: "ชื่อบัญชี", accountNumberLabel: "เลขบัญชี",
@@ -1050,9 +1060,9 @@ const useT = () => {
 function LangPill({ setLang }) {
   const lang = useContext(LangCtx);
   return (
-    <div style={{ display: "flex", background: "#252830", borderRadius: 6, overflow: "hidden", border: "1px solid #2e3340", flexShrink: 0 }}>
+    <div style={{ display: "flex", background: "var(--divider-color,#D8E1EC)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--border-color,#D8E1EC)", flexShrink: 0 }}>
       {["en", "th"].map(l => (
-        <button key={l} onClick={() => setLang(l)} style={{ background: lang === l ? "#e8b84b" : "transparent", color: lang === l ? "#0f1117" : "#555", border: "none", padding: "4px 10px", fontSize: 10, fontWeight: 800, cursor: "pointer", letterSpacing: "0.05em" }}>
+        <button key={l} onClick={() => setLang(l)} style={{ background: lang === l ? "var(--accent,#2563EB)" : "transparent", color: lang === l ? "var(--accent-text,#FFFFFF)" : "var(--text-muted,#7B8FA3)", border: "none", padding: "4px 10px", fontSize: 10, fontWeight: 800, cursor: "pointer", letterSpacing: "0.05em" }}>
           {l.toUpperCase()}
         </button>
       ))}
@@ -1298,11 +1308,11 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
       {items.map(eq => (
         <div key={eq.id} style={{ ...S.card, padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           {/* Square photo */}
-          <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", overflow: "hidden", background: "#0f1117", flexShrink: 0 }}>
+          <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", overflow: "hidden", background: "var(--surface2,#EAF0F7)", flexShrink: 0 }}>
             {eq.photo
               ? <img src={eq.photo} alt={eq.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
               : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <Icon d={icons.camera} size={36} color="#252830" />
+                  <Icon d={icons.camera} size={36} color="var(--divider-color,#D8E1EC)" />
                 </div>
             }
             <div style={{ position: "absolute", top: 5, left: 5 }}><AvStatus av={eq} /></div>
@@ -1310,8 +1320,8 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
           {/* Info */}
           <div style={{ padding: "8px 10px 8px", flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
             <span style={S.tag}>{eq.category}</span>
-            <p style={{ margin: 0, fontWeight: 700, fontSize: 12, lineHeight: 1.3, color: "#e8e4dc" }}>{eq.name}</p>
-            {eq.notes && <p style={{ margin: 0, fontSize: 10, color: "#555", lineHeight: 1.3 }}>{eq.notes}</p>}
+            <p style={{ margin: 0, fontWeight: 700, fontSize: 12, lineHeight: 1.3, color: "var(--text,#16324A)" }}>{eq.name}</p>
+            {eq.notes && <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#7B8FA3)", lineHeight: 1.3 }}>{eq.notes}</p>}
             <div style={{ marginTop: 3 }}><AvailBar available={eq.available} total={eq.total} /></div>
             <div style={{ display: "flex", gap: 3, marginTop: 5, justifyContent: "flex-end" }}>
               {selectMode ? (
@@ -1428,7 +1438,7 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
               <button style={S.btn("ghost")} onClick={() => fileRef.current.click()}><Icon d={icons.photo} size={14} /> {form.photo ? t("eqChangePhoto") : t("uploadPhoto")}</button>
               {form.photo && <img src={form.photo} alt="preview" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 6, marginTop: 8 }} />}
             </div>
-            {eqFormErr && <p style={{ color: "#f87171", fontSize: 12, margin: "10px 0 0", fontWeight: 600 }}>{eqFormErr}</p>}
+            {eqFormErr && <p style={{ color: "#C53030", fontSize: 12, margin: "10px 0 0", fontWeight: 600 }}>{eqFormErr}</p>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
               <button style={S.btn("ghost")} onClick={() => setModal(null)}>{t("cancel")}</button>
               <button style={S.btn("primary")} onClick={save}>{t("eqSaveEquipment")}</button>
@@ -1441,17 +1451,17 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
       {modal === "history" && histTarget && (
         <Modal title={`${t("eqHistoryTitle")} — ${histTarget.name}`} onClose={() => setModal(null)} wide>
           {getHistory(histTarget.id).length === 0 ? (
-            <p style={{ color: "#666", fontSize: 13 }}>{t("eqNoHistory")}</p>
+            <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{t("eqNoHistory")}</p>
           ) : (
             <div style={S.col}>
               {getHistory(histTarget.id).map((c, i) => (
-                <div key={i} style={{ ...S.card, background: "#0f1117", display: "flex", gap: 16, alignItems: "flex-start" }}>
+                <div key={i} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", display: "flex", gap: 16, alignItems: "flex-start" }}>
                   <span style={{ ...S.badge(isPickEvt(c.type) ? "amber" : "green"), flexShrink: 0 }}>{isPickEvt(c.type) ? "PICK" : "RETURN"}</span>
                   <div style={{ flex: 1 }}>
                     <p style={{ margin: 0, fontWeight: 600, fontSize: 13 }}>{c.jobName}</p>
-                    <p style={{ margin: "3px 0 0", fontSize: 12, color: "#666" }}>{formatDateTime(c.ts)} · {c.employeeName} · Qty: {c.qty}</p>
+                    <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{formatDateTime(c.ts)} · {c.employeeName} · Qty: {c.qty}</p>
                     <LazyPhoto field="checkouts" id={c.id} photo={c.photo} hasPhoto={c.hasPhoto} alt="evidence" style={{ width: 120, borderRadius: 6, marginTop: 8 }} />
-                    {c.location && <p style={{ fontSize: 11, color: "#60a5fa", margin: "4px 0 0" }}>GPS: {c.location.lat}, {c.location.lng}</p>}
+                    {c.location && <p style={{ fontSize: 11, color: "#2563EB", margin: "4px 0 0" }}>GPS: {c.location.lat}, {c.location.lng}</p>}
                   </div>
                 </div>
               ))}
@@ -1859,16 +1869,16 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
             </button>
           ))}
         </div>
-        <div style={{ ...S.card, background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)" }}>
+        <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.04)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.15)" }}>
           <p style={S.sectionTitle}>Job Info</p>
           <div style={S.col}>
-            <div><label style={S.label}>Invoice Header <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(displayed at top of invoice)</span></label><input style={S.input} value={invoiceHeader} onChange={e => setInvoiceHeader(e.target.value)} placeholder={companyName || "Your name or company"} /></div>
+            <div><label style={S.label}>Invoice Header <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400 }}>(displayed at top of invoice)</span></label><input style={S.input} value={invoiceHeader} onChange={e => setInvoiceHeader(e.target.value)} placeholder={companyName || "Your name or company"} /></div>
             <div><label style={S.label}>Job Name</label><input style={S.input} value={jobName} onChange={e => setJobName(e.target.value)} /></div>
             <div>
               <label style={S.label}>Production Company</label>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <div style={{ ...S.input, flex: 1, display: "flex", alignItems: "center", cursor: "pointer", minHeight: 38 }} onClick={() => { setCompanySearch(""); setShowCompanyPicker(true); }}>
-                  {productionCompany ? <span style={{ color: "var(--text,#e8e4dc)", fontSize: 14 }}>{productionCompany}</span> : <span style={{ color: "#444", fontSize: 13 }}>Tap to select…</span>}
+                  {productionCompany ? <span style={{ color: "var(--text,#16324A)", fontSize: 14 }}>{productionCompany}</span> : <span style={{ color: "var(--text-muted,#8CA2B5)", fontSize: 13 }}>Tap to select…</span>}
                 </div>
                 {productionCompany && <button style={{ ...S.btn("ghost"), padding: "6px 8px" }} onClick={() => setProductionCompany("")}><Icon d={icons.x} size={12} /></button>}
               </div>
@@ -1878,9 +1888,9 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
               <label style={S.label}>Shoot Dates</label>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                 {shootDates.map(d => (
-                  <div key={d} style={{ display: "flex", alignItems: "center", gap: 3, background: "rgba(232,184,75,0.08)", border: "1px solid rgba(232,184,75,0.2)", borderRadius: 5, padding: "4px 8px" }}>
-                    <span style={{ fontSize: 12, color: "var(--text,#e8e4dc)" }}>{new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
-                    <button onClick={() => removeShootDate(d)} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", padding: "0 0 0 6px", fontSize: 15, lineHeight: 1 }}>×</button>
+                  <div key={d} style={{ display: "flex", alignItems: "center", gap: 3, background: "rgba(var(--accent-rgb,37,99,235),0.08)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)", borderRadius: 5, padding: "4px 8px" }}>
+                    <span style={{ fontSize: 12, color: "var(--text,#16324A)" }}>{new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
+                    <button onClick={() => removeShootDate(d)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted,#5F7A91)", padding: "0 0 0 6px", fontSize: 15, lineHeight: 1 }}>×</button>
                   </div>
                 ))}
                 <input type="date" style={{ ...S.input, fontSize: 12, padding: "4px 8px", width: "auto", minWidth: 0 }}
@@ -1892,10 +1902,10 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
               const paidInvs = (allInvoices || []).filter(i => !i._deleted && (i.docType === "invoice" || !i.docType) && (isAdminCreator || i.employeeId === employee.id) && i.status === "Paid").sort((a, b) => b.updatedAt - a.updatedAt);
               return (
                 <div>
-                  <label style={S.label}>Linked Invoice <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(RTX only issues for a Paid invoice)</span></label>
+                  <label style={S.label}>Linked Invoice <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400 }}>(RTX only issues for a Paid invoice)</span></label>
                   {paidInvs.length === 0 ? (
-                    <div style={{ ...S.card, background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", padding: "10px 14px" }}>
-                      <p style={{ margin: 0, fontSize: 12, color: "#f87171" }}>No paid invoices yet. Mark an INV as Paid before issuing a Tax Receipt.</p>
+                    <div style={{ ...S.card, background: "rgba(197,48,48,0.06)", border: "1px solid rgba(197,48,48,0.2)", padding: "10px 14px" }}>
+                      <p style={{ margin: 0, fontSize: 12, color: "#C53030" }}>No paid invoices yet. Mark an INV as Paid before issuing a Tax Receipt.</p>
                     </div>
                   ) : (
                     <>
@@ -1905,7 +1915,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
                       </select>
                       {linkedInvId && (() => {
                         const li = paidInvs.find(i => i.id === linkedInvId);
-                        return li ? <p style={{ fontSize: 11, color: "var(--accent,#e8b84b)", margin: "5px 0 0" }}>RTX will use: {(li.invoiceNo || "").replace(/^INV-/, "RTX-")}</p> : null;
+                        return li ? <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", margin: "5px 0 0" }}>RTX will use: {(li.invoiceNo || "").replace(/^INV-/, "RTX-")}</p> : null;
                       })()}
                     </>
                   )}
@@ -1923,8 +1933,8 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
               {positionNames.map(p => <option key={p} value={p}>{p}</option>)}
               {position && !positionNames.includes(position) && <option value={position}>{position}</option>}
             </select>
-            {selectedPos && <p style={{ fontSize: 11, color: "var(--accent,#e8b84b)", margin: "5px 0 0" }}>฿{(parseFloat(selectedPos.dayRate) || 0).toLocaleString()} / {parseFloat(selectedPos.hoursPerDay) || 12}hr — rates auto-filled below</p>}
-            {positions.length === 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "5px 0 0" }}>Add roles &amp; day rates in your Profile to auto-fill invoices.</p>}
+            {selectedPos && <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", margin: "5px 0 0" }}>฿{(parseFloat(selectedPos.dayRate) || 0).toLocaleString()} / {parseFloat(selectedPos.hoursPerDay) || 12}hr — rates auto-filled below</p>}
+            {positions.length === 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "5px 0 0" }}>Add roles &amp; day rates in your Profile to auto-fill invoices.</p>}
           </div>
           {docType !== "receipt" && (
             <div>
@@ -1944,18 +1954,18 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
         </div>
 
         {docType === "receipt" && (
-          <div style={{ ...S.card, background: "rgba(52,211,153,0.04)", border: "1px solid rgba(52,211,153,0.15)" }}>
+          <div style={{ ...S.card, background: "rgba(47,133,90,0.04)", border: "1px solid rgba(47,133,90,0.15)" }}>
             <p style={{ ...S.sectionTitle, marginBottom: 10 }}>Tax Receipt Info</p>
             <div style={S.col}>
               <div>
                 <label style={S.label}>Paid Date</label>
                 <input style={S.input} type="date" value={paidDate} onChange={e => setPaidDate(e.target.value)} />
-                <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "4px 0 0" }}>Auto-set when the linked invoice is marked Paid. Editable for manual adjustment.</p>
+                <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "4px 0 0" }}>Auto-set when the linked invoice is marked Paid. Editable for manual adjustment.</p>
               </div>
               <div>
                 <label style={S.label}>Withholding Tax Document</label>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  {whTaxDoc && <img src={whTaxDoc} alt="W/H Tax" style={{ width: 72, height: 72, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff", padding: 2 }} />}
+                  {whTaxDoc && <img src={whTaxDoc} alt="W/H Tax" style={{ width: 72, height: 72, objectFit: "contain", borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "#fff", padding: 2 }} />}
                   <input ref={whTaxDocRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; compressImage(f, { maxDim: 1400, quality: 0.85 }).then(d => d && setWhTaxDoc(d)); }} />
                   <button style={S.btn("ghost")} onClick={() => whTaxDocRef.current.click()}><Icon d={icons.photo} size={14} /> {whTaxDoc ? "Replace" : "Upload"}</button>
                   {whTaxDoc && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setWhTaxDoc(null)}><Icon d={icons.x} size={13} /></button>}
@@ -1971,13 +1981,13 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
             <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Call / Wrap Times</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
               {["Date", "Call", "Wrap"].map(h => (
-                <div key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#666)" }}>{h}</div>
+                <div key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)" }}>{h}</div>
               ))}
               {shootDates.map(d => {
                 const cw = callWrap[d] || { call: "", wrap: "" };
                 const label = new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
                 return [
-                  <div key={d + "_lbl"} style={{ fontSize: 12, color: "var(--text,#e8e4dc)", display: "flex", alignItems: "center", fontWeight: 600 }}>{label}</div>,
+                  <div key={d + "_lbl"} style={{ fontSize: 12, color: "var(--text,#16324A)", display: "flex", alignItems: "center", fontWeight: 600 }}>{label}</div>,
                   <input key={d + "_call"} style={{ ...S.input, fontSize: 12, padding: "6px 8px" }} type="time" value={cw.call} onChange={e => setCallWrap(p => ({ ...p, [d]: { ...p[d], call: e.target.value } }))} />,
                   <input key={d + "_wrap"} style={{ ...S.input, fontSize: 12, padding: "6px 8px" }} type="time" value={cw.wrap} onChange={e => setCallWrap(p => ({ ...p, [d]: { ...p[d], wrap: e.target.value } }))} />,
                 ];
@@ -2000,21 +2010,21 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
           const totalOt = Math.round(rows.reduce((s, r) => s + r.ot, 0));
           const fmtH = h => (h % 1 ? h.toFixed(1) : h);
           return (
-            <div style={{ ...S.card, background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)", padding: 14 }}>
+            <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.04)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.15)", padding: 14 }}>
               <p style={{ ...S.sectionTitle, marginBottom: 8 }}>Overtime (auto-calculated)</p>
               {rows.map(r => {
                 const label = new Date(r.d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
                 return (
-                  <div key={r.d} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-muted,#888)", padding: "2px 0" }}>
+                  <div key={r.d} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--text-muted,#6E8398)", padding: "2px 0" }}>
                     <span>{label} · {fmtH(r.wk)}h worked{r.otH > 0 ? ` · OT ${fmtH(r.otH)}h` : " · no OT"}</span>
-                    <span style={{ color: r.ot > 0 ? "var(--accent,#e8b84b)" : "#555", fontWeight: 600 }}>{r.ot > 0 ? `฿${Math.round(r.ot).toLocaleString()}` : "—"}</span>
+                    <span style={{ color: r.ot > 0 ? "var(--accent,#2563EB)" : "var(--text-muted,#7B8FA3)", fontWeight: 600 }}>{r.ot > 0 ? `฿${Math.round(r.ot).toLocaleString()}` : "—"}</span>
                   </div>
                 );
               })}
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, borderTop: "1px solid var(--divider-color,#252830)", marginTop: 6, paddingTop: 6 }}>
-                <span>Total OT</span><span style={{ color: "var(--accent,#e8b84b)" }}>฿{totalOt.toLocaleString()}</span>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, borderTop: "1px solid var(--divider-color,#D8E1EC)", marginTop: 6, paddingTop: 6 }}>
+                <span>Total OT</span><span style={{ color: "var(--accent,#2563EB)" }}>฿{totalOt.toLocaleString()}</span>
               </div>
-              <p style={{ fontSize: 10, color: "#555", margin: "8px 0 0" }}>Added as a single "Overtime" line item below. Fill call &amp; wrap times to update.</p>
+              <p style={{ fontSize: 10, color: "var(--text-muted,#7B8FA3)", margin: "8px 0 0" }}>Added as a single "Overtime" line item below. Fill call &amp; wrap times to update.</p>
             </div>
           );
         })()}
@@ -2023,11 +2033,11 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
         <div style={S.card}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <p style={{ ...S.sectionTitle, margin: 0 }}>VAT</p>
-            <button onClick={() => setVatEnabled(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: vatEnabled ? "rgba(232,184,75,0.06)" : "rgba(255,255,255,0.02)", border: `1px solid ${vatEnabled ? "rgba(232,184,75,0.25)" : "#252830"}`, cursor: "pointer", userSelect: "none" }}>
-              <div style={{ width: 32, height: 18, borderRadius: 9, background: vatEnabled ? "var(--accent,#e8b84b)" : "#444", position: "relative", flexShrink: 0, transition: "background .2s" }}>
-                <div style={{ position: "absolute", top: 2, left: vatEnabled ? 16 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+            <button onClick={() => setVatEnabled(v => !v)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: vatEnabled ? "rgba(var(--accent-rgb,37,99,235),0.06)" : "rgba(22,50,74,0.04)", border: `1px solid ${vatEnabled ? "rgba(var(--accent-rgb,37,99,235),0.25)" : "var(--divider-color,#D8E1EC)"}`, cursor: "pointer", userSelect: "none" }}>
+              <div style={{ width: 32, height: 18, borderRadius: 9, background: vatEnabled ? "var(--accent,#2563EB)" : "var(--text-muted,#8CA2B5)", position: "relative", flexShrink: 0, transition: "background .2s" }}>
+                <div style={{ position: "absolute", top: 2, left: vatEnabled ? 16 : 2, width: 14, height: 14, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(22,50,74,0.1)" }} />
               </div>
-              <span style={{ fontSize: 13, fontWeight: 600, color: vatEnabled ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)" }}>7% VAT {vatEnabled ? "ON" : "OFF"}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: vatEnabled ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)" }}>7% VAT {vatEnabled ? "ON" : "OFF"}</span>
             </button>
           </div>
           {vatEnabled && (
@@ -2048,7 +2058,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
           {isAdminCreator && invoicePresets.filter(ip => ip.description?.trim()).length > 0 && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
               {invoicePresets.filter(ip => ip.description?.trim()).map(ip => (
-                <button key={ip.id} style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12, border: "1px solid rgba(232,184,75,0.35)", color: "#e8b84b" }}
+                <button key={ip.id} style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12, border: "1px solid rgba(var(--accent-rgb,37,99,235),0.35)", color: "var(--accent,#2563EB)" }}
                   onClick={() => setItems(p => [...p, { id: "i" + Date.now(), description: ip.description, qty: 1, rate: ip.rate || "", vat: true }])}>
                   + {ip.description}{ip.rate ? ` ฿${Number(ip.rate).toLocaleString()}` : ""}
                 </button>
@@ -2059,7 +2069,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
           {/* Header */}
           <div style={{ display: "grid", gridTemplateColumns: vatEnabled ? "1fr 50px 70px 80px 32px 28px" : "1fr 50px 70px 80px 28px", gap: 6, marginBottom: 4 }}>
             {(vatEnabled ? ["Description", "Qty", "Rate (฿)", "Total", "", "VAT"] : ["Description", "Qty", "Rate (฿)", "Total", ""]).map((h, i) => (
-              <div key={i} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#666)", textAlign: (vatEnabled ? i >= 3 : i >= 2) ? "center" : "left" }}>{h}</div>
+              <div key={i} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)", textAlign: (vatEnabled ? i >= 3 : i >= 2) ? "center" : "left" }}>{h}</div>
             ))}
           </div>
 
@@ -2072,7 +2082,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
                   <input style={{ ...S.input, fontSize: 12, padding: "7px 10px" }} value={it.description} onChange={e => updateItem(it.id, "description", e.target.value)} placeholder="Labor…" />
                   <input style={{ ...S.input, fontSize: 12, padding: "7px 6px", textAlign: "right" }} type="number" min="0" step="0.5" value={it.qty} onChange={e => updateItem(it.id, "qty", e.target.value)} />
                   <input style={{ ...S.input, fontSize: 12, padding: "7px 8px", textAlign: "right" }} type="number" min="0" value={it.rate} onChange={e => updateItem(it.id, "rate", e.target.value)} placeholder="0" />
-                  <div style={{ fontSize: 13, fontWeight: 700, textAlign: "right", color: lineTotal > 0 ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, textAlign: "right", color: lineTotal > 0 ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)" }}>
                     {lineTotal > 0 ? `฿${lineTotal.toLocaleString()}` : "—"}
                   </div>
                   <button style={{ ...S.btn("danger"), padding: "5px 6px", minWidth: 0 }} onClick={() => removeItem(it.id)}><Icon d={icons.x} size={12} /></button>
@@ -2080,7 +2090,7 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
                     <button
                       onClick={() => updateItem(it.id, "vat", !itemVat)}
                       title={itemVat ? "VAT applied" : "No VAT"}
-                      style={{ width: 26, height: 26, borderRadius: 5, border: `1px solid ${itemVat ? "rgba(232,184,75,0.35)" : "#333"}`, background: itemVat ? "rgba(232,184,75,0.12)" : "transparent", cursor: "pointer", fontSize: 9, fontWeight: 800, color: itemVat ? "var(--accent,#e8b84b)" : "#555", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      style={{ width: 26, height: 26, borderRadius: 5, border: `1px solid ${itemVat ? "rgba(var(--accent-rgb,37,99,235),0.35)" : "var(--border-color,#D8E1EC)"}`, background: itemVat ? "rgba(var(--accent-rgb,37,99,235),0.12)" : "transparent", cursor: "pointer", fontSize: 9, fontWeight: 800, color: itemVat ? "var(--accent,#2563EB)" : "var(--text-muted,#7B8FA3)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       {itemVat ? "VAT" : "—"}
                     </button>
                   )}
@@ -2096,26 +2106,26 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
           const fmt = n => Math.round(n).toLocaleString();
           const fmt2 = n => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
           return (
-            <div style={{ paddingTop: 12, borderTop: "1px solid var(--divider-color,#252830)" }}>
+            <div style={{ paddingTop: 12, borderTop: "1px solid var(--divider-color,#D8E1EC)" }}>
               {vatEnabled ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>{vatType === "inclusive" ? "Subtotal (excl. VAT)" : "Subtotal"}</span>
-                    <span style={{ fontSize: 14, color: "var(--text,#e8e4dc)" }}>฿{fmt2(sub)}</span>
+                    <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{vatType === "inclusive" ? "Subtotal (excl. VAT)" : "Subtotal"}</span>
+                    <span style={{ fontSize: 14, color: "var(--text,#16324A)" }}>฿{fmt2(sub)}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>VAT 7%{vatType === "inclusive" ? " (incl.)" : ""}</span>
-                    <span style={{ fontSize: 14, color: "var(--text,#e8e4dc)" }}>฿{fmt2(vat)}</span>
+                    <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>VAT 7%{vatType === "inclusive" ? " (incl.)" : ""}</span>
+                    <span style={{ fontSize: 14, color: "var(--text,#16324A)" }}>฿{fmt2(vat)}</span>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 8, marginTop: 2 }}>
-                    <span style={{ fontSize: 13, color: "var(--text-muted,#666)", fontWeight: 600 }}>Total (incl. VAT)</span>
-                    <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{fmt(grand)}</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 8, marginTop: 2 }}>
+                    <span style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", fontWeight: 600 }}>Total (incl. VAT)</span>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#2563EB)" }}>฿{fmt(grand)}</span>
                   </div>
                 </div>
               ) : (
                 <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
-                  <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>Total</span>
-                  <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{fmt(sub)}</span>
+                  <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>Total</span>
+                  <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#2563EB)" }}>฿{fmt(sub)}</span>
                 </div>
               )}
             </div>
@@ -2166,25 +2176,25 @@ function InvoiceCreateModal({ job, existingInvoice, employee, positions = [], on
             </div>
             <div style={{ maxHeight: "55vh", overflowY: "auto", margin: "0 -20px" }}>
               {filtered.length === 0 && !customEntry && (
-                <p style={{ color: "#555", fontSize: 13, textAlign: "center", padding: "20px 0" }}>No companies found.</p>
+                <p style={{ color: "var(--text-muted,#7B8FA3)", fontSize: 13, textAlign: "center", padding: "20px 0" }}>No companies found.</p>
               )}
               {filtered.map(co => (
                 <div
                   key={co.name}
                   onClick={() => { setProductionCompany(co.name); setShowCompanyPicker(false); }}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 20px", borderBottom: "1px solid var(--divider-color,#1e2030)", cursor: "pointer", background: co.name === productionCompany ? "rgba(232,184,75,0.07)" : "transparent" }}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 20px", borderBottom: "1px solid var(--divider-color,#D8E1EC)", cursor: "pointer", background: co.name === productionCompany ? "rgba(var(--accent-rgb,37,99,235),0.07)" : "transparent" }}
                 >
-                  <span style={{ fontSize: 14, color: "var(--text,#e8e4dc)", fontWeight: co.name === productionCompany ? 700 : 400 }}>{co.name}</span>
-                  {co.tag && <span style={{ fontSize: 10, color: "#666", background: "#1a1e27", border: "1px solid #2a2e3a", borderRadius: 4, padding: "2px 6px", flexShrink: 0, marginLeft: 10 }}>{co.tag}</span>}
+                  <span style={{ fontSize: 14, color: "var(--text,#16324A)", fontWeight: co.name === productionCompany ? 700 : 400 }}>{co.name}</span>
+                  {co.tag && <span style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)", background: "var(--surface,#FFFFFF)", border: "1px solid #2a2e3a", borderRadius: 4, padding: "2px 6px", flexShrink: 0, marginLeft: 10 }}>{co.tag}</span>}
                 </div>
               ))}
               {customEntry && (
                 <div
                   onClick={() => { setProductionCompany(companySearch.trim()); setShowCompanyPicker(false); }}
-                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 20px", borderBottom: "1px solid var(--divider-color,#1e2030)", cursor: "pointer" }}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 20px", borderBottom: "1px solid var(--divider-color,#D8E1EC)", cursor: "pointer" }}
                 >
-                  <Icon d={icons.plus} size={14} color="#e8b84b" />
-                  <span style={{ fontSize: 14, color: "#e8b84b" }}>Use "{companySearch.trim()}"</span>
+                  <Icon d={icons.plus} size={14} color="var(--accent,#2563EB)" />
+                  <span style={{ fontSize: 14, color: "var(--accent,#2563EB)" }}>Use "{companySearch.trim()}"</span>
                 </div>
               )}
             </div>
@@ -2220,15 +2230,15 @@ function ProductionCombobox({ value, onChange, companies }) {
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
       {open && filtered.length > 0 && (
-        <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 300, background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: "var(--btn-radius,7px)", boxShadow: "0 8px 24px rgba(0,0,0,0.4)", overflow: "hidden", maxHeight: 200, overflowY: "auto" }}>
+        <div style={{ position: "absolute", top: "calc(100% + 3px)", left: 0, right: 0, zIndex: 300, background: "var(--surface,#FFFFFF)", border: "var(--card-border,1px solid #D8E1EC)", borderRadius: "var(--btn-radius,7px)", boxShadow: "0 8px 24px rgba(22,50,74,0.14)", overflow: "hidden", maxHeight: 200, overflowY: "auto" }}>
           {filtered.map((co, i) => (
             <div
               key={co.id}
               onMouseDown={() => select(co.name)}
-              style={{ padding: "10px 14px", cursor: "pointer", fontSize: 13, color: "var(--text,#e8e4dc)", borderBottom: i < filtered.length - 1 ? "1px solid var(--divider-color,#1e2030)" : "none", background: co.name === value ? "rgba(232,184,75,0.08)" : "transparent" }}
+              style={{ padding: "10px 14px", cursor: "pointer", fontSize: 13, color: "var(--text,#16324A)", borderBottom: i < filtered.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", background: co.name === value ? "rgba(var(--accent-rgb,37,99,235),0.08)" : "transparent" }}
             >
               <div style={{ fontWeight: co.name === value ? 700 : 400 }}>{co.name}</div>
-              {co.address && <div style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 2 }}>{co.address.split("\n")[0]}</div>}
+              {co.address && <div style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", marginTop: 2 }}>{co.address.split("\n")[0]}</div>}
             </div>
           ))}
         </div>
@@ -2331,21 +2341,21 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
           <button style={{ ...S.btn("ghost"), padding: "5px 10px" }} onClick={() => setCalendarMonth(p => { const d = new Date(p.year, p.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>›</button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
-          {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 10, color: "#666", fontWeight: 600, paddingBottom: 4 }}>{d}</div>)}
+          {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 10, color: "var(--text-muted,#5F7A91)", fontWeight: 600, paddingBottom: 4 }}>{d}</div>)}
           {cells.map((d, i) => {
             if (!d) return <div key={"e" + i} />;
             const ds = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
             const selected = form.dates.includes(ds);
             const isToday = ds === todayStr;
             return (
-              <div key={d} onClick={() => toggleDate(ds)} style={{ textAlign: "center", padding: "7px 0", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: selected ? 700 : 400, background: selected ? "#e8b84b" : isToday ? "rgba(232,184,75,0.1)" : "transparent", color: selected ? "#0f1117" : isToday ? "#e8b84b" : "#e8e4dc", border: isToday && !selected ? "1px solid rgba(232,184,75,0.3)" : "1px solid transparent" }}>
+              <div key={d} onClick={() => toggleDate(ds)} style={{ textAlign: "center", padding: "7px 0", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: selected ? 700 : 400, background: selected ? "var(--accent,#2563EB)" : isToday ? "rgba(var(--accent-rgb,37,99,235),0.1)" : "transparent", color: selected ? "var(--accent-text,#FFFFFF)" : isToday ? "var(--accent,#2563EB)" : "var(--text,#16324A)", border: isToday && !selected ? "1px solid rgba(var(--accent-rgb,37,99,235),0.3)" : "1px solid transparent" }}>
                 {d}
               </div>
             );
           })}
         </div>
         {form.dates.length > 0 && (
-          <p style={{ fontSize: 11, color: "#e8b84b", marginTop: 10 }}>{form.dates.length} date{form.dates.length > 1 ? "s" : ""} selected: {form.dates.map(formatDate).join(", ")}</p>
+          <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", marginTop: 10 }}>{form.dates.length} date{form.dates.length > 1 ? "s" : ""} selected: {form.dates.map(formatDate).join(", ")}</p>
         )}
       </div>
     );
@@ -2408,14 +2418,14 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
           return (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
-                <label style={S.label}>Pickup day <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(optional, before job day)</span></label>
+                <label style={S.label}>Pickup day <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400 }}>(optional, before job day)</span></label>
                 <input type="date" style={S.input} value={form.pickupDate || ""} max={addDaysStr(first, -1)} onChange={e => setForm(p => ({ ...p, pickupDate: e.target.value }))} />
-                <p style={{ margin: "4px 0 0", fontSize: 10, color: "var(--text-muted,#666)" }}>Crew can pick up from this day. Default: first shoot day ({formatDate(first)}).</p>
+                <p style={{ margin: "4px 0 0", fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>Crew can pick up from this day. Default: first shoot day ({formatDate(first)}).</p>
               </div>
               <div>
-                <label style={S.label}>Return day <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(optional, after job day)</span></label>
+                <label style={S.label}>Return day <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400 }}>(optional, after job day)</span></label>
                 <input type="date" style={S.input} value={form.returnDate || ""} min={addDaysStr(last, 1)} onChange={e => setForm(p => ({ ...p, returnDate: e.target.value }))} />
-                <p style={{ margin: "4px 0 0", fontSize: 10, color: "var(--text-muted,#666)" }}>Gear due back by this day. Default: last shoot day ({formatDate(last)}).</p>
+                <p style={{ margin: "4px 0 0", fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>Gear due back by this day. Default: last shoot day ({formatDate(last)}).</p>
               </div>
             </div>
           );
@@ -2424,15 +2434,15 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
         {/* Per-date location / time overrides */}
         {form.dates.length > 0 && (
           <div>
-            <label style={S.label}>Per-date overrides <span style={{ color: "var(--text-muted,#666)", fontWeight: 400 }}>(optional — overrides the defaults above for specific dates)</span></label>
+            <label style={S.label}>Per-date overrides <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400 }}>(optional — overrides the defaults above for specific dates)</span></label>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {[...form.dates].sort().map(ds => {
                 const ov = (form.dateOverrides || {})[ds] || {};
                 const effLoc = ov.location || form.location;
                 const hasOv = !!(ov.location || ov.shootTime);
                 return (
-                  <div key={ds} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 8, background: hasOv ? "rgba(232,184,75,0.05)" : "transparent", border: `1px solid ${hasOv ? "rgba(232,184,75,0.2)" : "var(--border-color,#252830)"}`, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 12, color: "var(--text,#e8e4dc)", minWidth: 70, fontWeight: hasOv ? 600 : 400 }}>{formatDate(ds)}</span>
+                  <div key={ds} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 8, background: hasOv ? "rgba(var(--accent-rgb,37,99,235),0.05)" : "transparent", border: `1px solid ${hasOv ? "rgba(var(--accent-rgb,37,99,235),0.2)" : "var(--border-color,#D8E1EC)"}`, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12, color: "var(--text,#16324A)", minWidth: 70, fontWeight: hasOv ? 600 : 400 }}>{formatDate(ds)}</span>
                     <select style={{ ...S.select, flex: 1, minWidth: 120, fontSize: 11 }} value={ov.location || ""} onChange={e => setDateOverride(ds, "location", e.target.value)}>
                       <option value="">Default ({form.location})</option>
                       {LOCATIONS.map(l => <option key={l} value={l}>{l}</option>)}
@@ -2453,7 +2463,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
             </div>
           </div>
         )}
-        {jobErr && <p style={{ color: "#f87171", fontSize: 12, margin: "0 0 6px", fontWeight: 600, textAlign: "right" }}>{jobErr}</p>}
+        {jobErr && <p style={{ color: "#C53030", fontSize: 12, margin: "0 0 6px", fontWeight: 600, textAlign: "right" }}>{jobErr}</p>}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={S.btn("ghost")} onClick={onClose}>{t("cancel")}</button>
           <button style={S.btn("primary")} onClick={saveJob}>{t("saveJob")}</button>
@@ -2560,7 +2570,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
       {/* Job list */}
       <div style={S.col}>
-        {tabJobs.length === 0 && <p style={{ color: "#666", fontSize: 13 }}>{t("jobNoJobs")}</p>}
+        {tabJobs.length === 0 && <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{t("jobNoJobs")}</p>}
         {tabJobs.sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1).map(job => {
           const { outCount, picked, returned } = getCheckoutSummary(job);
           const todayDates = job.dates.filter(d => d >= today());
@@ -2580,11 +2590,11 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                     );
                   })()}
                   <h3 style={{ margin: "0 0 2px", fontSize: 16, fontWeight: 700 }}>{job.name}</h3>
-                  <p style={{ margin: 0, fontSize: 12, color: "#666" }}>{job.production}</p>
-                  <p style={{ margin: "6px 0 0", fontSize: 12, color: "#8a8f9d" }}>
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{job.production}</p>
+                  <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>
                     {job.dates.length} day{job.dates.length !== 1 ? "s" : ""} · {job.dates[0] ? formatDate(job.dates[0]) : "No date"}{job.dates.length > 1 ? ` → ${formatDate(job.dates[job.dates.length - 1])}` : ""}
                   </p>
-                  {outCount > 0 && <p style={{ margin: "4px 0 0", fontSize: 11, color: "#60a5fa" }}>{outCount} assigned · {picked} picked · {returned} returned</p>}
+                  {outCount > 0 && <p style={{ margin: "4px 0 0", fontSize: 11, color: "#2563EB" }}>{outCount} assigned · {picked} picked · {returned} returned</p>}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                   {job.status === "Confirmed" && <button style={{ ...S.btn("success"), padding: "6px 10px", fontSize: 12 }} onClick={() => openAssign(job)}><Icon d={icons.gear} size={13} /> {t("jobAssignGear")}</button>}
@@ -2667,16 +2677,16 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                 <div key={id}
                   onClick={() => setAssignCheckoutMode(id)}
                   style={{ flex: 1, padding: "10px 12px", borderRadius: 10, cursor: "pointer",
-                    border: assignCheckoutMode === id ? "1.5px solid #e8b84b" : "1.5px solid #2e3340",
-                    background: assignCheckoutMode === id ? "rgba(232,184,75,0.07)" : "#0f1117",
+                    border: assignCheckoutMode === id ? "1.5px solid var(--accent,#2563EB)" : "1.5px solid var(--border-color,#D8E1EC)",
+                    background: assignCheckoutMode === id ? "rgba(var(--accent-rgb,37,99,235),0.07)" : "var(--surface2,#EAF0F7)",
                     transition: "all 0.12s" }}>
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: 12, color: assignCheckoutMode === id ? "#e8b84b" : "#e8e4dc" }}>{label}</p>
-                  <p style={{ margin: "3px 0 0", fontSize: 10, color: "#666", lineHeight: 1.4 }}>{desc}</p>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 12, color: assignCheckoutMode === id ? "var(--accent,#2563EB)" : "var(--text,#16324A)" }}>{label}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--text-muted,#5F7A91)", lineHeight: 1.4 }}>{desc}</p>
                 </div>
               ))}
             </div>
           </div>
-          <p style={{ fontSize: 12, color: "#8a8f9d", marginBottom: 16 }}>{t("jobTapAssign")}</p>
+          <p style={{ fontSize: 12, color: "var(--text-muted,#4E6B84)", marginBottom: 16 }}>{t("jobTapAssign")}</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {(() => {
               // Availability across the job's WHOLE span (worst day), computed once —
@@ -2701,8 +2711,8 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                   }}
                   style={{
                     display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10,
-                    border: isAssigned ? "1.5px solid #e8b84b" : maxAvail === 0 ? "1.5px solid #252830" : "1.5px solid #2e3340",
-                    background: isAssigned ? "rgba(232,184,75,0.07)" : maxAvail === 0 ? "rgba(0,0,0,0.2)" : "#0f1117",
+                    border: isAssigned ? "1.5px solid var(--accent,#2563EB)" : maxAvail === 0 ? "1.5px solid var(--divider-color,#D8E1EC)" : "1.5px solid var(--border-color,#D8E1EC)",
+                    background: isAssigned ? "rgba(var(--accent-rgb,37,99,235),0.07)" : maxAvail === 0 ? "rgba(22,50,74,0.07)" : "var(--surface2,#EAF0F7)",
                     cursor: maxAvail === 0 && !isAssigned ? "not-allowed" : "pointer",
                     opacity: maxAvail === 0 && !isAssigned ? 0.45 : 1,
                     transition: "all 0.12s",
@@ -2710,22 +2720,22 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
                   {/* Checkbox-style indicator */}
                   <div style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                    background: isAssigned ? "#e8b84b" : "#1a1e27", border: isAssigned ? "none" : "1.5px solid #3a4050" }}>
-                    {isAssigned && <Icon d={icons.check} size={13} color="#0f1117" strokeW={3} />}
+                    background: isAssigned ? "var(--accent,#2563EB)" : "var(--surface,#FFFFFF)", border: isAssigned ? "none" : "1.5px solid var(--border-color,#D8E1EC)" }}>
+                    {isAssigned && <Icon d={icons.check} size={13} color="var(--accent-text,#FFFFFF)" strokeW={3} />}
                   </div>
 
                   {/* Thumbnail */}
                   {eq.photo
                     ? <img src={eq.photo} alt="" style={{ width: 40, height: 36, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
-                    : <div style={{ width: 40, height: 36, borderRadius: 6, background: "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <Icon d={icons.camera} size={14} color="#444" />
+                    : <div style={{ width: 40, height: 36, borderRadius: 6, background: "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <Icon d={icons.camera} size={14} color="var(--text-muted,#8CA2B5)" />
                       </div>
                   }
 
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: isAssigned ? "#e8b84b" : "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eq.name}</p>
-                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: isAssigned ? "var(--accent,#2563EB)" : "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eq.name}</p>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
                       {eq.category}
                       {isMulti ? ` · ${maxAvail} of ${eq.total} free` : maxAvail === 0 ? ` · ${t("jobUnavailable")}` : ` · ${t("jobAvailable")}`}
                     </p>
@@ -2736,11 +2746,11 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}
                       onClick={e => e.stopPropagation()}>
                       <button
-                        style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #3a4050", background: "#1a1e27", color: "#e8e4dc", fontSize: 16, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                        style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", fontSize: 16, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                         onClick={() => setAssignForm(p => { const n = Math.max(1, (p[eq.id] || 1) - 1); return { ...p, [eq.id]: n }; })}>−</button>
-                      <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14, color: "#e8b84b" }}>{currentQty}</span>
+                      <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14, color: "var(--accent,#2563EB)" }}>{currentQty}</span>
                       <button
-                        style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #3a4050", background: "#1a1e27", color: "#e8e4dc", fontSize: 16, lineHeight: 1, cursor: currentQty >= maxAvail ? "not-allowed" : "pointer", opacity: currentQty >= maxAvail ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}
+                        style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", fontSize: 16, lineHeight: 1, cursor: currentQty >= maxAvail ? "not-allowed" : "pointer", opacity: currentQty >= maxAvail ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}
                         onClick={() => setAssignForm(p => ({ ...p, [eq.id]: Math.min(maxAvail, (p[eq.id] || 1) + 1) }))}>+</button>
                     </div>
                   )}
@@ -2752,7 +2762,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
           {/* Verification roles — only shown when mode is barcode or both */}
           {(vMode === "barcode" || vMode === "both") && (
-            <div style={{ marginTop: 18, padding: "14px", background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)", borderRadius: 10 }}>
+            <div style={{ marginTop: 18, padding: "14px", background: "rgba(var(--accent-rgb,37,99,235),0.04)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.15)", borderRadius: 10 }}>
               <p style={{ ...S.label, marginBottom: 12 }}>{t("jobRoles")}</p>
               {[
                 ...(vMode === "both" ? [{ lane: "barcode", label: t("jobRolesBarcode") }] : []),
@@ -2763,7 +2773,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                 const isAnyone = cur === "anyone";
                 return (
                   <div key={lane} style={{ marginBottom: 12 }}>
-                    <p style={{ fontSize: 12, color: "#8a8f9d", marginBottom: 6 }}>{label}</p>
+                    <p style={{ fontSize: 12, color: "var(--text-muted,#4E6B84)", marginBottom: 6 }}>{label}</p>
                     <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                       {[{ id: "anyone", label: t("jobRolesAnyone") }, { id: "fixed", label: t("jobRolesFixed") }].map(opt => (
                         <button key={opt.id}
@@ -2779,7 +2789,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                           const selected = Array.isArray(cur) && cur.includes(emp.id);
                           return (
                             <button key={emp.id} onClick={() => toggleRoleMember(lane, emp.id)}
-                              style={{ fontSize: 11, padding: "5px 12px", borderRadius: 16, border: `1px solid ${selected ? "#e8b84b" : "#3a4050"}`, background: selected ? "rgba(232,184,75,0.15)" : "#0f1117", color: selected ? "#e8b84b" : "#8a8f9d", cursor: "pointer" }}>
+                              style={{ fontSize: 11, padding: "5px 12px", borderRadius: 16, border: `1px solid ${selected ? "var(--accent,#2563EB)" : "var(--border-color,#D8E1EC)"}`, background: selected ? "rgba(var(--accent-rgb,37,99,235),0.15)" : "var(--surface2,#EAF0F7)", color: selected ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)", cursor: "pointer" }}>
                               {emp.name}
                             </button>
                           );
@@ -2794,8 +2804,8 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
           {/* Summary */}
           {Object.values(assignForm).some(q => q > 0) && (
-            <div style={{ marginTop: 14, padding: "10px 14px", background: "rgba(232,184,75,0.06)", border: "1px solid rgba(232,184,75,0.15)", borderRadius: 8 }}>
-              <p style={{ margin: 0, fontSize: 11, color: "#e8b84b", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>{t("jobAssigned")}</p>
+            <div style={{ marginTop: 14, padding: "10px 14px", background: "rgba(var(--accent-rgb,37,99,235),0.06)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.15)", borderRadius: 8 }}>
+              <p style={{ margin: 0, fontSize: 11, color: "var(--accent,#2563EB)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>{t("jobAssigned")}</p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {Object.entries(assignForm).filter(([, q]) => q > 0).map(([eqId, qty]) => {
                   const eq = equipment.find(e => e.id === eqId);
@@ -2828,8 +2838,8 @@ function JobDetailModal({ job, equipment, onClose, onEdit }) {
           <span style={S.badge("gray")}>{job.shootTime}</span>
         </div>
         <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#e8e4dc" }}>{job.name}</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 13, color: "#8a8f9d" }}>{job.production}</p>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text,#16324A)" }}>{job.name}</h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-muted,#4E6B84)" }}>{job.production}</p>
         </div>
         <div style={S.divider} />
         <div>
@@ -2842,10 +2852,10 @@ function JobDetailModal({ job, equipment, onClose, onEdit }) {
             ))}
           </div>
           {(job.pickupDate || job.returnDate) && (
-            <p style={{ margin: "8px 0 0", fontSize: 12, color: "#8a8f9d" }}>
-              {job.pickupDate ? <>📦 Pickup from <strong style={{ color: "#e8e4dc" }}>{formatDate(job.pickupDate)}</strong></> : null}
+            <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>
+              {job.pickupDate ? <>📦 Pickup from <strong style={{ color: "var(--text,#16324A)" }}>{formatDate(job.pickupDate)}</strong></> : null}
               {job.pickupDate && job.returnDate ? " · " : ""}
-              {job.returnDate ? <>🔙 Return by <strong style={{ color: "#e8e4dc" }}>{formatDate(job.returnDate)}</strong></> : null}
+              {job.returnDate ? <>🔙 Return by <strong style={{ color: "var(--text,#16324A)" }}>{formatDate(job.returnDate)}</strong></> : null}
             </p>
           )}
         </div>
@@ -2857,11 +2867,11 @@ function JobDetailModal({ job, equipment, onClose, onEdit }) {
                 const eq = equipment.find(e => e.id === ae.eqId);
                 if (!eq) return null;
                 return (
-                  <div key={ae.eqId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "#0f1117", borderRadius: 8 }}>
+                  <div key={ae.eqId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--surface2,#EAF0F7)", borderRadius: 8 }}>
                     {eq.photo && <img src={eq.photo} alt="" style={{ width: 36, height: 32, objectFit: "cover", borderRadius: 5 }} />}
                     <div style={{ flex: 1 }}>
                       <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{eq.name}</p>
-                      <p style={{ margin: 0, fontSize: 11, color: "#666" }}>{eq.category}{eq.total > 1 ? ` · ×${ae.qty}` : ""}</p>
+                      <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{eq.category}{eq.total > 1 ? ` · ×${ae.qty}` : ""}</p>
                     </div>
                   </div>
                 );
@@ -2870,7 +2880,7 @@ function JobDetailModal({ job, equipment, onClose, onEdit }) {
           </div>
         )}
         {(job.assignedEquipment || []).length === 0 && (
-          <p style={{ fontSize: 12, color: "#555", fontStyle: "italic" }}>No equipment assigned yet.</p>
+          <p style={{ fontSize: 12, color: "var(--text-muted,#7B8FA3)", fontStyle: "italic" }}>No equipment assigned yet.</p>
         )}
         {onEdit && (
           <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 4 }}>
@@ -2901,10 +2911,10 @@ function DashboardCalendar({ jobs, equipment, onEdit }) {
   // For each job, compute which days in this month it occupies
   // and classify consecutive runs as "spans" for rendering bars
   const STATUS_COLORS = {
-    Confirmed: { bg: "rgba(52,211,153,0.18)", border: "#34d399", text: "#34d399" },
-    Pencil:    { bg: "rgba(232,184,75,0.18)", border: "#e8b84b", text: "#e8b84b" },
-    Cancelled: { bg: "rgba(239,68,68,0.12)", border: "#f87171", text: "#f87171" },
-    Declined:  { bg: "rgba(148,163,184,0.15)", border: "#94a3b8", text: "#94a3b8" },
+    Confirmed: { bg: "rgba(47,133,90,0.18)", border: "#2F855A", text: "#2F855A" },
+    Pencil:    { bg: "rgba(var(--accent-rgb,37,99,235),0.18)", border: "var(--accent,#2563EB)", text: "var(--accent,#2563EB)" },
+    Cancelled: { bg: "rgba(197,48,48,0.12)", border: "#C53030", text: "#C53030" },
+    Declined:  { bg: "rgba(148,163,184,0.15)", border: "#7B8794", text: "#7B8794" },
   };
 
   // For each cell row in the calendar grid, we need to know which job bars
@@ -2988,7 +2998,7 @@ function DashboardCalendar({ jobs, equipment, onEdit }) {
       <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
         <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 16 }}
           onClick={() => setCalMonth(p => { const d = new Date(p.year, p.month - 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>‹</button>
-        <span style={{ flex: 1, textAlign: "center", fontWeight: 700, fontSize: 14, color: "#e8e4dc" }}>{monthName}</span>
+        <span style={{ flex: 1, textAlign: "center", fontWeight: 700, fontSize: 14, color: "var(--text,#16324A)" }}>{monthName}</span>
         <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 16 }}
           onClick={() => setCalMonth(p => { const d = new Date(p.year, p.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>›</button>
       </div>
@@ -2996,7 +3006,7 @@ function DashboardCalendar({ jobs, equipment, onEdit }) {
       {/* Day headers */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
         {["S","M","T","W","T","F","S"].map((d, i) => (
-          <div key={i} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: "#555", paddingBottom: 6 }}>{d}</div>
+          <div key={i} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: "var(--text-muted,#7B8FA3)", paddingBottom: 6 }}>{d}</div>
         ))}
       </div>
 
@@ -3014,9 +3024,9 @@ function DashboardCalendar({ jobs, equipment, onEdit }) {
                 <div key={d} style={{ height: 28, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <div style={{
                     width: 24, height: 24, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                    background: isToday ? "#e8b84b" : "transparent",
+                    background: isToday ? "var(--accent,#2563EB)" : "transparent",
                     fontSize: 12, fontWeight: isToday ? 800 : hasJobs ? 600 : 400,
-                    color: isToday ? "#0f1117" : hasJobs ? "#e8e4dc" : "#555",
+                    color: isToday ? "var(--accent-text,#FFFFFF)" : hasJobs ? "var(--text,#16324A)" : "var(--text-muted,#7B8FA3)",
                   }}>{d}</div>
                 </div>
               );
@@ -3079,11 +3089,11 @@ function DashboardCalendar({ jobs, equipment, onEdit }) {
       ))}
 
       {/* Legend */}
-      <div style={{ display: "flex", gap: 14, marginTop: 10, paddingTop: 10, borderTop: "1px solid #252830" }}>
+      <div style={{ display: "flex", gap: 14, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--divider-color,#D8E1EC)" }}>
         {Object.entries(STATUS_COLORS).map(([s, c]) => (
           <div key={s} style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <div style={{ width: 18, height: 6, borderRadius: 3, background: c.bg, border: `1px solid ${c.border}` }} />
-            <span style={{ fontSize: 10, color: "#666" }}>{s}</span>
+            <span style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>{s}</span>
           </div>
         ))}
       </div>
@@ -3165,9 +3175,9 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   const locationColor = { "Local (Bangkok)": "blue", "Out of Town": "amber", "Overseas": "red" };
 
   const statSections = {
-    today:     { jobs: todayJobs,     label: t("dashTodayJobsLabel"),    color: "#e8b84b", badge: "amber" },
-    confirmed: { jobs: confirmedJobs, label: t("dashConfirmedLabel"),  color: "#34d399", badge: "green" },
-    pencil:    { jobs: pencilJobs,    label: t("dashPencilLabel"),     color: "#e8b84b", badge: "amber" },
+    today:     { jobs: todayJobs,     label: t("dashTodayJobsLabel"),    color: "var(--accent,#2563EB)", badge: "amber" },
+    confirmed: { jobs: confirmedJobs, label: t("dashConfirmedLabel"),  color: "#2F855A", badge: "green" },
+    pencil:    { jobs: pencilJobs,    label: t("dashPencilLabel"),     color: "var(--accent,#2563EB)", badge: "amber" },
   };
 
   return (
@@ -3181,8 +3191,8 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           gates crew logins + field returns, so surface a jump-to link when anything waits. */}
       {(adminRequests || []).filter(r => r.status === "pending").length > 0 && (
         <div onClick={() => document.getElementById("approvals-card")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 16px", borderRadius: 10, cursor: "pointer", background: "rgba(232,184,75,0.1)", border: "1px solid rgba(232,184,75,0.35)" }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#e8b84b" }}>
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 16px", borderRadius: 10, cursor: "pointer", background: "rgba(var(--accent-rgb,37,99,235),0.1)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.35)" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--accent,#2563EB)" }}>
             {(adminRequests || []).filter(r => r.status === "pending").length} {t("dashApprovalsWaiting")}
           </span>
           <span style={{ ...S.btn("primary"), padding: "5px 12px", fontSize: 12 }}>{t("dashReview")}</span>
@@ -3197,12 +3207,12 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
             <div key={key}
               onClick={() => setExpandedStat(isOpen ? null : key)}
               style={{ ...S.card, textAlign: "center", padding: "14px 8px", cursor: "pointer",
-                border: isOpen ? `1px solid ${s.color}` : "1px solid #252830",
-                background: isOpen ? `${s.color}12` : "#1a1e27",
+                border: isOpen ? `1px solid ${s.color}` : "1px solid var(--divider-color,#D8E1EC)",
+                background: isOpen ? `${s.color}12` : "var(--surface,#FFFFFF)",
                 transition: "all 0.15s" }}>
               <p style={{ margin: 0, fontSize: 28, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.jobs.length}</p>
-              <p style={{ margin: "5px 0 0", fontSize: 9, color: isOpen ? s.color : "#666", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1.3 }}>{s.label}</p>
-              <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke={isOpen ? s.color : "#444"} strokeWidth={2.5} strokeLinecap="round" style={{ marginTop: 6, transition: "transform 0.15s", transform: isOpen ? "rotate(180deg)" : "none" }}>
+              <p style={{ margin: "5px 0 0", fontSize: 9, color: isOpen ? s.color : "var(--text-muted,#5F7A91)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1.3 }}>{s.label}</p>
+              <svg width={10} height={10} viewBox="0 0 24 24" fill="none" stroke={isOpen ? s.color : "var(--text-muted,#8CA2B5)"} strokeWidth={2.5} strokeLinecap="round" style={{ marginTop: 6, transition: "transform 0.15s", transform: isOpen ? "rotate(180deg)" : "none" }}>
                 <path d="M6 9l6 6 6-6" />
               </svg>
             </div>
@@ -3217,17 +3227,17 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           <div style={{ ...S.card, padding: "14px 16px", marginTop: -6, borderTop: `2px solid ${s.color}`, borderRadius: "0 0 10px 10px" }}>
             <p style={{ ...S.sectionTitle, color: s.color, marginBottom: 12 }}>{s.label}</p>
             {s.jobs.length === 0 ? (
-              <p style={{ fontSize: 13, color: "#555" }}>{t("dashNoJobsCategory")}</p>
+              <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>{t("dashNoJobsCategory")}</p>
             ) : s.jobs.map((j, i) => (
-              <div key={j.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < s.jobs.length - 1 ? 12 : 0, marginBottom: i < s.jobs.length - 1 ? 12 : 0, borderBottom: i < s.jobs.length - 1 ? "1px solid #252830" : "none" }}>
+              <div key={j.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < s.jobs.length - 1 ? 12 : 0, marginBottom: i < s.jobs.length - 1 ? 12 : 0, borderBottom: i < s.jobs.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 4 }}>
                     <span style={S.badge(statusColor[j.status] || "gray")}>{j.status}</span>
                     <span style={S.badge(locationColor[j.location] || "gray")}>{j.location}{j.locationCity ? ` · ${j.locationCity}` : ""}</span>
                   </div>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{j.name}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{j.production} · {j.shootTime}</p>
-                  <p style={{ margin: "3px 0 0", fontSize: 11, color: "#8a8f9d" }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{j.name}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{j.production} · {j.shootTime}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>
                     {j.dates.length} day{j.dates.length !== 1 ? "s" : ""}
                     {j.dates[0] ? ` · ${formatDate(j.dates[0])}${j.dates.length > 1 ? " →" : ""}` : ""}
                     {j.dates.length > 1 ? ` ${formatDate(j.dates[j.dates.length - 1])}` : ""}
@@ -3258,19 +3268,19 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           <div style={S.card}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: outJobs.length ? 10 : 0, gap: 8 }}>
               <p style={{ ...S.sectionTitle, margin: 0 }}>{t("dashEqOutToday")}</p>
-              <span style={{ fontSize: 11, color: "#8a8f9d", flexShrink: 0 }}>{totalOut} of {equipment.length} out</span>
+              <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)", flexShrink: 0 }}>{totalOut} of {equipment.length} out</span>
             </div>
             {outJobs.length === 0
-              ? <p style={{ color: "#34d399", fontSize: 13, margin: 0 }}>{t("dashAllAvail")}</p>
+              ? <p style={{ color: "#2F855A", fontSize: 13, margin: 0 }}>{t("dashAllAvail")}</p>
               : <div style={S.col}>
                   {outJobs.map(job => {
                     const eqCount = (job.assignedEquipment || []).length;
                     return (
                       <button key={job.id} onClick={() => setEqOutJob(job)}
-                        style={{ ...S.card, background: "#0f1117", border: "1px solid #252830", cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", margin: 0 }}>
+                        style={{ ...S.card, background: "var(--surface2,#EAF0F7)", border: "1px solid var(--divider-color,#D8E1EC)", cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", margin: 0 }}>
                         <div style={{ minWidth: 0 }}>
-                          <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.name}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.production || "—"}</p>
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.name}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.production || "—"}</p>
                         </div>
                         <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{eqCount} item{eqCount !== 1 ? "s" : ""}</span>
                       </button>
@@ -3283,7 +3293,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
 
       {eqOutJob && (
         <Modal title={eqOutJob.name} onClose={() => setEqOutJob(null)}>
-          <p style={{ margin: "0 0 12px", fontSize: 12, color: "#8a8f9d" }}>{eqOutJob.production || "—"}</p>
+          <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>{eqOutJob.production || "—"}</p>
           <div style={S.col}>
             {(eqOutJob.assignedEquipment || []).map(ae => {
               const eq = equipment.find(e => e.id === ae.eqId);
@@ -3291,12 +3301,12 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
               const avItem = avList.find(e => e.id === ae.eqId);
               const allOut = avItem ? avItem.available === 0 : false;
               return (
-                <div key={ae.eqId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #252830" }}>
+                <div key={ae.eqId} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: "#e8e4dc" }}>{eq.name}</p>
-                    {eq.category && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{eq.category}</p>}
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: "var(--text,#16324A)" }}>{eq.name}</p>
+                    {eq.category && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{eq.category}</p>}
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: allOut ? "#f87171" : "#e8b84b", flexShrink: 0 }}>×{ae.qty}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: allOut ? "#C53030" : "var(--accent,#2563EB)", flexShrink: 0 }}>×{ae.qty}</span>
                 </div>
               );
             })}
@@ -3305,15 +3315,15 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
       )}
 
       {/* Still Out */}
-      <div style={{ ...S.card, border: stillOutItems.some(i => i.overdue) ? "1px solid rgba(248,113,113,0.35)" : "1px solid #252830", padding: "10px 14px" }}>
+      <div style={{ ...S.card, border: stillOutItems.some(i => i.overdue) ? "1px solid rgba(248,113,113,0.35)" : "1px solid var(--divider-color,#D8E1EC)", padding: "10px 14px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stillOutItems.length ? 8 : 0 }}>
           <p style={{ ...S.sectionTitle, margin: 0, fontSize: 12 }}>{t("dashStillOut")}</p>
           {stillOutItems.length > 0 && (
-            <span style={{ fontSize: 11, color: "#8a8f9d" }}>{stillOutItems.length} item{stillOutItems.length !== 1 ? "s" : ""}</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{stillOutItems.length} item{stillOutItems.length !== 1 ? "s" : ""}</span>
           )}
         </div>
         {stillOutItems.length === 0
-          ? <p style={{ color: "#34d399", fontSize: 12, margin: 0 }}>{t("dashStillOutEmpty")}</p>
+          ? <p style={{ color: "#2F855A", fontSize: 12, margin: 0 }}>{t("dashStillOutEmpty")}</p>
           : stillOutItems.map((item, idx, arr) => {
               const ago = (() => {
                 const diffMs = Date.now() - item.pickedAt;
@@ -3321,13 +3331,13 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 const d = Math.floor(diffMs / 86400000);
                 return d > 0 ? `${d}d` : h > 0 ? `${h}h` : "now";
               })();
-              const color = item.overdue ? "#f87171" : "#e8b84b";
+              const color = item.overdue ? "#C53030" : "var(--accent,#2563EB)";
               return (
-                <div key={`${item.job.id}-${item.eq.id}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none" }}>
+                <div key={`${item.job.id}-${item.eq.id}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
                   <div style={{ width: 3, alignSelf: "stretch", borderRadius: 2, background: color, flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#e8e4dc" }}>{item.eq.name}</span>
-                    <span style={{ fontSize: 11, color: "#8a8f9d", marginLeft: 6 }}>{item.job.name} · {item.pickedBy}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text,#16324A)" }}>{item.eq.name}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)", marginLeft: 6 }}>{item.job.name} · {item.pickedBy}</span>
                   </div>
                   <span style={{ fontSize: 11, color, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{ago}</span>
                 </div>
@@ -3340,7 +3350,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
       <div style={S.card}>
         <p style={S.sectionTitle}>{t("dashRecentActivity")}</p>
         {activityGroups.length === 0 ? (
-          <p style={{ color: "#666", fontSize: 13 }}>{t("dashNoActivity")}</p>
+          <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{t("dashNoActivity")}</p>
         ) : activityGroups.map((group, i, arr) => {
           const isExpanded = expandedActivityKeys.has(group.key);
           const sortedItems = [...group.items].sort((a, b) => b.ts - a.ts);
@@ -3348,26 +3358,26 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           const isPick = latestType === "pick" || latestType === "checkout";
           const empNames = [...group.empNames].join(", ");
           return (
-            <div key={group.key} style={{ paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
+            <div key={group.key} style={{ paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
               <div onClick={() => toggleActivity(group.key)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
                 <span style={S.badge(isPick ? "amber" : "green")}>{isPick ? t("dashPicked") : t("dashReturned")}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{group.label}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{empNames} · {formatDateTime(group.latestTs)}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{empNames} · {formatDateTime(group.latestTs)}</p>
                 </div>
-                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}><path d="M9 18l6-6-6-6" /></svg>
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted,#5F7A91)" strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform .15s" }}><path d="M9 18l6-6-6-6" /></svg>
               </div>
               {isExpanded && (
-                <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid #252830" }}>
+                <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid var(--divider-color,#D8E1EC)" }}>
                   {sortedItems.map((c, ci) => {
                     const eq = equipment.find(e => e.id === c.eqId);
                     const cIsPick = isPickEvt(c.type);
                     return (
-                      <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: ci < sortedItems.length - 1 ? "1px solid #1e2230" : "none" }}>
+                      <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: ci < sortedItems.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
                         <span style={S.badge(cIsPick ? "amber" : "green")}>{cIsPick ? t("pickEvt") : t("returnEvt")}</span>
                         <div style={{ flex: 1 }}>
                           <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || "—"} ×{c.qty}</p>
-                          <p style={{ margin: 0, fontSize: 10, color: "#666" }}>{c.employeeName} · {formatDateTime(c.ts)}</p>
+                          <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>{c.employeeName} · {formatDateTime(c.ts)}</p>
                         </div>
                       </div>
                     );
@@ -3384,9 +3394,9 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         onClick={() => setDashJobModal("new")}
         style={{
           position: "fixed", bottom: 78, right: 20, width: 52, height: 52,
-          borderRadius: "50%", background: "var(--btn-primary-bg,#e8b84b)", color: "var(--btn-primary-color,#0f1117)",
+          borderRadius: "50%", background: "var(--btn-primary-bg,#2563EB)", color: "var(--btn-primary-color,#FFFFFF)",
           border: "none", fontSize: 28, fontWeight: 300, cursor: "pointer",
-          boxShadow: "0 4px 16px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 4px 16px rgba(22,50,74,0.14)", display: "flex", alignItems: "center", justifyContent: "center",
           zIndex: 90,
         }}
         title="New Job"
@@ -3401,7 +3411,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           </p>
         </div>
         {(equipmentRequests || []).length === 0 ? (
-          <p style={{ fontSize: 13, color: "#555" }}>{t("dashNoRequests")}</p>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>{t("dashNoRequests")}</p>
         ) : [...(equipmentRequests || [])].reverse().slice(0, 10).map((req, i, arr) => {
           const itemLabel = req.items
             ? req.items.map(it => { const e = equipment.find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
@@ -3410,14 +3420,14 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           return (
             <div key={req.id}
               onClick={() => setDashReqModal(req)}
-              style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none", cursor: "pointer" }}>
+              style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", cursor: "pointer" }}>
               <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#e8e4dc" }}>{req.employeeName}</p>
-                <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{itemLabel}</p>
-                {dateLabel && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{dateLabel}</p>}
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)" }}>{req.employeeName}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{itemLabel}</p>
+                {dateLabel && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{dateLabel}</p>}
               </div>
-              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M9 18l6-6-6-6" /></svg>
+              <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted,#8CA2B5)" strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, marginTop: 2 }}><path d="M9 18l6-6-6-6" /></svg>
             </div>
           );
         })}
@@ -3436,20 +3446,20 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 <span style={{ fontWeight: 700, fontSize: 15 }}>{req.employeeName}</span>
               </div>
 
-              <div style={{ borderTop: "1px solid #252830", paddingTop: 12 }}>
+              <div style={{ borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 12 }}>
                 <p style={{ ...S.label, marginBottom: 8 }}>{t("dashRequestedItems")}</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {items.map((item, i) => {
                     const eq = equipment.find(e => e.id === item.eqId);
                     return (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "#0f1117", borderRadius: 8, border: "1px solid #252830" }}>
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--surface2,#EAF0F7)", borderRadius: 8, border: "1px solid var(--divider-color,#D8E1EC)" }}>
                         {eq?.photo
                           ? <img src={eq.photo} alt="" style={{ width: 36, height: 32, objectFit: "cover", borderRadius: 5, flexShrink: 0 }} />
-                          : <div style={{ width: 36, height: 32, borderRadius: 5, background: "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon d={icons.camera} size={12} color="#444" /></div>
+                          : <div style={{ width: 36, height: 32, borderRadius: 5, background: "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Icon d={icons.camera} size={12} color="var(--text-muted,#8CA2B5)" /></div>
                         }
                         <div style={{ flex: 1 }}>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{eq?.name || item.eqName}</p>
-                          {eq?.category && <p style={{ margin: 0, fontSize: 11, color: "#666" }}>{eq.category}</p>}
+                          {eq?.category && <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{eq.category}</p>}
                         </div>
                         <span style={{ ...S.badge("blue"), flexShrink: 0 }}>×{item.qty}</span>
                       </div>
@@ -3461,13 +3471,13 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
               {dateLabel && (
                 <div>
                   <p style={S.label}>{req.useDates?.length > 1 ? t("dashDatesNeeded") : t("dashDateNeeded")}</p>
-                  <p style={{ fontSize: 13, color: "#e8e4dc", margin: 0 }}>{dateLabel}</p>
+                  <p style={{ fontSize: 13, color: "var(--text,#16324A)", margin: 0 }}>{dateLabel}</p>
                 </div>
               )}
 
               <div>
                 <p style={S.label}>{t("dashPurpose")}</p>
-                <p style={{ fontSize: 13, color: "#e8e4dc", margin: 0 }}>
+                <p style={{ fontSize: 13, color: "var(--text,#16324A)", margin: 0 }}>
                   {req.purpose === "work" ? `${t("teamWork")} — ${req.jobName || ""}${req.productionName ? ` (${req.productionName})` : ""}` : t("purposePractice")}
                 </p>
               </div>
@@ -3475,11 +3485,11 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
               {req.reason && (
                 <div>
                   <p style={S.label}>{t("dashReason")}</p>
-                  <p style={{ fontSize: 13, color: "#8a8f9d", margin: 0 }}>{req.reason}</p>
+                  <p style={{ fontSize: 13, color: "var(--text-muted,#4E6B84)", margin: 0 }}>{req.reason}</p>
                 </div>
               )}
 
-              <p style={{ fontSize: 11, color: "#444", margin: 0 }}>Requested {new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+              <p style={{ fontSize: 11, color: "var(--text-muted,#8CA2B5)", margin: 0 }}>Requested {new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
 
               {req.status === "pending" && (
                 <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
@@ -3493,7 +3503,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 const pickedIds = new Set(reqCheckouts.filter(c => isPickEvt(c.type)).map(c => c.eqId));
                 const returnedIds = new Set(reqCheckouts.filter(c => isReturnEvt(c.type)).map(c => c.eqId));
                 return (
-                  <div style={{ borderTop: "1px solid #252830", paddingTop: 12 }}>
+                  <div style={{ borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 12 }}>
                     <p style={{ ...S.label, marginBottom: 8 }}>{t("dashCheckoutStatus")}</p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                       {items.map((item, i) => {
@@ -3501,7 +3511,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                         const returned = returnedIds.has(item.eqId);
                         const picked = pickedIds.has(item.eqId);
                         return (
-                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: "#0f1117", borderRadius: 8, border: "1px solid #252830" }}>
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", background: "var(--surface2,#EAF0F7)", borderRadius: 8, border: "1px solid var(--divider-color,#D8E1EC)" }}>
                             <div style={{ flex: 1 }}>
                               <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || item.eqName} ×{item.qty}</p>
                             </div>
@@ -3554,20 +3564,20 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 {t("dashApprovals")}
                 {pendingCount > 0 && <span style={{ ...S.badge("amber"), marginLeft: 8 }}>{pendingCount} {t("dashPending")}</span>}
               </p>
-              <div style={{ display: "flex", gap: 4, background: "#0f1117", padding: 3, borderRadius: 8, border: "1px solid #252830" }}>
+              <div style={{ display: "flex", gap: 4, background: "var(--surface2,#EAF0F7)", padding: 3, borderRadius: 8, border: "1px solid var(--divider-color,#D8E1EC)" }}>
                 {tabs.map(tb => (
-                  <button key={tb.k} onClick={() => setApprovalFilter(tb.k)} style={{ padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, background: approvalFilter === tb.k ? "#e8b84b" : "transparent", color: approvalFilter === tb.k ? "#0f1117" : "#8a8f9d" }}>{tb.l}</button>
+                  <button key={tb.k} onClick={() => setApprovalFilter(tb.k)} style={{ padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, background: approvalFilter === tb.k ? "var(--accent,#2563EB)" : "transparent", color: approvalFilter === tb.k ? "var(--accent-text,#FFFFFF)" : "var(--text-muted,#4E6B84)" }}>{tb.l}</button>
                 ))}
               </div>
             </div>
             {rows.length === 0 && (
-              <p style={{ fontSize: 13, color: "#666", margin: 0 }}>
+              <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0 }}>
                 {approvalFilter === "pending" ? t("dashNoPending") : approvalFilter === "resolved" ? t("dashNoResolved") : t("dashNoAll")}
               </p>
             )}
             <div style={{ maxHeight: 520, overflowY: rows.length > 6 ? "auto" : "visible", margin: "0 -4px", padding: "0 4px" }}>
             {rows.map((row, i, arr) => {
-              const divider = { paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" };
+              const divider = { paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" };
               if (row.kind === "geo-group") {
                 const g = row;
                 const open = expandedApproval.has(g.key);
@@ -3577,26 +3587,26 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                     <div onClick={() => toggleApproval(g.key)} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
                       <span style={S.badge(pend.length ? "amber" : "green")}>{pend.length ? `${pend.length} ${t("dashPending")}` : t("dashResolved")}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{g.jobName} <span style={{ color: "#8a8f9d", fontWeight: 500 }}>· Return</span></p>
-                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{g.items.length} {t("dashItems")}{g.employeeName ? ` · ${t("dashByLabel")} ${g.employeeName}` : ""}</p>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{g.jobName} <span style={{ color: "var(--text-muted,#4E6B84)", fontWeight: 500 }}>· Return</span></p>
+                        <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{g.items.length} {t("dashItems")}{g.employeeName ? ` · ${t("dashByLabel")} ${g.employeeName}` : ""}</p>
                       </div>
                       {pend.length > 0 && (
                         <button style={{ ...S.btn("success"), padding: "4px 10px", fontSize: 11, flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); pend.forEach(r => approveAdminRequest(r)); }}>{t("dashApproveAll")}</button>
                       )}
-                      <span style={{ color: "#666", fontSize: 14, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</span>
+                      <span style={{ color: "var(--text-muted,#5F7A91)", fontSize: 14, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</span>
                     </div>
                     {open && (
-                      <div style={{ marginTop: 10, paddingLeft: 10, borderLeft: "2px solid #252830", display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div style={{ marginTop: 10, paddingLeft: 10, borderLeft: "2px solid var(--divider-color,#D8E1EC)", display: "flex", flexDirection: "column", gap: 12 }}>
                         {g.items.map(req => (
                           <div key={req.id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                             <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.eqName || req.eqId}</p>
-                              <p style={{ margin: "2px 0 0", fontSize: 11, color: req.distance !== null ? (req.distance > 50 ? "#f87171" : "#34d399") : "#888" }}>
+                              <p style={{ margin: "2px 0 0", fontSize: 11, color: req.distance !== null ? (req.distance > 50 ? "#C53030" : "#2F855A") : "var(--text-muted,#6E8398)" }}>
                                 {req.distance !== null ? `📍 ${req.distance}${t("dashGpsFrom")}` : `📍 ${t("dashGpsUnavail")}`}
                               </p>
-                              <p style={{ margin: "3px 0 0", fontSize: 10, color: "#555" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
-                              <LazyPhoto field="adminRequests" id={req.id} photo={req.photo} hasPhoto={req.hasPhoto} alt="preview" style={{ width: "100%", maxWidth: 260, height: "auto", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />
+                              <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
+                              <LazyPhoto field="adminRequests" id={req.id} photo={req.photo} hasPhoto={req.hasPhoto} alt="preview" style={{ width: "100%", maxWidth: 260, height: "auto", borderRadius: 5, marginTop: 6, border: "1px solid var(--border-color,#D8E1EC)" }} />
                               {req.status === "pending" && (
                                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                                   <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>{t("dashReject")}</button>
@@ -3617,7 +3627,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                   <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.name}</p>
-                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>
                       {typeLabel[req.type] || req.type}
                       {req.employeeName ? ` · ${t("dashByLabel")} ${req.employeeName}` : ` · ${t("dashGuest")}`}
                       {req.requestedDate ? ` · For ${formatDate(req.requestedDate)}` : ""}
@@ -3626,8 +3636,8 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                       {req.total && req.type === "equipment" ? ` · ×${req.total}` : ""}
                       {req.requestedPin && req.type === "member-register" ? ` · PIN: ${req.requestedPin}` : ""}
                     </p>
-                    <p style={{ margin: "3px 0 0", fontSize: 10, color: "#555" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
-                    <LazyPhoto field="adminRequests" id={req.id} photo={req.photo} hasPhoto={req.hasPhoto} alt="preview" style={{ width: 60, maxWidth: 60, height: 60, objectFit: "cover", borderRadius: 5, marginTop: 6, border: "1px solid #2e3340" }} />
+                    <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
+                    <LazyPhoto field="adminRequests" id={req.id} photo={req.photo} hasPhoto={req.hasPhoto} alt="preview" style={{ width: 60, maxWidth: 60, height: 60, objectFit: "cover", borderRadius: 5, marginTop: 6, border: "1px solid var(--border-color,#D8E1EC)" }} />
                     {req.status === "pending" && (
                       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                         <button style={{ ...S.btn("danger"), padding: "5px 12px", fontSize: 12 }} onClick={() => rejectAdminRequest(req)}>{t("dashReject")}</button>
@@ -3663,21 +3673,21 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
 function StepBar({ currentStep }) {
   const steps = ["Pick Up", "Shoot", "Return"];
   return (
-    <div style={{ display: "flex", alignItems: "center", background: "#161920", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
+    <div style={{ display: "flex", alignItems: "center", background: "var(--topbar-bg,#FFFFFF)", borderRadius: 10, padding: "12px 16px", marginBottom: 20 }}>
       {steps.map((label, i) => {
         const done = i < currentStep;
         const active = i === currentStep;
         return (
           <div key={i} style={{ display: "flex", alignItems: "center", flex: 1 }}>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-              <div style={{ width: 26, height: 26, borderRadius: "50%", background: done ? "#34d399" : active ? "#e8b84b" : "#252830", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${done ? "#34d399" : active ? "#e8b84b" : "#3a4050"}` }}>
+              <div style={{ width: 26, height: 26, borderRadius: "50%", background: done ? "#2F855A" : active ? "var(--accent,#2563EB)" : "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${done ? "#2F855A" : active ? "var(--accent,#2563EB)" : "var(--border-color,#D8E1EC)"}` }}>
                 {done
-                  ? <Icon d={icons.check} size={12} color="#0f1117" strokeW={3} />
-                  : <span style={{ fontSize: 10, fontWeight: 800, color: active ? "#0f1117" : "#555" }}>{i + 1}</span>}
+                  ? <Icon d={icons.check} size={12} color="var(--accent-text,#FFFFFF)" strokeW={3} />
+                  : <span style={{ fontSize: 10, fontWeight: 800, color: active ? "var(--accent-text,#FFFFFF)" : "var(--text-muted,#7B8FA3)" }}>{i + 1}</span>}
               </div>
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: done ? "#34d399" : active ? "#e8b84b" : "#444" }}>{label}</span>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: done ? "#2F855A" : active ? "var(--accent,#2563EB)" : "var(--text-muted,#8CA2B5)" }}>{label}</span>
             </div>
-            {i < 2 && <div style={{ flex: 0, width: 20, height: 2, background: done ? "#34d399" : "#252830", marginBottom: 18, flexShrink: 0 }} />}
+            {i < 2 && <div style={{ flex: 0, width: 20, height: 2, background: done ? "#2F855A" : "var(--divider-color,#D8E1EC)", marginBottom: 18, flexShrink: 0 }} />}
           </div>
         );
       })}
@@ -3686,7 +3696,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, setProductionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | gear | invoice
@@ -3973,7 +3983,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {eq?.photo && <img src={eq.photo} alt="" style={{ width: 56, height: 48, objectFit: "cover", borderRadius: 6 }} />}
             <div>
               <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{eq?.name}</p>
-              <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666" }}>{isReturn ? "Return" : "Pick-up"} photo</p>
+              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? "Return" : "Pick-up"} photo</p>
             </div>
           </div>
           <GeoPhoto key={captureAe.eqId} label={`${isReturn ? "Return" : "Pick-up"} photo — ${eq?.name || ""}`} onCapture={(dataUrl, loc) => { commitItem(captureAe, dataUrl, loc); setCaptureAe(null); }} />
@@ -3991,7 +4001,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {eq?.photo && <img src={eq.photo} alt="" style={{ width: 56, height: 48, objectFit: "cover", borderRadius: 6 }} />}
             <div>
               <p style={{ margin: 0, fontWeight: 700, fontSize: 15 }}>{eq?.name}</p>
-              <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666" }}>{isReturn ? "Return" : "Pick-up"} scan · {eq?.category}</p>
+              <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? "Return" : "Pick-up"} scan · {eq?.category}</p>
             </div>
           </div>
           <QRScanner
@@ -4016,22 +4026,22 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         <StepBar currentStep={isReturn ? 2 : 0} />
         <div style={{ ...S.card, marginBottom: 16 }}>
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{selectedJob.name}</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{selectedJob.production} · {selectedJob.location}{selectedJob.locationCity ? ` · ${selectedJob.locationCity}` : ""} · {selectedJob.shootTime}</p>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{selectedJob.production} · {selectedJob.location}{selectedJob.locationCity ? ` · ${selectedJob.locationCity}` : ""} · {selectedJob.shootTime}</p>
           {(() => {
             const dates = selectedJob.dates || [];
             const td = today();
             const multi = dates.length > 1;
             return (
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "#e8b84b", background: "rgba(232,184,75,0.1)", border: "1px solid rgba(232,184,75,0.25)", borderRadius: 8, padding: "4px 10px" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: "var(--accent,#2563EB)", background: "rgba(var(--accent-rgb,37,99,235),0.1)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", borderRadius: 8, padding: "4px 10px" }}>
                   <Icon d={icons.calendar} size={13} /> Today · {formatDate(td)}
                 </span>
                 {dates.length > 0 && (
-                  <span style={{ fontSize: 11, color: "#8a8f9d" }}>
+                  <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>
                     {multi ? `${dates.length}-day shoot: ` : "Shoot date: "}{dates.map(d => formatDate(d)).join(" · ")}
                   </span>
                 )}
-                <span style={{ display: "inline-flex", alignItems: "center", fontSize: 10, fontWeight: 700, color: (selectedJob.checkoutMode || "span") === "daily" ? "#60a5fa" : "#8a8f9d", background: (selectedJob.checkoutMode || "span") === "daily" ? "rgba(96,165,250,0.1)" : "rgba(255,255,255,0.04)", border: `1px solid ${(selectedJob.checkoutMode || "span") === "daily" ? "rgba(96,165,250,0.3)" : "#2e3340"}`, borderRadius: 6, padding: "3px 8px", letterSpacing: "0.04em" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", fontSize: 10, fontWeight: 700, color: (selectedJob.checkoutMode || "span") === "daily" ? "#2563EB" : "var(--text-muted,#4E6B84)", background: (selectedJob.checkoutMode || "span") === "daily" ? "rgba(37,99,235,0.1)" : "rgba(22,50,74,0.04)", border: `1px solid ${(selectedJob.checkoutMode || "span") === "daily" ? "rgba(37,99,235,0.3)" : "var(--border-color,#D8E1EC)"}`, borderRadius: 6, padding: "3px 8px", letterSpacing: "0.04em" }}>
                   {(selectedJob.checkoutMode || "span") === "daily" ? "Daily return" : "Return last day"}
                 </span>
               </div>
@@ -4039,8 +4049,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           })()}
         </div>
         {(isReturn && (selectedJob.dates || []).length > 1 && (selectedJob.checkoutMode || "span") === "span") && (
-          <div style={{ ...S.card, background: "rgba(232,184,75,0.05)", border: "1px solid rgba(232,184,75,0.18)", marginBottom: 16 }}>
-            <p style={{ margin: 0, fontSize: 12, color: "#e8b84b", display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.05)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.18)", marginBottom: 16 }}>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", display: "flex", gap: 8, alignItems: "center" }}>
               <Icon d={icons.calendar} size={14} /> Multi-day shoot — gear stays checked out across all days. Only return it when you're done with the whole job.
             </p>
           </div>
@@ -4051,7 +4061,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           return <p style={S.sectionTitle}>{isReturn ? "Tap each item to return" : "Tap each item to check out"}{modeLabel}</p>;
         })()}
         {items.length === 0 ? (
-          <p style={{ fontSize: 13, color: "#666" }}>{isReturn ? "No gear out to return for this job." : "Nothing to check out."}</p>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? "No gear out to return for this job." : "Nothing to check out."}</p>
         ) : (
           <div style={S.col}>
             {items.map(ae => {
@@ -4069,18 +4079,18 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               const photoDone = photoDoneKV || photoDoneSession;
 
               return (
-                <div key={ae.eqId} style={{ ...S.card, background: "#0f1117", display: "flex", alignItems: "center", gap: 14, opacity: done && !pend ? 0.65 : 1 }}>
+                <div key={ae.eqId} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", display: "flex", alignItems: "center", gap: 14, opacity: done && !pend ? 0.65 : 1 }}>
                   {eq.photo && <img src={eq.photo} alt="" style={{ width: 48, height: 40, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>{eq.name}</p>
-                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666" }}>{eq.category} · {t("qty")}: {ae.qty}</p>
-                    {pend && <p style={{ margin: "3px 0 0", fontSize: 11, color: "#f87171", fontWeight: 600 }}>⚠ Sent for admin approval</p>}
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{eq.category} · {t("qty")}: {ae.qty}</p>
+                    {pend && <p style={{ margin: "3px 0 0", fontSize: 11, color: "#C53030", fontWeight: 600 }}>⚠ Sent for admin approval</p>}
                     {/* "Both" mode: show mini status for each lane */}
                     {vMode === "both" && (
                       <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                        <span style={{ fontSize: 10, color: barcodeDone ? "#34d399" : "#555" }}>{barcodeDone ? "✓ Scanned" : "○ Scan"}</span>
-                        <span style={{ fontSize: 10, color: "#333" }}>·</span>
-                        <span style={{ fontSize: 10, color: photoDone ? "#34d399" : "#555" }}>{photoDone ? "✓ Photo" : "○ Photo"}</span>
+                        <span style={{ fontSize: 10, color: barcodeDone ? "#2F855A" : "var(--text-muted,#7B8FA3)" }}>{barcodeDone ? "✓ Scanned" : "○ Scan"}</span>
+                        <span style={{ fontSize: 10, color: "var(--border-color,#D8E1EC)" }}>·</span>
+                        <span style={{ fontSize: 10, color: photoDone ? "#2F855A" : "var(--text-muted,#7B8FA3)" }}>{photoDone ? "✓ Photo" : "○ Photo"}</span>
                       </div>
                     )}
                   </div>
@@ -4089,7 +4099,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   ) : (
                     <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                       {myLanes.barcode && !barcodeDone && (
-                        <button style={{ ...S.btn("ghost"), padding: "6px 10px", justifyContent: "center", border: "1px solid rgba(232,184,75,0.4)" }} onClick={() => onTapItem(ae, "barcode")}>
+                        <button style={{ ...S.btn("ghost"), padding: "6px 10px", justifyContent: "center", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.4)" }} onClick={() => onTapItem(ae, "barcode")}>
                           <Icon d={icons.qr} size={15} />
                         </button>
                       )}
@@ -4110,9 +4120,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           </div>
         )}
         {allDone && (
-          <div style={{ ...S.card, background: "rgba(52,211,153,0.07)", border: "1px solid rgba(52,211,153,0.25)", marginTop: 16, textAlign: "center" }}>
+          <div style={{ ...S.card, background: "rgba(47,133,90,0.07)", border: "1px solid rgba(47,133,90,0.25)", marginTop: 16, textAlign: "center" }}>
             <div style={{ fontSize: 38, marginBottom: 6 }}>{isReturn ? "🏁" : "✅"}</div>
-            <p style={{ margin: "0 0 12px", fontWeight: 700, color: "#34d399" }}>{isReturn ? "All gear returned!" : "All gear checked out!"}</p>
+            <p style={{ margin: "0 0 12px", fontWeight: 700, color: "#2F855A" }}>{isReturn ? "All gear returned!" : "All gear checked out!"}</p>
             <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", opacity: coSaveState === "saving" ? 0.7 : 1 }} disabled={coSaveState === "saving"} onClick={async () => { const ok = await doSaveCheckout(); if (ok) { setSelectedJob(null); setPhase("select"); setItemResults({}); } }}>{coSaveState === "saving" ? "Saving…" : `${t("backToJobs")}`}</button>
           </div>
         )}
@@ -4120,7 +4130,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         {items.length > 0 && (
           <div style={{ position: "sticky", bottom: 12, zIndex: 5, marginTop: 16 }}>
             <button
-              style={{ ...S.btn(coSaveState === "saved" ? "success" : (coSaveState && coSaveState.error) ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "14px", fontSize: 15, fontWeight: 700, boxShadow: "0 4px 24px rgba(0,0,0,0.5)", opacity: coSaveState === "saving" ? 0.75 : 1 }}
+              style={{ ...S.btn(coSaveState === "saved" ? "success" : (coSaveState && coSaveState.error) ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "14px", fontSize: 15, fontWeight: 700, boxShadow: "0 4px 24px rgba(22,50,74,0.17)", opacity: coSaveState === "saving" ? 0.75 : 1 }}
               disabled={coSaveState === "saving"}
               onClick={doSaveCheckout}
             >
@@ -4130,7 +4140,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 : "💾 Save"}
             </button>
             {coSaveState && coSaveState.error && (
-              <p style={{ fontSize: 12, color: "#f87171", textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>⚠ {coSaveState.error}</p>
+              <p style={{ fontSize: 12, color: "#C53030", textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>⚠ {coSaveState.error}</p>
             )}
           </div>
         )}
@@ -4145,14 +4155,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       <header style={S.topbar}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {profilePhoto
-            ? <img src={profilePhoto} alt="avatar" style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", border: "2px solid #e8b84b" }} />
-            : <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(232,184,75,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Icon d={icons.user} size={16} color="#e8b84b" />
+            ? <img src={profilePhoto} alt="avatar" style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", border: "2px solid var(--accent,#2563EB)" }} />
+            : <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(var(--accent-rgb,37,99,235),0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Icon d={icons.user} size={16} color="var(--accent,#2563EB)" />
               </div>
           }
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#e8e4dc", lineHeight: 1.2 }}>{employee.name}</div>
-            <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("crew")}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)", lineHeight: 1.2 }}>{employee.name}</div>
+            <div style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)", textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("crew")}</div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -4162,9 +4172,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
               title="Team Chat"
             >
-              <Icon d={icons.chat} size={18} color={chatUnread > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)"} />
+              <Icon d={icons.chat} size={18} color={chatUnread > 0 ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)"} />
               {chatUnread > 0 && (
-                <div style={{ position: "absolute", top: 3, right: 3, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", border: "1.5px solid var(--bg,#0f1117)" }} />
+                <div style={{ position: "absolute", top: 3, right: 3, width: 8, height: 8, borderRadius: "50%", background: "#C53030", border: "1.5px solid var(--bg,#F4F7FB)" }} />
               )}
             </button>
           )}
@@ -4176,9 +4186,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       </header>
 
       {offlineMode && (
-        <div style={{ background: "rgba(232,184,75,0.12)", borderBottom: "1px solid rgba(232,184,75,0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", borderBottom: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13 }}>⚠️</span>
-          <p style={{ margin: 0, fontSize: 12, color: "#e8b84b", lineHeight: 1.4 }}>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
             <strong>Offline</strong> — cached data only. Checkouts will not save until connection returns.
           </p>
         </div>
@@ -4193,6 +4203,40 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
           }
           setShowReportModal(false);
         }} onClose={() => setShowReportModal(false)} />
+      )}
+
+      {/* Production House add / edit — writes straight to productionCompanies, no admin approval */}
+      {showAdminReqModal === "production-house" && (
+        <Modal title={adminReqForm.id ? t("prodHouseEditTitle") : t("prodHouseAddTitle")} onClose={() => setShowAdminReqModal(null)}>
+          <div style={S.col}>
+            <div>
+              <label style={S.label}>{t("prodHouseName")}</label>
+              <input style={S.input} value={adminReqForm.name || ""} onChange={e => setAdminReqForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Thai Film Co." autoFocus={!adminReqForm.id} />
+            </div>
+            <div>
+              <label style={S.label}>{t("billingAddress")}</label>
+              <textarea style={{ ...S.input, height: 80, resize: "vertical" }} value={adminReqForm.address || ""} onChange={e => setAdminReqForm(p => ({ ...p, address: e.target.value }))} placeholder={t("billingAddressPh")} autoFocus={!!adminReqForm.id} />
+            </div>
+            {adminReqMsg && <p style={{ fontSize: 12, color: adminReqMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{adminReqMsg.text}</p>}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>{t("cancel")}</button>
+              <button style={S.btn("primary")} onClick={() => {
+                const name = (adminReqForm.name || "").trim();
+                const address = (adminReqForm.address || "").trim();
+                if (!name) { setAdminReqMsg({ ok: false, text: t("prodHouseNameRequired") }); return; }
+                setProductionCompanies(prev => {
+                  const list = prev || [];
+                  if (adminReqForm.id) return list.map(c => c.id === adminReqForm.id ? { ...c, name, address } : c);
+                  // Same name already registered (e.g. auto-added from a booking with no address) → fill it in, never duplicate
+                  const dup = list.find(c => (c.name || "").trim().toLowerCase() === name.toLowerCase());
+                  if (dup) return list.map(c => c.id === dup.id ? { ...c, address: address || c.address || "" } : c);
+                  return [...list, { id: "co" + Date.now(), name, address, addedBy: employee.id, addedByName: employee.name }];
+                });
+                setShowAdminReqModal(null);
+              }}>{t("save")}</button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       <div style={{ ...S.main, paddingBottom: 80 }}>
@@ -4219,7 +4263,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               });
               if (outJobs.length === 0) return null;
               return (
-                <div style={{ ...S.card, background: "rgba(232,184,75,0.06)", border: "1px solid rgba(232,184,75,0.2)" }}>
+                <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.06)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)" }}>
                   <p style={{ ...S.sectionTitle, marginBottom: 10 }}>🎬 {t("gearOutTitle")}</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {outJobs.map(job => {
@@ -4231,15 +4275,15 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       const canReturn = !isEarly || earlyReturnApproved(job);
                       const erPending = isEarly && !canReturn && earlyReqPending("early-return", job.id);
                       return (
-                        <div key={job.id} style={{ ...S.card, background: "#0f1117", cursor: canReturn ? "pointer" : "default", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }} onClick={() => canReturn && selectJob(job, true)}>
+                        <div key={job.id} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", cursor: canReturn ? "pointer" : "default", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }} onClick={() => canReturn && selectJob(job, true)}>
                           <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{outCount} {t("outBadge")}</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}{job.__reqId ? <span style={{ ...S.badge("blue"), marginLeft: 6 }}>REQUEST</span> : null}</p>
-                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
-                            {canReturn && isEarly && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#34d399" }}>Early return approved for today</p>}
+                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
+                            {canReturn && isEarly && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#2F855A" }}>Early return approved for today</p>}
                           </div>
                           {canReturn ? (
-                            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#e8b84b" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
+                            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="var(--accent,#2563EB)" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
                           ) : erPending ? (
                             <span style={{ ...S.badge("amber"), flexShrink: 0 }}>Return request pending</span>
                           ) : (
@@ -4259,16 +4303,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               const upcoming = jobs.filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0 && effPickupDate(j) === tomorrow && !earlyPickupApproved(j));
               if (upcoming.length === 0) return null;
               return (
-                <div style={{ ...S.card, background: "rgba(96,165,250,0.05)", border: "1px solid rgba(96,165,250,0.2)" }}>
+                <div style={{ ...S.card, background: "rgba(37,99,235,0.05)", border: "1px solid rgba(37,99,235,0.2)" }}>
                   <p style={{ ...S.sectionTitle, marginBottom: 10 }}>⏰ Pickup tomorrow</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {upcoming.map(job => {
                       const pending = earlyReqPending("early-pickup", job.id);
                       return (
-                        <div key={job.id} style={{ ...S.card, background: "#0f1117", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <div key={job.id} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}</p>
-                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>Pickup {formatDate(effPickupDate(job))} · {(job.assignedEquipment || []).length} item{(job.assignedEquipment || []).length > 1 ? "s" : ""}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>Pickup {formatDate(effPickupDate(job))} · {(job.assignedEquipment || []).length} item{(job.assignedEquipment || []).length > 1 ? "s" : ""}</p>
                           </div>
                           {pending ? (
                             <span style={{ ...S.badge("amber"), flexShrink: 0 }}>Waiting for approval</span>
@@ -4286,14 +4330,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Stats — clickable, expand one at a time */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               {[
-                { key: "today", label: t("tabToday"), value: availableJobs.length, color: "#e8b84b" },
-                { key: "confirmed", label: t("statusConfirmed"), value: confirmedJobs.length, color: "#34d399" },
-                { key: "pencil", label: t("statusPencil"), value: pencilJobs.length, color: "#e8b84b" },
+                { key: "today", label: t("tabToday"), value: availableJobs.length, color: "var(--accent,#2563EB)" },
+                { key: "confirmed", label: t("statusConfirmed"), value: confirmedJobs.length, color: "#2F855A" },
+                { key: "pencil", label: t("statusPencil"), value: pencilJobs.length, color: "var(--accent,#2563EB)" },
               ].map(stat => (
                 <div key={stat.key} onClick={() => setExpandedStat(expandedStat === stat.key ? null : stat.key)} style={{ ...S.card, textAlign: "center", padding: "12px 6px", cursor: "pointer", border: expandedStat === stat.key ? `1px solid ${stat.color}40` : undefined, transition: "border-color .15s" }}>
                   <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
-                  <p style={{ margin: "4px 0 0", fontSize: 9, color: "#666", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{stat.label}</p>
-                  <p style={{ margin: "3px 0 0", fontSize: 9, color: expandedStat === stat.key ? stat.color : "#444" }}>{expandedStat === stat.key ? "▲" : "▼"}</p>
+                  <p style={{ margin: "4px 0 0", fontSize: 9, color: "var(--text-muted,#5F7A91)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>{stat.label}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 9, color: expandedStat === stat.key ? stat.color : "var(--text-muted,#8CA2B5)" }}>{expandedStat === stat.key ? "▲" : "▼"}</p>
                 </div>
               ))}
             </div>
@@ -4301,7 +4345,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Expanded stat job list */}
             {expandedStat && (() => {
               const statJobs = statJobMap[expandedStat] || [];
-              if (statJobs.length === 0) return <p style={{ fontSize: 13, color: "#555", textAlign: "center" }}>No jobs.</p>;
+              if (statJobs.length === 0) return <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)", textAlign: "center" }}>No jobs.</p>;
               return statJobs.map(job => {
                 const { allPicked, allReturned } = getJobCheckoutState(job);
                 const isToday = expandedStat === "today";
@@ -4314,10 +4358,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           <span style={S.badge("gray")}>{job.shootTime}</span>
                         </div>
                         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{job.name}</h3>
-                        <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{job.production} · {job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</p>
-                        <p style={{ margin: "4px 0 0", fontSize: 12, color: "#8a8f9d" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
+                        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</p>
+                        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
                       </div>
-                      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
+                      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted,#5F7A91)" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
                     </div>
                   </div>
                 );
@@ -4336,7 +4380,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 </button>
               </div>
               {myRequests.length === 0 ? (
-                <p style={{ fontSize: 13, color: "#555" }}>{t("noGearRequests")}</p>
+                <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>{t("noGearRequests")}</p>
               ) : myRequests.slice().reverse().map((req, i) => {
                 const itemLabel = req.items
                   ? req.items.map(it => { const e = equipment.find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
@@ -4346,16 +4390,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 const reqState = reqJob ? getJobCheckoutState(reqJob) : null;
                 const needsPickup = reqJob && (reqJob.assignedEquipment || []).some(ae => equipment.some(e => e.id === ae.eqId) && !reqState.pickedIds.has(ae.eqId));
                 return (
-                  <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap", paddingBottom: i < myRequests.length - 1 ? 10 : 0, marginBottom: i < myRequests.length - 1 ? 10 : 0, borderBottom: i < myRequests.length - 1 ? "1px solid #252830" : "none" }}>
+                  <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap", paddingBottom: i < myRequests.length - 1 ? 10 : 0, marginBottom: i < myRequests.length - 1 ? 10 : 0, borderBottom: i < myRequests.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
                     <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{itemLabel}</p>
-                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>
+                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
                         {req.purpose === "work" ? `${t("reqWork")}${req.jobName}` : t("reqPractice")}
                         {(req.useDates?.length > 0) ? ` · ${req.useDates.map(formatDate).join(", ")}` : req.useDate ? ` · For: ${formatDate(req.useDate)}` : ""}
                         {" · "}{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                       </p>
-                      {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#8a8f9d" }}>{req.reason}</p>}
+                      {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{req.reason}</p>}
                     </div>
                     {needsPickup && (
                       <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12, flexShrink: 0 }} onClick={() => selectJob(reqJob)}>
@@ -4391,7 +4435,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                             <button style={{ ...S.btn("ghost"), padding: "4px 9px" }} onClick={() => setGearReqCalMonth(p => { const d = new Date(p.year, p.month + 1); return { year: d.getFullYear(), month: d.getMonth() }; })}>›</button>
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
-                            {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 9, color: "#666", fontWeight: 600, paddingBottom: 3 }}>{d}</div>)}
+                            {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => <div key={d} style={{ textAlign: "center", fontSize: 9, color: "var(--text-muted,#5F7A91)", fontWeight: 600, paddingBottom: 3 }}>{d}</div>)}
                             {cells.map((d, i) => {
                               if (!d) return <div key={"e"+i} />;
                               const ds = `${year}-${String(month+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
@@ -4400,17 +4444,17 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                               return (
                                 <div key={d} onClick={() => setGearReqForm(p => ({ ...p, useDates: p.useDates.includes(ds) ? p.useDates.filter(x => x !== ds) : [...p.useDates, ds].sort() }))}
                                   style={{ textAlign: "center", padding: "6px 0", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: sel ? 700 : 400,
-                                    background: sel ? "#e8b84b" : isToday ? "rgba(232,184,75,0.1)" : "transparent",
-                                    color: sel ? "#0f1117" : isToday ? "#e8b84b" : "#e8e4dc",
-                                    border: isToday && !sel ? "1px solid rgba(232,184,75,0.3)" : "1px solid transparent" }}>
+                                    background: sel ? "var(--accent,#2563EB)" : isToday ? "rgba(var(--accent-rgb,37,99,235),0.1)" : "transparent",
+                                    color: sel ? "var(--accent-text,#FFFFFF)" : isToday ? "var(--accent,#2563EB)" : "var(--text,#16324A)",
+                                    border: isToday && !sel ? "1px solid rgba(var(--accent-rgb,37,99,235),0.3)" : "1px solid transparent" }}>
                                   {d}
                                 </div>
                               );
                             })}
                           </div>
                           {gearReqForm.useDates.length > 0
-                            ? <p style={{ fontSize: 11, color: "#e8b84b", marginTop: 8 }}>{gearReqForm.useDates.length} date{gearReqForm.useDates.length > 1 ? "s" : ""} selected: {gearReqForm.useDates.map(formatDate).join(", ")}</p>
-                            : <p style={{ fontSize: 11, color: "#555", marginTop: 8 }}>{t("tapDatesHint")}</p>
+                            ? <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", marginTop: 8 }}>{gearReqForm.useDates.length} date{gearReqForm.useDates.length > 1 ? "s" : ""} selected: {gearReqForm.useDates.map(formatDate).join(", ")}</p>
+                            : <p style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)", marginTop: 8 }}>{t("tapDatesHint")}</p>
                           }
                         </div>
                       );
@@ -4444,35 +4488,35 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                                 }}
                                 style={{
                                   display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 10,
-                                  border: isSelected ? "1.5px solid #e8b84b" : maxAvail === 0 ? "1.5px solid #252830" : "1.5px solid #2e3340",
-                                  background: isSelected ? "rgba(232,184,75,0.07)" : maxAvail === 0 ? "rgba(0,0,0,0.2)" : "#0f1117",
+                                  border: isSelected ? "1.5px solid var(--accent,#2563EB)" : maxAvail === 0 ? "1.5px solid var(--divider-color,#D8E1EC)" : "1.5px solid var(--border-color,#D8E1EC)",
+                                  background: isSelected ? "rgba(var(--accent-rgb,37,99,235),0.07)" : maxAvail === 0 ? "rgba(22,50,74,0.07)" : "var(--surface2,#EAF0F7)",
                                   cursor: maxAvail === 0 && !isSelected ? "not-allowed" : "pointer",
                                   opacity: maxAvail === 0 && !isSelected ? 0.45 : 1,
                                   transition: "all 0.12s",
                                 }}>
                                 <div style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                                  background: isSelected ? "#e8b84b" : "#1a1e27", border: isSelected ? "none" : "1.5px solid #3a4050" }}>
-                                  {isSelected && <Icon d={icons.check} size={13} color="#0f1117" strokeW={3} />}
+                                  background: isSelected ? "var(--accent,#2563EB)" : "var(--surface,#FFFFFF)", border: isSelected ? "none" : "1.5px solid var(--border-color,#D8E1EC)" }}>
+                                  {isSelected && <Icon d={icons.check} size={13} color="var(--accent-text,#FFFFFF)" strokeW={3} />}
                                 </div>
                                 {eq.photo
                                   ? <img src={eq.photo} alt="" style={{ width: 40, height: 36, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
-                                  : <div style={{ width: 40, height: 36, borderRadius: 6, background: "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                                      <Icon d={icons.camera} size={14} color="#444" />
+                                  : <div style={{ width: 40, height: 36, borderRadius: 6, background: "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                      <Icon d={icons.camera} size={14} color="var(--text-muted,#8CA2B5)" />
                                     </div>
                                 }
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                  <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: isSelected ? "#e8b84b" : "#e8e4dc", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eq.name}</p>
-                                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>
+                                  <p style={{ margin: 0, fontWeight: 600, fontSize: 13, color: isSelected ? "var(--accent,#2563EB)" : "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eq.name}</p>
+                                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
                                     {eq.category}
                                     {isMulti ? ` · ${maxAvail} of ${eq.total} free` : maxAvail === 0 ? ` · ${t("jobUnavailable")}` : ` · ${t("jobAvailable")}`}
                                   </p>
                                 </div>
                                 {isMulti && isSelected && (
                                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                                    <button style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #3a4050", background: "#1a1e27", color: "#e8e4dc", fontSize: 16, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                                    <button style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", fontSize: 16, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
                                       onClick={() => setGearReqForm(p => ({ ...p, selectedGear: { ...p.selectedGear, [eq.id]: Math.max(1, (p.selectedGear[eq.id] || 1) - 1) } }))}>−</button>
-                                    <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14, color: "#e8b84b" }}>{currentQty}</span>
-                                    <button style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #3a4050", background: "#1a1e27", color: "#e8e4dc", fontSize: 16, lineHeight: 1, cursor: currentQty >= maxAvail ? "not-allowed" : "pointer", opacity: currentQty >= maxAvail ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}
+                                    <span style={{ minWidth: 20, textAlign: "center", fontWeight: 700, fontSize: 14, color: "var(--accent,#2563EB)" }}>{currentQty}</span>
+                                    <button style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", fontSize: 16, lineHeight: 1, cursor: currentQty >= maxAvail ? "not-allowed" : "pointer", opacity: currentQty >= maxAvail ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center" }}
                                       onClick={() => setGearReqForm(p => ({ ...p, selectedGear: { ...p.selectedGear, [eq.id]: Math.min(maxAvail, (p.selectedGear[eq.id] || 1) + 1) } }))}>+</button>
                                   </div>
                                 )}
@@ -4509,8 +4553,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   </div>
 
                   {Object.values(gearReqForm.selectedGear).some(q => q > 0) && (
-                    <div style={{ padding: "10px 14px", background: "rgba(232,184,75,0.06)", border: "1px solid rgba(232,184,75,0.15)", borderRadius: 8 }}>
-                      <p style={{ margin: 0, fontSize: 11, color: "#e8b84b", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Selected</p>
+                    <div style={{ padding: "10px 14px", background: "rgba(var(--accent-rgb,37,99,235),0.06)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.15)", borderRadius: 8 }}>
+                      <p style={{ margin: 0, fontSize: 11, color: "var(--accent,#2563EB)", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Selected</p>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                         {Object.entries(gearReqForm.selectedGear).filter(([, q]) => q > 0).map(([eqId, qty]) => {
                           const eq = equipment.find(e => e.id === eqId);
@@ -4570,31 +4614,6 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </Modal>
             )}
 
-            {/* Production House Request Modal */}
-            {showAdminReqModal === "production-house" && (
-              <Modal title="Request New Production House" onClose={() => setShowAdminReqModal(null)}>
-                <div style={S.col}>
-                  <div>
-                    <label style={S.label}>Production House Name</label>
-                    <input style={S.input} value={adminReqForm.name || ""} onChange={e => setAdminReqForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Thai Film Co." autoFocus />
-                  </div>
-                  <div>
-                    <label style={S.label}>Billing Address</label>
-                    <textarea style={{ ...S.input, height: 80, resize: "vertical" }} value={adminReqForm.address || ""} onChange={e => setAdminReqForm(p => ({ ...p, address: e.target.value }))} placeholder="Full billing address…" />
-                  </div>
-                  {adminReqMsg && <p style={{ fontSize: 12, color: adminReqMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{adminReqMsg.text}</p>}
-                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                    <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>Cancel</button>
-                    <button style={S.btn("primary")} onClick={() => {
-                      if (!adminReqForm.name?.trim()) { setAdminReqMsg({ ok: false, text: "Name is required." }); return; }
-                      setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type: "production-house", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, name: adminReqForm.name.trim(), address: adminReqForm.address || "" }]);
-                      setShowAdminReqModal(null);
-                    }}>Submit Request</button>
-                  </div>
-                </div>
-              </Modal>
-            )}
-
             {/* Equipment Add Request Modal */}
             {showAdminReqModal === "equipment" && (
               <Modal title="Request New Equipment" onClose={() => setShowAdminReqModal(null)}>
@@ -4625,7 +4644,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                     <button style={S.btn("ghost")} onClick={() => adminReqPhotoRef.current?.click()}><Icon d={icons.photo} size={14} /> {adminReqForm.photo ? "Change Photo" : "Upload Photo"}</button>
                     {adminReqForm.photo && <img src={adminReqForm.photo} alt="preview" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 6, marginTop: 8 }} />}
                   </div>
-                  {adminReqMsg && <p style={{ fontSize: 12, color: adminReqMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{adminReqMsg.text}</p>}
+                  {adminReqMsg && <p style={{ fontSize: 12, color: adminReqMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{adminReqMsg.text}</p>}
                   <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                     <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>Cancel</button>
                     <button style={S.btn("primary")} onClick={() => {
@@ -4677,10 +4696,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(145px, 1fr))", gap: 10 }}>
               {items.map(eq => (
                 <div key={eq.id} style={{ ...S.card, padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                  <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", overflow: "hidden", background: "#0f1117", flexShrink: 0 }}>
+                  <div style={{ position: "relative", width: "100%", aspectRatio: "1 / 1", overflow: "hidden", background: "var(--surface2,#EAF0F7)", flexShrink: 0 }}>
                     {eq.photo
                       ? <img src={eq.photo} alt={eq.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                      : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon d={icons.camera} size={32} color="#252830" /></div>
+                      : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><Icon d={icons.camera} size={32} color="var(--divider-color,#D8E1EC)" /></div>
                     }
                     <div style={{ position: "absolute", top: 5, left: 5 }}>
                       {eq.available === 0
@@ -4693,8 +4712,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   </div>
                   <div style={{ padding: "8px 10px 8px", flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
                     {eq.category && <span style={S.tag}>{eq.category}</span>}
-                    <p style={{ margin: 0, fontWeight: 700, fontSize: 12, lineHeight: 1.3, color: "#e8e4dc" }}>{eq.name}</p>
-                    {eq.notes && <p style={{ margin: 0, fontSize: 10, color: "#555", lineHeight: 1.3 }}>{eq.notes}</p>}
+                    <p style={{ margin: 0, fontWeight: 700, fontSize: 12, lineHeight: 1.3, color: "var(--text,#16324A)" }}>{eq.name}</p>
+                    {eq.notes && <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#7B8FA3)", lineHeight: 1.3 }}>{eq.notes}</p>}
                     <div style={{ marginTop: "auto", paddingTop: 6, display: "flex", justifyContent: "flex-end" }}>
                       <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} title="View QR" onClick={() => printQRForItems([eq], false)}>
                         <Icon d={icons.qr || icons.camera} size={12} /> QR
@@ -4752,16 +4771,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   </button>
                 </div>
                 {myReports.length === 0 ? (
-                  <p style={{ fontSize: 13, color: "#555" }}>{t("reportNone")}</p>
+                  <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>{t("reportNone")}</p>
                 ) : myReports.map(r => (
-                  <div key={r.id} style={{ ...S.card, border: r.status === "open" ? "1px solid rgba(239,68,68,0.25)" : "1px solid #252830", marginBottom: 8 }}>
+                  <div key={r.id} style={{ ...S.card, border: r.status === "open" ? "1px solid rgba(197,48,48,0.25)" : "1px solid var(--divider-color,#D8E1EC)", marginBottom: 8 }}>
                     <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                       {{ open: <span style={S.badge("red")}>{t("reportStatusOpen")}</span>, solved: <span style={S.badge("green")}>{t("reportStatusSolved")}</span>, discarded: <span style={S.badge("gray")}>{t("reportStatusDiscarded")}</span> }[r.status]}
                       {r.eqName && <span style={S.tag}>{r.eqName}</span>}
-                      {r.reportedBy?.name && <span style={{ fontSize: 11, color: "#888" }}>by {r.reportedBy.name}</span>}
+                      {r.reportedBy?.name && <span style={{ fontSize: 11, color: "var(--text-muted,#6E8398)" }}>by {r.reportedBy.name}</span>}
                     </div>
                     <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{r.description}</p>
-                    <p style={{ margin: "4px 0 0", fontSize: 11, color: "#666" }}>{formatDateTime(r.ts)}</p>
+                    <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{formatDateTime(r.ts)}</p>
                     {r.photos?.length > 0 && (
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
                         {r.photos.map((ph, i) => <img key={i} src={ph} alt="" style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 6 }} />)}
@@ -4777,7 +4796,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   <p style={{ ...S.sectionTitle, margin: 0, cursor: "pointer" }}>
                     Equipment Requests {myAdminReqs.length > 0 && <span style={S.badge("amber")}>{myAdminReqs.length}</span>}
                   </p>
-                  <span style={{ color: "#666", fontSize: 16, cursor: "pointer" }}>{eqReqCollapsed ? "▸" : "▾"}</span>
+                  <span style={{ color: "var(--text-muted,#5F7A91)", fontSize: 16, cursor: "pointer" }}>{eqReqCollapsed ? "▸" : "▾"}</span>
                 </div>
                 {!eqReqCollapsed && (
                   <div style={{ marginTop: 12 }}>
@@ -4785,13 +4804,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       <button style={{ ...S.btn("ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("equipment"); setAdminReqForm({ name: "", category: "", total: "1", notes: "", photo: null }); setAdminReqMsg(null); }}>+ Equipment</button>
                     </div>
                     {myAdminReqs.length === 0 ? (
-                      <p style={{ fontSize: 13, color: "#555" }}>No requests yet.</p>
+                      <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)" }}>No requests yet.</p>
                     ) : myAdminReqs.slice().reverse().map((req, i, arr) => (
-                      <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
+                      <div key={req.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 10 : 0, marginBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
                         <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{req.name}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.type === "production-house" ? "Production House" : "Equipment"}{req.status === "approved" ? " — Added to system" : ""}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{req.type === "production-house" ? "Production House" : "Equipment"}{req.status === "approved" ? " — Added to system" : ""}</p>
                         </div>
                       </div>
                     ))}
@@ -4802,7 +4821,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               {/* Add New Equipment — goes to admin approval */}
               <div style={S.card}>
                 <p style={{ ...S.sectionTitle, margin: "0 0 8px" }}>Add New Equipment</p>
-                <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 12px" }}>Submitted for admin approval before it appears in the library.</p>
+                <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 12px" }}>Submitted for admin approval before it appears in the library.</p>
                 <button style={S.btn("primary")} onClick={() => { setShowAdminReqModal("equipment"); setAdminReqForm({ name: "", category: "", total: "1", notes: "", photo: null }); setAdminReqMsg(null); }}>
                   <Icon d={icons.plus} size={14} /> Submit Equipment
                 </button>
@@ -4823,16 +4842,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             <div style={{ ...S.card, display: "flex", flexDirection: "column", alignItems: "center", gap: 16, padding: 28 }}>
               <div style={{ position: "relative" }}>
                 {profilePhoto
-                  ? <img src={profilePhoto} alt="profile" style={{ width: 100, height: 100, borderRadius: "50%", objectFit: "cover", border: "3px solid #e8b84b" }} />
-                  : <div style={{ width: 100, height: 100, borderRadius: "50%", background: "#252830", display: "flex", alignItems: "center", justifyContent: "center", border: "3px solid #2e3340" }}>
-                      <Icon d={icons.user} size={40} color="#444" />
+                  ? <img src={profilePhoto} alt="profile" style={{ width: 100, height: 100, borderRadius: "50%", objectFit: "cover", border: "3px solid var(--accent,#2563EB)" }} />
+                  : <div style={{ width: 100, height: 100, borderRadius: "50%", background: "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", border: "3px solid var(--border-color,#D8E1EC)" }}>
+                      <Icon d={icons.user} size={40} color="var(--text-muted,#8CA2B5)" />
                     </div>
                 }
               </div>
               <div style={{ textAlign: "center" }}>
-                <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#e8e4dc" }}>{profileInfo.nickname || employee.name}</p>
-                {profileInfo.firstName && <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d" }}>{profileInfo.firstName} {profileInfo.lastName}</p>}
-                <p style={{ margin: "4px 0 0", fontSize: 12, color: "#666" }}>{t("cameraCrew")}</p>
+                <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "var(--text,#16324A)" }}>{profileInfo.nickname || employee.name}</p>
+                {profileInfo.firstName && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>{profileInfo.firstName} {profileInfo.lastName}</p>}
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("cameraCrew")}</p>
               </div>
               <input ref={profileFileRef} type="file" accept="image/*" capture="user" style={{ display: "none" }} onChange={handleProfileUpload} />
               <div style={{ display: "flex", gap: 10 }}>
@@ -4860,23 +4879,23 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   <p style={S.sectionTitle}>{t("kpiMyScore")}</p>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
                     <StarRating value={stars} size={26} />
-                    <span style={{ fontSize: 24, fontWeight: 800, color: "#e8b84b" }}>{stars.toFixed(1)}</span>
-                    <span style={{ fontSize: 13, color: "#8a8f9d" }}>{score}/{max} {t("kpiPts")}</span>
+                    <span style={{ fontSize: 24, fontWeight: 800, color: "var(--accent,#2563EB)" }}>{stars.toFixed(1)}</span>
+                    <span style={{ fontSize: 13, color: "var(--text-muted,#4E6B84)" }}>{score}/{max} {t("kpiPts")}</span>
                   </div>
-                  <p style={{ fontSize: 11, color: "#666", margin: "0 0 4px" }}>
+                  <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 4px" }}>
                     {t("teamKpiPeriodLabel")} {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                   </p>
                   {myEvents.length === 0 ? (
-                    <p style={{ fontSize: 13, color: "#34d399", margin: "8px 0 0" }}>{t("kpiFullScore")}</p>
+                    <p style={{ fontSize: 13, color: "#2F855A", margin: "8px 0 0" }}>{t("kpiFullScore")}</p>
                   ) : (
-                    <div style={{ marginTop: 12, borderTop: "1px solid #252830", paddingTop: 10 }}>
+                    <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 10 }}>
                       <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("kpiDeductions")}</p>
                       {myEvents.map(ev => (
                         <div key={ev.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
                           <span style={{ ...S.badge("red"), flexShrink: 0 }}>−{ev.points}</span>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <p style={{ margin: 0, fontSize: 13, color: "#e8e4dc" }}>{ev.reason}</p>
-                            <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>{new Date(ev.ts).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                            <p style={{ margin: 0, fontSize: 13, color: "var(--text,#16324A)" }}>{ev.reason}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>{new Date(ev.ts).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
                           </div>
                         </div>
                       ))}
@@ -4901,7 +4920,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   </div>
                 </div>
                 <div>
-                  <label style={S.label}>{t("nickname")} <span style={{ color: "#666", fontWeight: 400 }}>{t("shownInPortal")}</span></label>
+                  <label style={S.label}>{t("nickname")} <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400 }}>{t("shownInPortal")}</span></label>
                   <input style={S.input} placeholder={t("nickname")} value={profileInfo.nickname} onChange={e => setProfileInfo(p => ({ ...p, nickname: e.target.value }))} />
                 </div>
                 {[
@@ -4933,13 +4952,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12 }} onClick={addPosition}><Icon d={icons.plus} size={12} /> {t("addRoleBtn")}</button>
                 )}
               </div>
-              <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 14px", lineHeight: 1.6 }}>{t("positionsDesc")}</p>
-              {positions.length === 0 && <p style={{ fontSize: 13, color: "#666", margin: 0 }}>{t("positionsEmpty")}</p>}
+              <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 14px", lineHeight: 1.6 }}>{t("positionsDesc")}</p>
+              {positions.length === 0 && <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("positionsEmpty")}</p>}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 {positions.map((pos, i) => {
                   const rph = (parseFloat(pos.dayRate) || 0) / (parseFloat(pos.hoursPerDay) || 12);
                   return (
-                    <div key={pos.id} style={{ border: "1px solid #2e3340", borderRadius: 10, padding: 14, background: "rgba(255,255,255,0.02)" }}>
+                    <div key={pos.id} style={{ border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 10, padding: 14, background: "rgba(22,50,74,0.04)" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                         <span style={S.badge("amber")}>{t("roleLabel")} {i + 1}</span>
                         <div style={{ flex: 1 }} />
@@ -4961,7 +4980,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           </div>
                         </div>
                         {parseFloat(pos.dayRate) > 0 && parseFloat(pos.hoursPerDay) > 0 && (
-                          <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>{t("hourlyRate")}: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}{t("perHr")}</p>
+                          <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("hourlyRate")}: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}{t("perHr")}</p>
                         )}
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                           <label style={{ ...S.label, margin: 0 }}>{t("otLabel").replace("{h}", parseFloat(pos.hoursPerDay) || 12)}</label>
@@ -4986,19 +5005,19 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                               return (
                                 <div key={ti} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 32px", gap: 6, alignItems: "center", marginBottom: 6 }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                    <span style={{ fontSize: 11, color: "#666", whiteSpace: "nowrap" }}>{from}h–</span>
+                                    <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", whiteSpace: "nowrap" }}>{from}h–</span>
                                     <input style={{ ...S.input, padding: "7px 8px" }} type="number" min="0" inputMode="decimal" value={tr.untilHour} placeholder="14" onChange={e => updateTier(pos.id, ti, { untilHour: e.target.value })} />
-                                    <span style={{ fontSize: 11, color: "#666" }}>h</span>
+                                    <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>h</span>
                                   </div>
                                   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                     <input style={{ ...S.input, padding: "7px 8px" }} type="number" min="1" step="0.25" inputMode="decimal" value={tr.mult} placeholder="1.5" onChange={e => updateTier(pos.id, ti, { mult: e.target.value })} />
-                                    <span style={{ fontSize: 11, color: "#666" }}>×</span>
+                                    <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>×</span>
                                   </div>
                                   <button style={{ ...S.btn("danger"), padding: "5px 6px", minWidth: 0 }} onClick={() => removeTier(pos.id, ti)}><Icon d={icons.x} size={12} /></button>
                                 </div>
                               );
                             })}
-                            <p style={{ fontSize: 10, color: "#555", margin: "2px 0 0" }}>{t("otTiersNote")}</p>
+                            <p style={{ fontSize: 10, color: "var(--text-muted,#7B8FA3)", margin: "2px 0 0" }}>{t("otTiersNote")}</p>
                           </div>
                         )}
                       </div>
@@ -5016,7 +5035,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 <div>
                   <label style={S.label}>{t("idCard")}</label>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    {idCard && <img src={idCard} alt="ID" style={{ width: 100, height: 66, objectFit: "cover", borderRadius: 6, border: "1px solid #2e3340" }} />}
+                    {idCard && <img src={idCard} alt="ID" style={{ width: 100, height: 66, objectFit: "cover", borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)" }} />}
                     <input ref={idCardRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDocUpload(setIdCard, { maxDim: 1400, quality: 0.72 })} />
                     <button style={S.btn("ghost")} onClick={() => idCardRef.current.click()}>
                       <Icon d={icons.photo} size={14} /> {idCard ? t("replacePhoto") : t("uploadPhoto")}
@@ -5028,7 +5047,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 <div>
                   <label style={S.label}>{t("promptPayQR")}</label>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    {promptPayQR && <img src={promptPayQR} alt="QR" style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff" }} />}
+                    {promptPayQR && <img src={promptPayQR} alt="QR" style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "#fff" }} />}
                     <input ref={promptPayRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleDocUpload(setPromptPayQR, { maxDim: 1000, quality: 0.85 })} />
                     <button style={S.btn("ghost")} onClick={() => promptPayRef.current.click()}>
                       <Icon d={icons.photo} size={14} /> {promptPayQR ? t("replacePhoto") : t("uploadPhoto")}
@@ -5047,7 +5066,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 </div>
                 <div>
                   <label style={S.label}>Invoice Prefix</label>
-                  <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 6px" }}>Used in invoice number: INV-<strong>XXXX</strong>-YY-####. Max 6 chars.</p>
+                  <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 6px" }}>Used in invoice number: INV-<strong>XXXX</strong>-YY-####. Max 6 chars.</p>
                   <input style={{ ...S.input, textTransform: "uppercase" }} placeholder="e.g. KC" maxLength={6}
                     value={profileInfo.invoicePrefix}
                     onChange={e => setProfileInfo(p => ({ ...p, invoicePrefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))} />
@@ -5055,9 +5074,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 {/* Signature */}
                 <div>
                   <label style={S.label}>{t("signatureSection")}</label>
-                  <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 8px" }}>{t("signatureHint")}</p>
+                  <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 8px" }}>{t("signatureHint")}</p>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    {signature && <img src={signature} alt="Signature" style={{ height: 50, maxWidth: 160, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />}
+                    {signature && <img src={signature} alt="Signature" style={{ height: 50, maxWidth: 160, objectFit: "contain", borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "#fff", padding: 4 }} />}
                     <input ref={signatureRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
                       const f = e.target.files[0]; if (!f) return;
                       const r = new FileReader();
@@ -5085,7 +5104,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   <label style={S.label}>{t("confirmPinLabel")}</label>
                   <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={pinChangeForm.confirmPin} onChange={e => setPinChangeForm(p => ({ ...p, confirmPin: e.target.value.replace(/\D/g, "") }))} placeholder="Re-enter PIN" />
                 </div>
-                {pinChangeMsg && <p style={{ fontSize: 12, color: pinChangeMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{pinChangeMsg.text}</p>}
+                {pinChangeMsg && <p style={{ fontSize: 12, color: pinChangeMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{pinChangeMsg.text}</p>}
                 <button style={{ ...S.btn("primary"), alignSelf: "flex-end" }} onClick={() => {
                   const { newPin, confirmPin } = pinChangeForm;
                   if (!/^\d{4,6}$/.test(newPin)) { setPinChangeMsg({ ok: false, text: "PIN must be 4–6 digits." }); return; }
@@ -5102,16 +5121,16 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             <div style={S.card}>
               <p style={S.sectionTitle}>📅 {t("calendarSync")}</p>
               <div style={S.col}>
-                <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.7 }}>
-                  Subscribe to the production schedule in your iPhone Calendar. Pencil jobs appear <strong style={{ color: "var(--text,#e8e4dc)" }}>tentative (striped)</strong>, Confirmed are <strong style={{ color: "#34d399" }}>solid</strong>. Updates hourly.
+                <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.7 }}>
+                  Subscribe to the production schedule in your iPhone Calendar. Pencil jobs appear <strong style={{ color: "var(--text,#16324A)" }}>tentative (striped)</strong>, Confirmed are <strong style={{ color: "#2F855A" }}>solid</strong>. Updates hourly.
                 </p>
-                <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.8 }}>
-                  <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>iPhone setup:</strong>
+                <div style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", lineHeight: 1.8 }}>
+                  <strong style={{ color: "var(--text,#16324A)", display: "block", marginBottom: 6 }}>iPhone setup:</strong>
                   1. <strong>Settings → Calendar → Accounts → Add Account → Other</strong><br />
                   2. Tap <strong>Add Subscribed Calendar</strong><br />
                   3. Paste the URL below → <strong>Next → Save</strong>
                 </div>
-                <code style={{ background: "rgba(232,184,75,0.1)", color: "var(--accent,#e8b84b)", padding: "6px 10px", borderRadius: 6, fontSize: 11, wordBreak: "break-all" }}>
+                <code style={{ background: "rgba(var(--accent-rgb,37,99,235),0.1)", color: "var(--accent,#2563EB)", padding: "6px 10px", borderRadius: 6, fontSize: 11, wordBreak: "break-all" }}>
                   https://pickshootreturn.pages.dev/api/calendar
                 </code>
                 <button style={{ ...S.btn("ghost"), alignSelf: "flex-start", fontSize: 12 }} onClick={() => navigator.clipboard?.writeText("https://pickshootreturn.pages.dev/api/calendar")}>
@@ -5123,7 +5142,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Save Profile */}
             <div style={{ position: "sticky", bottom: 16, zIndex: 10 }}>
               <button
-                style={{ ...S.btn(profileSaveStatus === "saved" ? "success" : profileSaveStatus === "error" ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, opacity: profileSaveStatus === "saving" ? 0.75 : 1, boxShadow: "0 4px 24px rgba(0,0,0,0.5)" }}
+                style={{ ...S.btn(profileSaveStatus === "saved" ? "success" : profileSaveStatus === "error" ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, opacity: profileSaveStatus === "saving" ? 0.75 : 1, boxShadow: "0 4px 24px rgba(22,50,74,0.17)" }}
                 disabled={profileSaveStatus === "saving"}
                 onClick={saveProfile}
               >
@@ -5136,7 +5155,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <p style={S.sectionTitle}>{t("recentActivity")}</p>
               {(() => {
                 const mine = checkouts.filter(c => c.employeeId === employee.id);
-                if (mine.length === 0) return <p style={{ fontSize: 13, color: "#666" }}>{t("noActivity")}</p>;
+                if (mine.length === 0) return <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("noActivity")}</p>;
                 const groups = {};
                 mine.forEach(c => {
                   const kind = (isPickEvt(c.type)) ? "pick" : "return";
@@ -5149,17 +5168,17 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 return list.map((g, i, arr) => {
                   const open = !!expandedActivity[g.key];
                   return (
-                    <div key={g.key} style={{ paddingBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none", marginBottom: i < arr.length - 1 ? 10 : 0 }}>
+                    <div key={g.key} style={{ paddingBottom: i < arr.length - 1 ? 10 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", marginBottom: i < arr.length - 1 ? 10 : 0 }}>
                       <div onClick={() => setExpandedActivity(p => ({ ...p, [g.key]: !p[g.key] }))} style={{ display: "flex", gap: 10, alignItems: "center", cursor: "pointer" }}>
                         <span style={{ ...S.badge(g.kind === "pick" ? "amber" : "green"), flexShrink: 0 }}>{g.kind === "pick" ? t("pickEvt") : t("returnEvt")}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{g.jobName}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{g.items.length} {g.items.length === 1 ? "item" : "items"} · {formatDateTime(g.latest)}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{g.items.length} {g.items.length === 1 ? "item" : "items"} · {formatDateTime(g.latest)}</p>
                         </div>
-                        <span style={{ color: "#666", fontSize: 14, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</span>
+                        <span style={{ color: "var(--text-muted,#5F7A91)", fontSize: 14, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</span>
                       </div>
                       {open && (
-                        <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid #252830", display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div style={{ marginTop: 8, paddingLeft: 10, borderLeft: "2px solid var(--divider-color,#D8E1EC)", display: "flex", flexDirection: "column", gap: 6 }}>
                           {g.items.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).map((c, j) => {
                             const eq = equipment.find(e => e.id === c.eqId);
                             return (
@@ -5167,7 +5186,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                                 {eq?.photo && <img src={eq.photo} alt="" style={{ width: 28, height: 24, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} />}
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                   <p style={{ margin: 0, fontSize: 12, fontWeight: 600 }}>{eq?.name || c.eqName || "Unknown"}</p>
-                                  <p style={{ margin: 0, fontSize: 10, color: "#555" }}>{formatDateTime(c.ts)}</p>
+                                  <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>{formatDateTime(c.ts)}</p>
                                 </div>
                               </div>
                             );
@@ -5246,15 +5265,15 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       </div>
                     )}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      <div style={{ background: "rgba(232,184,75,0.06)", borderRadius: 8, padding: "10px 14px" }}>
-                        <p style={{ margin: 0, fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#666" }}>Total Invoiced</p>
-                        <p style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{revTotal.toLocaleString()}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 10, color: "#666" }}>{revInvs.length} invoice{revInvs.length !== 1 ? "s" : ""}</p>
+                      <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.06)", borderRadius: 8, padding: "10px 14px" }}>
+                        <p style={{ margin: 0, fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)" }}>Total Invoiced</p>
+                        <p style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 800, color: "var(--accent,#2563EB)" }}>฿{revTotal.toLocaleString()}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>{revInvs.length} invoice{revInvs.length !== 1 ? "s" : ""}</p>
                       </div>
-                      <div style={{ background: "rgba(52,211,153,0.06)", borderRadius: 8, padding: "10px 14px" }}>
-                        <p style={{ margin: 0, fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#666" }}>Paid</p>
-                        <p style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 800, color: "#34d399" }}>฿{revPaid.toLocaleString()}</p>
-                        <p style={{ margin: "2px 0 0", fontSize: 10, color: "#666" }}>฿{(revTotal - revPaid).toLocaleString()} pending</p>
+                      <div style={{ background: "rgba(47,133,90,0.06)", borderRadius: 8, padding: "10px 14px" }}>
+                        <p style={{ margin: 0, fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)" }}>Paid</p>
+                        <p style={{ margin: "4px 0 0", fontSize: 20, fontWeight: 800, color: "#2F855A" }}>฿{revPaid.toLocaleString()}</p>
+                        <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>฿{(revTotal - revPaid).toLocaleString()} pending</p>
                       </div>
                     </div>
                   </div>
@@ -5278,23 +5297,38 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 ))}
               </div>
 
-              {/* Production House request */}
+              {/* Production Houses — crew add/edit directly (billing address flows into the invoice "Bill to") */}
               <div style={S.card}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <p style={{ ...S.sectionTitle, margin: 0 }}>Production Houses</p>
-                  <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("production-house"); setAdminReqForm({ name: "", address: "" }); setAdminReqMsg(null); }}>+ Request</button>
+                  <p style={{ ...S.sectionTitle, margin: 0 }}>{t("prodHousesTitle")}</p>
+                  <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12 }} onClick={() => { setShowAdminReqModal("production-house"); setAdminReqForm({ name: "", address: "" }); setAdminReqMsg(null); }}>{t("addProdHouse")}</button>
                 </div>
                 {(() => {
-                  const myProdReqs = (adminRequests || []).filter(r => r.employeeId === employee.id && r.type === "production-house").slice().reverse();
-                  if (myProdReqs.length === 0) return <p style={{ fontSize: 12, color: "#555", marginTop: 8 }}>No requests yet. Add a production company to use in invoices.</p>;
+                  const companies = [...(productionCompanies || [])].filter(c => (c.name || "").trim()).sort((a, b) => (a.name || "").localeCompare(b.name || "", ["th", "en"], { sensitivity: "base" }));
+                  // Requests submitted before crew could add directly — still waiting on an admin
+                  const legacyPending = (adminRequests || []).filter(r => r.employeeId === employee.id && r.type === "production-house" && r.status === "pending");
+                  if (companies.length === 0 && legacyPending.length === 0) return <p style={{ fontSize: 12, color: "var(--text-muted,#7B8FA3)", marginTop: 8 }}>{t("prodHouseEmpty")}</p>;
                   return (
-                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
-                      {myProdReqs.map(req => (
-                        <div key={req.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={S.badge(req.status === "approved" ? "green" : req.status === "rejected" ? "red" : "amber")}>{req.status}</span>
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column" }}>
+                      {companies.map((co, i) => (
+                        <div key={co.id} onClick={() => { setShowAdminReqModal("production-house"); setAdminReqForm({ id: co.id, name: co.name || "", address: co.address || "" }); setAdminReqMsg(null); }}
+                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: (i < companies.length - 1 || legacyPending.length > 0) ? "1px solid var(--divider-color,#D8E1EC)" : "none", cursor: "pointer" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{co.name}</p>
+                            {(co.address || "").trim()
+                              ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)", whiteSpace: "pre-wrap" }}>{co.address}</p>
+                              : <p style={{ margin: "2px 0 0", fontSize: 11, color: "#B7791F", fontStyle: "italic" }}>{t("noBillingAddress")}</p>}
+                          </div>
+                          <span style={{ color: "var(--text-muted,#5F7A91)", fontSize: 14 }}>✎</span>
+                        </div>
+                      ))}
+                      {legacyPending.map(req => (
+                        <div key={req.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
+                          <span style={S.badge("amber")}>{req.status}</span>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{req.name}</p>
                         </div>
                       ))}
+                      <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>{t("prodHouseHint")}</p>
                     </div>
                   );
                 })()}
@@ -5304,14 +5338,14 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <div style={S.card}>
                 <p style={S.sectionTitle}>{t("confirmJobs")}</p>
                 {confirmedJobs.length === 0
-                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#666)" }}>No confirmed jobs.</p>
+                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>No confirmed jobs.</p>
                   : confirmedJobs.map(job => {
                     const hasInvoice = myInvoices.some(inv => inv.jobId === job.id);
                     return (
-                      <div key={job.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--divider-color,#1e2030)" }}>
+                      <div key={job.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
                         <div style={{ flex: 1 }}>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{job.name}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{job.production} · {(job.dates || []).slice(0, 2).map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ")}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {(job.dates || []).slice(0, 2).map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ")}</p>
                         </div>
                         {hasInvoice
                           ? <span style={S.badge("green")}>✓ Invoiced</span>
@@ -5328,7 +5362,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               {/* My saved invoices */}
               {myInvoices.length === 0 ? (
                 <div style={{ ...S.card, textAlign: "center", padding: 32 }}>
-                  <p style={{ color: "var(--text-muted,#666)", fontSize: 13 }}>{invFilter === "all" ? "No invoices yet." : `No ${invFilter} invoices.`}</p>
+                  <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{invFilter === "all" ? "No invoices yet." : `No ${invFilter} invoices.`}</p>
                 </div>
               ) : (
                 <div style={S.col}>
@@ -5343,28 +5377,28 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       { description: "Per Diem", qty: 1, rate: inv.perDiem },
                     ].filter(it => parseFloat(it.rate) > 0);
                     return (
-                      <div key={inv.id} style={{ ...S.card, border: isPaid ? "1px solid rgba(52,211,153,0.25)" : "var(--card-border,1px solid #252830)" }}>
+                      <div key={inv.id} style={{ ...S.card, border: isPaid ? "1px solid rgba(47,133,90,0.25)" : "var(--card-border,1px solid #D8E1EC)" }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }} onClick={() => setExpandedInv(isExpanded ? null : inv.id)}>
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
                               <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 10 }}>{inv.status || "Pending"}</span>
-                              <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</p>
+                              <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#5F7A91)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</p>
                             </div>
                             <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{inv.jobName}</p>
-                            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{inv.position || "—"}</p>
+                            <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{inv.position || "—"}</p>
                           </div>
                           <div style={{ textAlign: "right", flexShrink: 0 }}>
-                            <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</p>
-                            <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--text-muted,#666)" }}>{new Date(inv.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                            <p style={{ margin: 0, fontWeight: 800, fontSize: 16, color: "var(--accent,#2563EB)" }}>฿{total.toLocaleString()}</p>
+                            <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>{new Date(inv.updatedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
                           </div>
                           <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s", opacity: 0.4, marginLeft: 8 }}><path d="M9 18l6-6-6-6" /></svg>
                         </div>
                         {isExpanded && (
-                          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--divider-color,#252830)" }}>
+                          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--divider-color,#D8E1EC)" }}>
                             {/* Line items */}
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 80px 80px", gap: "4px 8px", marginBottom: 10 }}>
                               {["Description", "Qty", "Rate", "Total"].map((h, i) => (
-                                <div key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#666)", textAlign: i > 0 ? "right" : "left", paddingBottom: 4, borderBottom: "1px solid var(--divider-color,#252830)" }}>{h}</div>
+                                <div key={h} style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "var(--text-muted,#5F7A91)", textAlign: i > 0 ? "right" : "left", paddingBottom: 4, borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>{h}</div>
                               ))}
                               {itemList.map((it, idx) => {
                                 const qty = parseFloat(it.qty) || 0;
@@ -5377,9 +5411,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                                 ];
                               })}
                             </div>
-                            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, paddingTop: 8, borderTop: "1px solid var(--divider-color,#252830)", marginBottom: 14 }}>
-                              <span style={{ fontSize: 12, color: "var(--text-muted,#666)" }}>Total</span>
-                              <span style={{ fontSize: 18, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>฿{total.toLocaleString()}</span>
+                            <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, paddingTop: 8, borderTop: "1px solid var(--divider-color,#D8E1EC)", marginBottom: 14 }}>
+                              <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>Total</span>
+                              <span style={{ fontSize: 18, fontWeight: 800, color: "var(--accent,#2563EB)" }}>฿{total.toLocaleString()}</span>
                             </div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                               <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 10px" }} onClick={() => setInvoiceModal({ job: null, existing: inv })}>
@@ -5451,7 +5485,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       {/* Employee Bottom Nav */}
       <nav style={{
         position: "fixed", bottom: 0, left: 0, right: 0, height: 62,
-        background: "#161920", borderTop: "1px solid #252830",
+        background: "var(--topbar-bg,#FFFFFF)", borderTop: "1px solid var(--divider-color,#D8E1EC)",
         display: "flex", alignItems: "stretch", zIndex: 100,
         padding: "0 4px", paddingBottom: "env(safe-area-inset-bottom,0px)",
       }}>
@@ -5466,10 +5500,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             <button key={tItem.key} onClick={() => setTab(tItem.key)} style={{
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
               gap: 3, border: "none", cursor: "pointer", background: "transparent",
-              color: active ? "#e8b84b" : "#666", position: "relative", padding: "8px 2px 6px",
+              color: active ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)", position: "relative", padding: "8px 2px 6px",
             }}>
-              {active && <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: "#e8b84b", borderRadius: "0 0 3px 3px" }} />}
-              <Icon d={tItem.icon} size={20} color={active ? "#e8b84b" : "#666"} />
+              {active && <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: "var(--accent,#2563EB)", borderRadius: "0 0 3px 3px" }} />}
+              <Icon d={tItem.icon} size={20} color={active ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)"} />
               <span style={{ fontSize: 9.5, fontWeight: active ? 700 : 500, letterSpacing: "0.02em" }}>{tItem.label}</span>
             </button>
           );
@@ -5522,7 +5556,7 @@ function ReportModal({ employee, equipment, onSubmit, onClose }) {
     <Modal title={t("reportNew")} onClose={onClose}>
       <div style={{ textAlign: "center", padding: "24px 0" }}>
         <div style={{ fontSize: 52, marginBottom: 12 }}>✅</div>
-        <p style={{ fontSize: 16, fontWeight: 700, color: "#34d399", marginBottom: 8 }}>{t("reportSubmitted")}</p>
+        <p style={{ fontSize: 16, fontWeight: 700, color: "#2F855A", marginBottom: 8 }}>{t("reportSubmitted")}</p>
         <button style={{ ...S.btn("primary"), marginTop: 16 }} onClick={onClose}>{t("back")}</button>
       </div>
     </Modal>
@@ -5560,15 +5594,15 @@ function ReportModal({ employee, equipment, onSubmit, onClose }) {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
             {photos.map((p, i) => (
               <div key={i} style={{ position: "relative" }}>
-                <img src={p} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, display: "block", border: "2px solid #e8b84b" }} />
-                <button onClick={() => setPhotos(ps => ps.filter((_, j) => j !== i))} style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "#f87171", border: "2px solid #0f1117", color: "#fff", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}>×</button>
+                <img src={p} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 8, display: "block", border: "2px solid var(--accent,#2563EB)" }} />
+                <button onClick={() => setPhotos(ps => ps.filter((_, j) => j !== i))} style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "#C53030", border: "2px solid var(--surface,#FFFFFF)", color: "#fff", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}>×</button>
               </div>
             ))}
-            <button style={{ ...S.btn("ghost"), flexDirection: "column", gap: 3, width: 72, height: 72, borderRadius: 8, border: "2px dashed #2e3340", fontSize: 10, fontWeight: 600 }} onClick={() => camRef.current.click()}>
-              <Icon d={icons.camera} size={20} color="#555" />{t("reportCamera")}
+            <button style={{ ...S.btn("ghost"), flexDirection: "column", gap: 3, width: 72, height: 72, borderRadius: 8, border: "2px dashed var(--border-color,#D8E1EC)", fontSize: 10, fontWeight: 600 }} onClick={() => camRef.current.click()}>
+              <Icon d={icons.camera} size={20} color="var(--text-muted,#7B8FA3)" />{t("reportCamera")}
             </button>
-            <button style={{ ...S.btn("ghost"), flexDirection: "column", gap: 3, width: 72, height: 72, borderRadius: 8, border: "2px dashed #2e3340", fontSize: 10, fontWeight: 600 }} onClick={() => galRef.current.click()}>
-              <Icon d={icons.photo} size={20} color="#555" />{t("reportGallery")}
+            <button style={{ ...S.btn("ghost"), flexDirection: "column", gap: 3, width: 72, height: 72, borderRadius: 8, border: "2px dashed var(--border-color,#D8E1EC)", fontSize: 10, fontWeight: 600 }} onClick={() => galRef.current.click()}>
+              <Icon d={icons.photo} size={20} color="var(--text-muted,#7B8FA3)" />{t("reportGallery")}
             </button>
           </div>
         </div>
@@ -5602,7 +5636,7 @@ function AdminReportsPage({ reports, setReports, equipment }) {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, gap: 12 }}>
         <div>
           <h1 style={S.pageTitle}>{t("reportTitle")}</h1>
-          <p style={{ ...S.pageSubtitle, color: openCount > 0 ? "#f87171" : "#666" }}>{openCount} {t("reportUnresolved")}</p>
+          <p style={{ ...S.pageSubtitle, color: openCount > 0 ? "#C53030" : "var(--text-muted,#5F7A91)" }}>{openCount} {t("reportUnresolved")}</p>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
           <button style={{ ...S.btn(filter === "open" ? "primary" : "ghost"), padding: "7px 14px", fontSize: 12 }} onClick={() => setFilter("open")}>{t("reportStatusOpen")}</button>
@@ -5612,8 +5646,8 @@ function AdminReportsPage({ reports, setReports, equipment }) {
 
       {filtered.length === 0 ? (
         <div style={{ ...S.card, textAlign: "center", padding: 40 }}>
-          <Icon d={icons.alert} size={40} color="#2e3340" />
-          <p style={{ color: "#666", marginTop: 12 }}>{t("reportNone")}</p>
+          <Icon d={icons.alert} size={40} color="var(--border-color,#D8E1EC)" />
+          <p style={{ color: "var(--text-muted,#5F7A91)", marginTop: 12 }}>{t("reportNone")}</p>
         </div>
       ) : (
         <div style={S.col}>
@@ -5621,20 +5655,20 @@ function AdminReportsPage({ reports, setReports, equipment }) {
             const eq = r.eqId ? equipment.find(e => e.id === r.eqId) : null;
             const open = expandedId === r.id;
             return (
-              <div key={r.id} style={{ ...S.card, border: r.status === "open" ? "1px solid rgba(239,68,68,0.35)" : "1px solid #252830" }}>
+              <div key={r.id} style={{ ...S.card, border: r.status === "open" ? "1px solid rgba(197,48,48,0.35)" : "1px solid var(--divider-color,#D8E1EC)" }}>
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer" }} onClick={() => setExpandedId(open ? null : r.id)}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
                       {statusBadge(r.status)}
                       {(eq || r.eqName) && <span style={S.tag}>{eq?.name || r.eqName}</span>}
                     </div>
-                    <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#e8e4dc", lineHeight: 1.4 }}>{r.description}</p>
-                    <p style={{ margin: "5px 0 0", fontSize: 11, color: "#666" }}>{t("reportBy")} <strong style={{ color: "#8a8f9d" }}>{r.reportedBy?.name}</strong> · {formatDateTime(r.ts)}</p>
+                    <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text,#16324A)", lineHeight: 1.4 }}>{r.description}</p>
+                    <p style={{ margin: "5px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("reportBy")} <strong style={{ color: "var(--text-muted,#4E6B84)" }}>{r.reportedBy?.name}</strong> · {formatDateTime(r.ts)}</p>
                   </div>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
                     {r.photos?.length > 0 && <img src={r.photos[0]} alt="" style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 8 }} />}
                     {r.photos?.length > 1 && <span style={S.badge("gray")}>+{r.photos.length - 1}</span>}
-                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth={2.5} strokeLinecap="round" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+                    <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted,#7B8FA3)" strokeWidth={2.5} strokeLinecap="round" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
                       <path d="M6 9l6 6 6-6" />
                     </svg>
                   </div>
@@ -5658,7 +5692,7 @@ function AdminReportsPage({ reports, setReports, equipment }) {
                         </button>
                       </div>
                     ) : (
-                      <p style={{ fontSize: 12, color: "#666" }}>{r.status === "solved" ? t("reportStatusSolved") : t("reportStatusDiscarded")} · {r.resolvedAt ? formatDateTime(r.resolvedAt) : ""}</p>
+                      <p style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{r.status === "solved" ? t("reportStatusSolved") : t("reportStatusDiscarded")} · {r.resolvedAt ? formatDateTime(r.resolvedAt) : ""}</p>
                     )}
                   </div>
                 )}
@@ -5724,28 +5758,26 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
   const del = () => { if (!isLocked) setPin(p => p.slice(0, -1)); };
 
   if (mode === "choose") return (
-    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-      <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/logo.png)", backgroundRepeat: "no-repeat", backgroundPosition: "center", backgroundSize: "min(92vw, 620px)", opacity: 0.06, pointerEvents: "none" }} />
+    <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
       <div style={{ textAlign: "center", maxWidth: 340 }}>
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}><Icon d={icons.film} size={48} color="#e8b84b" /></div>
-        <h1 style={{ fontSize: 24, fontWeight: 800, color: "#e8e4dc", marginBottom: 4 }}>{companyName || "GEAR DESK"}</h1>
-        <p style={{ color: "#666", marginBottom: 40, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase" }}>{t("loginSystem")}</p>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}><div style={{ width: 132, height: 132, borderRadius: 20, background: "var(--logo-bg,#16324A)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 16px rgba(22,50,74,0.18)" }}><img src="/logo.png" alt="" style={{ width: 120, height: 120, objectFit: "contain" }} /></div></div>
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: "var(--text,#16324A)", marginBottom: 4 }}>{companyName || "GEAR DESK"}</h1>
+        <p style={{ color: "var(--text-muted,#5F7A91)", marginBottom: 40, fontSize: 13, letterSpacing: "0.1em", textTransform: "uppercase" }}>{t("loginSystem")}</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("admin")}><Icon d={icons.lock} size={16} /> {t("loginAdmin")}</button>
           <button style={{ ...S.btn("ghost"), justifyContent: "center", padding: "14px 24px", fontSize: 15 }} onClick={() => setMode("employee")}><Icon d={icons.user} size={16} /> {t("loginEmployee")}</button>
-          <button style={{ background: "none", border: "none", color: "#555", fontSize: 12, cursor: "pointer", marginTop: 8, textDecoration: "underline" }} onClick={() => { setMode("register"); setRegForm({ name: "", pin: "", confirm: "" }); setRegMsg(null); }}>{t("loginRegisterLink")}</button>
+          <button style={{ background: "none", border: "none", color: "var(--text-muted,#7B8FA3)", fontSize: 12, cursor: "pointer", marginTop: 8, textDecoration: "underline" }} onClick={() => { setMode("register"); setRegForm({ name: "", pin: "", confirm: "" }); setRegMsg(null); }}>{t("loginRegisterLink")}</button>
         </div>
       </div>
     </div>
   );
 
   if (mode === "register") return (
-    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-      <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/logo.png)", backgroundRepeat: "no-repeat", backgroundPosition: "center", backgroundSize: "min(92vw, 620px)", opacity: 0.06, pointerEvents: "none" }} />
+    <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
       <div style={{ width: 300 }}>
         <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => setMode("choose")}><Icon d={icons.arrow_left} size={14} /> {t("back")}</button>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{t("loginRegisterTitle")}</h2>
-        <p style={{ fontSize: 12, color: "#555", marginBottom: 20 }}>{t("loginRegisterDesc")}</p>
+        <p style={{ fontSize: 12, color: "var(--text-muted,#7B8FA3)", marginBottom: 20 }}>{t("loginRegisterDesc")}</p>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
             <label style={S.label}>{t("loginYourName")}</label>
@@ -5759,7 +5791,7 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
             <label style={S.label}>{t("settingsConfirmPin")}</label>
             <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={regForm.confirm} onChange={e => setRegForm(p => ({ ...p, confirm: e.target.value.replace(/\D/g, "") }))} placeholder={t("settingsPinReEnter")} />
           </div>
-          {regMsg && <p style={{ fontSize: 12, color: regMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{regMsg.text}</p>}
+          {regMsg && <p style={{ fontSize: 12, color: regMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{regMsg.text}</p>}
           <button style={{ ...S.btn("primary"), justifyContent: "center", padding: "13px" }} onClick={() => {
             if (!regForm.name.trim()) { setRegMsg({ ok: false, text: t("loginEnterName") }); return; }
             if (!/^\d{4,6}$/.test(regForm.pin)) { setRegMsg({ ok: false, text: t("loginPinDigits") }); return; }
@@ -5776,8 +5808,7 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-      <div style={{ position: "absolute", inset: 0, backgroundImage: "url(/logo.png)", backgroundRepeat: "no-repeat", backgroundPosition: "center", backgroundSize: "min(92vw, 620px)", opacity: 0.06, pointerEvents: "none" }} />
+    <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
       <div style={{ width: 300 }}>
         <button style={{ ...S.btn("ghost"), marginBottom: 24, fontSize: 12 }} onClick={() => { setMode("choose"); setPin(""); setError(""); setSelectedEmp(null); }}><Icon d={icons.arrow_left} size={14} /> {t("back")}</button>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>{mode === "admin" ? t("loginAdmin") : t("loginEmployee")}</h2>
@@ -5788,20 +5819,20 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
               <label style={S.label}>{t("loginAccount")}</label>
               <button
                 onClick={() => setDdOpen(o => !o)}
-                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 14px", background: "#1a1e27", border: `1px solid ${ddOpen ? "#e8b84b" : "#2e3340"}`, borderRadius: 10, color: selEmp ? "#e8e4dc" : "#555", fontSize: 14, fontWeight: selEmp ? 600 : 400, cursor: "pointer", transition: "border-color .15s" }}>
+                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 14px", background: "var(--surface,#FFFFFF)", border: `1px solid ${ddOpen ? "var(--accent,#2563EB)" : "var(--border-color,#D8E1EC)"}`, borderRadius: 10, color: selEmp ? "var(--text,#16324A)" : "var(--text-muted,#7B8FA3)", fontSize: 14, fontWeight: selEmp ? 600 : 400, cursor: "pointer", transition: "border-color .15s" }}>
                 <span>{selEmp ? selEmp.name : t("loginSelectAccount")}</span>
                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" style={{ opacity: 0.5, transform: ddOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }}><path d="M6 9l6 6 6-6" /></svg>
               </button>
               {ddOpen && (
-                <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "#1a1e27", border: "1px solid #2e3340", borderRadius: 10, overflow: "hidden", zIndex: 50, boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
+                <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "var(--surface,#FFFFFF)", border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 10, overflow: "hidden", zIndex: 50, boxShadow: "0 8px 24px rgba(22,50,74,0.17)" }}>
                   {employees.map((e, i) => (
                     <div key={e.id} onClick={() => { setSelectedEmp(e.id); setDdOpen(false); }}
-                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", background: selectedEmp === e.id ? "rgba(232,184,75,0.1)" : "transparent", borderTop: i > 0 ? "1px solid #252830" : "none" }}>
-                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: selectedEmp === e.id ? "rgba(232,184,75,0.15)" : "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: selectedEmp === e.id ? "#e8b84b" : "#666" }}>{e.name[0].toUpperCase()}</span>
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", background: selectedEmp === e.id ? "rgba(var(--accent-rgb,37,99,235),0.1)" : "transparent", borderTop: i > 0 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: selectedEmp === e.id ? "rgba(var(--accent-rgb,37,99,235),0.15)" : "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: selectedEmp === e.id ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)" }}>{e.name[0].toUpperCase()}</span>
                       </div>
-                      <span style={{ fontWeight: 600, color: selectedEmp === e.id ? "#e8b84b" : "#e8e4dc", fontSize: 14 }}>{e.name}</span>
-                      {selectedEmp === e.id && <svg style={{ marginLeft: "auto" }} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#e8b84b" strokeWidth={3} strokeLinecap="round"><path d="M20 6L9 17l-5-5" /></svg>}
+                      <span style={{ fontWeight: 600, color: selectedEmp === e.id ? "var(--accent,#2563EB)" : "var(--text,#16324A)", fontSize: 14 }}>{e.name}</span>
+                      {selectedEmp === e.id && <svg style={{ marginLeft: "auto" }} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--accent,#2563EB)" strokeWidth={3} strokeLinecap="round"><path d="M20 6L9 17l-5-5" /></svg>}
                     </div>
                   ))}
                 </div>
@@ -5813,15 +5844,15 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
           <label style={S.label}>PIN</label>
           <div style={{ display: "flex", gap: 10, justifyContent: "center", alignItems: "center", height: 32, marginBottom: 16 }}>
             {pin.length === 0
-              ? <span style={{ fontSize: 12, color: "#444", letterSpacing: "0.08em", textTransform: "uppercase" }}>{t("loginPinPrompt")}</span>
+              ? <span style={{ fontSize: 12, color: "var(--text-muted,#8CA2B5)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{t("loginPinPrompt")}</span>
               : Array.from({ length: pin.length }).map((_, i) => (
-                  <div key={i} style={{ width: 11, height: 11, borderRadius: "50%", background: "#e8b84b" }} />
+                  <div key={i} style={{ width: 11, height: 11, borderRadius: "50%", background: "var(--accent,#2563EB)" }} />
                 ))
             }
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
             {[1,2,3,4,5,6,7,8,9,"","0","⌫"].map((d, i) => (
-              <button key={i} style={{ padding: "14px", borderRadius: 8, border: "1px solid #2e3340", background: d === "" ? "transparent" : "#1a1e27", color: "#e8e4dc", fontSize: 18, fontWeight: 600, cursor: d === "" ? "default" : "pointer" }}
+              <button key={i} style={{ padding: "14px", borderRadius: 8, border: "1px solid var(--border-color,#D8E1EC)", background: d === "" ? "transparent" : "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", fontSize: 18, fontWeight: 600, cursor: d === "" ? "default" : "pointer" }}
                 onClick={() => { if (d === "⌫") del(); else if (d !== "") addDigit(String(d)); }}>
                 {d}
               </button>
@@ -5829,8 +5860,8 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
           </div>
         </div>
         {isLocked
-          ? <p style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{t("loginTooManyAttempts")}{lockSecsLeft}{t("loginSeconds")}</p>
-          : error && <p style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{error}</p>
+          ? <p style={{ color: "#C53030", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{t("loginTooManyAttempts")}{lockSecsLeft}{t("loginSeconds")}</p>
+          : error && <p style={{ color: "#C53030", fontSize: 13, textAlign: "center", marginBottom: 12 }}>{error}</p>
         }
         <button style={{ ...S.btn("primary"), width: "100%", justifyContent: "center", padding: "12px", opacity: isLocked ? 0.5 : 1 }} onClick={tryLogin} disabled={isLocked || (mode === "employee" && !selectedEmp)}>
           {isLocked ? `${t("loginLocked")} (${lockSecsLeft}${t("loginSeconds")})` : t("loginUnlock")}
@@ -5916,24 +5947,24 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
       <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>{t("teamMembers")} ({employees.length})</p>
         <div style={S.col}>
-          {employees.length === 0 && <p style={{ fontSize: 13, color: "#666" }}>{t("teamNoMembers")}</p>}
+          {employees.length === 0 && <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("teamNoMembers")}</p>}
           {employees.map((e, i) => (
-            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: i < employees.length - 1 ? 14 : 0, marginBottom: i < employees.length - 1 ? 14 : 0, borderBottom: i < employees.length - 1 ? "1px solid #252830" : "none" }}>
-              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Icon d={icons.user} size={17} color="#e8b84b" />
+            <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: i < employees.length - 1 ? 14 : 0, marginBottom: i < employees.length - 1 ? 14 : 0, borderBottom: i < employees.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
+              <div style={{ width: 38, height: 38, borderRadius: "50%", background: "rgba(var(--accent-rgb,37,99,235),0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Icon d={icons.user} size={17} color="var(--accent,#2563EB)" />
               </div>
               <div style={{ flex: 1 }}>
                 <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{e.name}</p>
                 {(() => { const st = kpiStars(kpiScore(e.id, kpiEvents, kpiConfig), kpiConfig); return (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "3px 0 0" }}>
                     <StarRating value={st} size={12} />
-                    <span style={{ fontSize: 11, color: "#8a8f9d" }}>{st.toFixed(1)}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{st.toFixed(1)}</span>
                   </div>
                 ); })()}
-                <p style={{ margin: "2px 0 0", fontSize: 12, color: "#666", display: "flex", alignItems: "center", gap: 6 }}>
+                <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)", display: "flex", alignItems: "center", gap: 6 }}>
                   PIN:&nbsp;
                   <span style={{ fontFamily: "monospace", letterSpacing: 2 }}>{showPin[e.id] ? e.pin : "•".repeat(e.pin.length)}</span>
-                  <button onClick={() => setShowPin(p => ({ ...p, [e.id]: !p[e.id] }))} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 11, padding: 0 }}>
+                  <button onClick={() => setShowPin(p => ({ ...p, [e.id]: !p[e.id] }))} style={{ background: "none", border: "none", color: "var(--text-muted,#7B8FA3)", cursor: "pointer", fontSize: 11, padding: 0 }}>
                     {showPin[e.id] ? t("teamPinHide") : t("teamPinShow")}
                   </button>
                 </p>
@@ -5951,23 +5982,23 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
       <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>{t("teamEqRequests")} {pendingRequests.length > 0 && <span style={{ ...S.badge("amber"), marginLeft: 6 }}>{pendingRequests.length} {t("teamPendingReqs")}</span>}</p>
         {(equipmentRequests || []).length === 0 ? (
-          <p style={{ fontSize: 13, color: "#666" }}>{t("teamNoEqRequests")}</p>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("teamNoEqRequests")}</p>
         ) : [...(equipmentRequests || [])].reverse().map((req, i, arr) => {
           const itemLabel = req.items
             ? req.items.map(it => { const e = (equipment || []).find(x => x.id === it.eqId); return `${e?.name || it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`; }).join(", ")
             : `${(equipment || []).find(e => e.id === req.eqId)?.name || req.eqName} ×${req.qty}`;
           return (
-            <div key={req.id} style={{ paddingBottom: i < arr.length - 1 ? 14 : 0, marginBottom: i < arr.length - 1 ? 14 : 0, borderBottom: i < arr.length - 1 ? "1px solid #252830" : "none" }}>
+            <div key={req.id} style={{ paddingBottom: i < arr.length - 1 ? 14 : 0, marginBottom: i < arr.length - 1 ? 14 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
                 <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.employeeName}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#8a8f9d" }}>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>
                     {itemLabel} · {req.purpose === "work" ? `Work: ${req.jobName}` : "Practice"}
                     {req.useDates?.length > 0 ? ` · ${req.useDates.map(formatDate).join(", ")}` : req.useDate ? ` · ${formatDate(req.useDate)}` : ""}
                   </p>
-                  {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#666" }}>{req.reason}</p>}
-                  <p style={{ margin: "2px 0 0", fontSize: 10, color: "#444" }}>{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                  {req.reason && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{req.reason}</p>}
+                  <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#8CA2B5)" }}>{new Date(req.requestedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
                 </div>
                 <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
                   {req.status === "pending" && (<>
@@ -5993,7 +6024,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
               <label style={S.label}>{t("teamPinLabel")}</label>
               <input style={S.input} type="text" inputMode="numeric" maxLength={6} value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, "") }))} placeholder="e.g. 1234" />
             </div>
-            {formErr && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>{formErr}</p>}
+            {formErr && <p style={{ fontSize: 12, color: "#C53030", margin: 0 }}>{formErr}</p>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button style={S.btn("ghost")} onClick={() => setModal(null)}>{t("cancel")}</button>
               <button style={S.btn("primary")} onClick={saveEmployee}>{modal === "add" ? t("teamAddMemberBtn") : t("teamSaveChanges")}</button>
@@ -6021,14 +6052,14 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
               setTimeout(() => setKpiMsg(null), 3000);
             };
             return (
-              <div style={{ ...S.card, background: "rgba(232,184,75,0.04)", border: "1px solid rgba(232,184,75,0.15)" }}>
+              <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.04)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.15)" }}>
                 <p style={S.sectionTitle}>{t("teamKpiScore")}</p>
                 <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
                   <StarRating value={stars} size={22} />
-                  <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#e8b84b)" }}>{stars.toFixed(1)}</span>
-                  <span style={{ fontSize: 13, color: "#8a8f9d" }}>{score}/{max} {t("kpiPts")}</span>
+                  <span style={{ fontSize: 20, fontWeight: 800, color: "var(--accent,#2563EB)" }}>{stars.toFixed(1)}</span>
+                  <span style={{ fontSize: 13, color: "var(--text-muted,#4E6B84)" }}>{score}/{max} {t("kpiPts")}</span>
                 </div>
-                <p style={{ fontSize: 11, color: "#666", margin: "0 0 12px" }}>{t("teamKpiPeriodLabel")} {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
+                <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 12px" }}>{t("teamKpiPeriodLabel")} {start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {new Date(end.getTime() - 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {(punishments || []).length > 0 && (
                     <select style={S.select} value={kpiForm.punishmentId} onChange={e => { const pun = (punishments || []).find(x => x.id === e.target.value); setKpiForm(f => ({ punishmentId: e.target.value, points: pun ? String(pun.points) : f.points, reason: pun ? (pun.label + (pun.description ? ` — ${pun.description}` : "")) : f.reason })); }}>
@@ -6040,18 +6071,18 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
                     <input style={S.input} type="number" min="0" step="0.1" value={kpiForm.points} placeholder={t("teamKpiPoints")} onChange={e => setKpiForm(f => ({ ...f, points: e.target.value }))} />
                     <input style={S.input} value={kpiForm.reason} placeholder={t("teamKpiReason")} onChange={e => setKpiForm(f => ({ ...f, reason: e.target.value }))} />
                   </div>
-                  {kpiMsg && <p style={{ fontSize: 12, color: kpiMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{kpiMsg.text}</p>}
+                  {kpiMsg && <p style={{ fontSize: 12, color: kpiMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{kpiMsg.text}</p>}
                   <button style={{ ...S.btn("danger"), justifyContent: "center" }} onClick={submit}>{t("teamKpiDeduct")}</button>
                 </div>
                 {myEvents.length > 0 && (
-                  <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 10 }}>
+                  <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 10 }}>
                     <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{t("teamKpiDeductionsThisPeriod")}</p>
                     {myEvents.map(ev => (
                       <div key={ev.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
                         <span style={{ ...S.badge("red"), flexShrink: 0 }}>−{ev.points}</span>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ margin: 0, fontSize: 13 }}>{ev.reason}</p>
-                          <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555" }}>{new Date(ev.ts).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                          <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>{new Date(ev.ts).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
                         </div>
                         <button style={{ ...S.btn("ghost"), padding: "3px 8px", fontSize: 11 }} onClick={() => setKpiEvents(p => p.filter(x => x.id !== ev.id))}>{t("teamKpiUndo")}</button>
                       </div>
@@ -6062,14 +6093,14 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
             );
           })()}
           {profileLoading ? (
-            <p style={{ color: "#666", textAlign: "center", padding: 24 }}>{t("loading")}</p>
+            <p style={{ color: "var(--text-muted,#5F7A91)", textAlign: "center", padding: 24 }}>{t("loading")}</p>
           ) : !profileData ? (
-            <p style={{ color: "#666", textAlign: "center", padding: 12 }}>{t("teamNoProfileDocs")}</p>
+            <p style={{ color: "var(--text-muted,#5F7A91)", textAlign: "center", padding: 12 }}>{t("teamNoProfileDocs")}</p>
           ) : (
             <div style={S.col}>
               {profileData.photo && (
                 <div style={{ display: "flex", justifyContent: "center" }}>
-                  <img src={profileData.photo} alt="profile" style={{ width: 90, height: 90, borderRadius: "50%", objectFit: "cover", border: "3px solid #e8b84b" }} />
+                  <img src={profileData.photo} alt="profile" style={{ width: 90, height: 90, borderRadius: "50%", objectFit: "cover", border: "3px solid var(--accent,#2563EB)" }} />
                 </div>
               )}
               {[[t("phone"), profileData.phone], [t("email"), profileData.email]].filter(([, v]) => v).map(([label, val]) => (
@@ -6081,19 +6112,19 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
               {profileData.legalAddress && (
                 <div>
                   <p style={{ ...S.sectionTitle, marginBottom: 3 }}>{t("legalAddress")}</p>
-                  <p style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap", color: "#8a8f9d" }}>{profileData.legalAddress}</p>
+                  <p style={{ margin: 0, fontSize: 13, whiteSpace: "pre-wrap", color: "var(--text-muted,#4E6B84)" }}>{profileData.legalAddress}</p>
                 </div>
               )}
               {profileData.idCard && (
                 <div>
                   <p style={{ ...S.sectionTitle, marginBottom: 6 }}>{t("idCard")}</p>
-                  <img src={profileData.idCard} alt="ID" style={{ width: "100%", maxWidth: 280, borderRadius: 8, border: "1px solid #2e3340" }} />
+                  <img src={profileData.idCard} alt="ID" style={{ width: "100%", maxWidth: 280, borderRadius: 8, border: "1px solid var(--border-color,#D8E1EC)" }} />
                 </div>
               )}
               {profileData.promptPayQR && (
                 <div>
                   <p style={{ ...S.sectionTitle, marginBottom: 6 }}>{t("promptPayQR")}</p>
-                  <img src={profileData.promptPayQR} alt="QR" style={{ width: 120, height: 120, objectFit: "contain", borderRadius: 8, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />
+                  <img src={profileData.promptPayQR} alt="QR" style={{ width: 120, height: 120, objectFit: "contain", borderRadius: 8, border: "1px solid var(--border-color,#D8E1EC)", background: "#fff", padding: 4 }} />
                 </div>
               )}
             </div>
@@ -6121,18 +6152,18 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
           </div>
         </div>
         {(() => { const p = kpiPeriod(kpiConfig); const endLabel = new Date(p.end.getTime() - 86400000); return (
-          <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>
-            {t("settingsKpiEveryoneStarts")} <strong style={{ color: "var(--accent,#e8b84b)" }}>{kpiMax(kpiConfig)} pts (★★★★★)</strong>. {t("settingsKpiCurrPeriod")}{" "}
-            <strong style={{ color: "var(--text,#e8e4dc)" }}>{p.start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {endLabel.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>. {t("settingsKpiDefaultStart")}
+          <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: 0 }}>
+            {t("settingsKpiEveryoneStarts")} <strong style={{ color: "var(--accent,#2563EB)" }}>{kpiMax(kpiConfig)} pts (★★★★★)</strong>. {t("settingsKpiCurrPeriod")}{" "}
+            <strong style={{ color: "var(--text,#16324A)" }}>{p.start.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} – {endLabel.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>. {t("settingsKpiDefaultStart")}
           </p>
         ); })()}
-        <div style={{ borderTop: "1px solid var(--divider-color,#252830)", paddingTop: 12 }}>
+        <div style={{ borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <p style={{ ...S.sectionTitle, margin: 0 }}>{t("settingsKpiPunishments")}</p>
             <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={() => setPunishments(p => [...(p || []), { id: "pun" + Date.now(), label: "", points: "", description: "" }])}><Icon d={icons.plus} size={12} /> {t("settingsKpiAddPunishment")}</button>
           </div>
-          <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 10px" }}>{t("settingsKpiPunDesc")}</p>
-          {(punishments || []).length === 0 && <p style={{ fontSize: 12, color: "#666", margin: 0 }}>{t("settingsKpiNoPunishments")}</p>}
+          <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 10px" }}>{t("settingsKpiPunDesc")}</p>
+          {(punishments || []).length === 0 && <p style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("settingsKpiNoPunishments")}</p>}
           <div style={S.col}>
             {(punishments || []).map(pun => (
               <div key={pun.id} style={{ display: "grid", gridTemplateColumns: "1fr 72px 32px", gap: 6, alignItems: "center" }}>
@@ -6165,13 +6196,13 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
 
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "var(--bg,#0f1117)", display: "flex", flexDirection: "column", overflowY: "hidden" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "var(--bg,#F4F7FB)", display: "flex", flexDirection: "column", overflowY: "hidden" }}>
       {/* Panel header */}
-      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", background: "var(--bg,#0f1117)", borderBottom: "1px solid var(--divider-color,#252830)" }}>
+      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", background: "var(--bg,#F4F7FB)", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
         <button onClick={onClose} style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: 6, borderRadius: 6 }}>
-          <Icon d={icons.x} size={20} color="var(--text-muted,#8a8f9d)" />
+          <Icon d={icons.x} size={20} color="var(--text-muted,#4E6B84)" />
         </button>
-        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text,#e8e4dc)" }}>{t("settingsTitle")}</h1>
+        <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text,#16324A)" }}>{t("settingsTitle")}</h1>
       </div>
       {/* Scrollable content */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px 120px", maxWidth: 600, width: "100%", margin: "0 auto", boxSizing: "border-box" }}>
@@ -6181,7 +6212,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
         <p style={S.sectionTitle}>{t("settingsLanguage")}</p>
         <div style={{ display: "flex", gap: 8 }}>
           {[{ id: "en", label: "🇬🇧 English" }, { id: "th", label: "🇹🇭 ภาษาไทย" }].map(l => (
-            <button key={l.id} onClick={() => setLang(l.id)} style={{ flex: 1, padding: "10px 4px", borderRadius: 8, border: lang === l.id ? "2px solid var(--accent,#e8b84b)" : "1px solid var(--border-color,#2e3340)", background: lang === l.id ? "rgba(232,184,75,0.08)" : "transparent", color: lang === l.id ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{l.label}</button>
+            <button key={l.id} onClick={() => setLang(l.id)} style={{ flex: 1, padding: "10px 4px", borderRadius: 8, border: lang === l.id ? "2px solid var(--accent,#2563EB)" : "1px solid var(--border-color,#D8E1EC)", background: lang === l.id ? "rgba(var(--accent-rgb,37,99,235),0.08)" : "transparent", color: lang === l.id ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{l.label}</button>
           ))}
         </div>
       </div>
@@ -6209,25 +6240,25 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
               <p style={{ ...S.sectionTitle, margin: 0 }}>{t("settingsNavOrder")}</p>
               {navOrder && (
-                <button onClick={() => setNavOrder(null)} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: "var(--accent,#e8b84b)", fontWeight: 600, padding: "4px 0" }}>
+                <button onClick={() => setNavOrder(null)} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: "var(--accent,#2563EB)", fontWeight: 600, padding: "4px 0" }}>
                   {t("settingsNavOrderReset")}
                 </button>
               )}
             </div>
             <p style={{ ...S.label, marginBottom: 12 }}>{t("settingsNavOrderDesc")}</p>
             {currentOrder.map((item, idx) => (
-              <div key={item.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: idx < currentOrder.length - 1 ? "1px solid var(--border-color,#252830)" : "none" }}>
-                <Icon d={item.icon} size={18} color="var(--text-muted,#8a8f9d)" />
-                <span style={{ flex: 1, fontSize: 14, color: "var(--text,#e8e4dc)", fontWeight: 500 }}>{item.label}</span>
+              <div key={item.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: idx < currentOrder.length - 1 ? "1px solid var(--border-color,#D8E1EC)" : "none" }}>
+                <Icon d={item.icon} size={18} color="var(--text-muted,#4E6B84)" />
+                <span style={{ flex: 1, fontSize: 14, color: "var(--text,#16324A)", fontWeight: 500 }}>{item.label}</span>
                 <button
                   onClick={() => move(idx, -1)}
                   disabled={idx === 0}
-                  style={{ background: "transparent", border: "1px solid var(--border-color,#2e3340)", borderRadius: 6, padding: "4px 10px", cursor: idx === 0 ? "default" : "pointer", color: idx === 0 ? "var(--text-muted,#444)" : "var(--text,#e8e4dc)", fontSize: 13, lineHeight: 1 }}
+                  style={{ background: "transparent", border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 6, padding: "4px 10px", cursor: idx === 0 ? "default" : "pointer", color: idx === 0 ? "var(--text-muted,#8CA2B5)" : "var(--text,#16324A)", fontSize: 13, lineHeight: 1 }}
                 >▲</button>
                 <button
                   onClick={() => move(idx, 1)}
                   disabled={idx === currentOrder.length - 1}
-                  style={{ background: "transparent", border: "1px solid var(--border-color,#2e3340)", borderRadius: 6, padding: "4px 10px", cursor: idx === currentOrder.length - 1 ? "default" : "pointer", color: idx === currentOrder.length - 1 ? "var(--text-muted,#444)" : "var(--text,#e8e4dc)", fontSize: 13, lineHeight: 1 }}
+                  style={{ background: "transparent", border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 6, padding: "4px 10px", cursor: idx === currentOrder.length - 1 ? "default" : "pointer", color: idx === currentOrder.length - 1 ? "var(--text-muted,#8CA2B5)" : "var(--text,#16324A)", fontSize: 13, lineHeight: 1 }}
                 >▼</button>
               </div>
             ))}
@@ -6240,8 +6271,8 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
         <div style={{ marginBottom: 14 }}>
           <p style={{ ...S.label, marginBottom: 8 }}>{t("settingsThemeStyle")}</p>
           <div style={{ display: "flex", gap: 6 }}>
-            {[{ id: "neumorphism", label: "Neumorphism" }, { id: "glassmorphism", label: "Glassmorphism" }, { id: "skeuomorphism", label: "Skeuomorphism" }].map(s => (
-              <button key={s.id} onClick={() => setThemeStyle(s.id)} style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: themeStyle === s.id ? "2px solid var(--accent,#e8b84b)" : "1px solid var(--border-color,#2e3340)", background: themeStyle === s.id ? "rgba(232,184,75,0.08)" : "transparent", color: themeStyle === s.id ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>{s.label}</button>
+            {[{ id: "flat", label: "Flat" }, { id: "neumorphism", label: "Neumorphism" }, { id: "glassmorphism", label: "Glassmorphism" }, { id: "skeuomorphism", label: "Skeuomorphism" }].map(s => (
+              <button key={s.id} onClick={() => setThemeStyle(s.id)} style={{ flex: 1, padding: "8px 4px", borderRadius: 8, border: themeStyle === s.id ? "2px solid var(--accent,#2563EB)" : "1px solid var(--border-color,#D8E1EC)", background: themeStyle === s.id ? "rgba(var(--accent-rgb,37,99,235),0.08)" : "transparent", color: themeStyle === s.id ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>{s.label}</button>
             ))}
           </div>
         </div>
@@ -6249,9 +6280,9 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
           <p style={{ ...S.label, marginBottom: 8 }}>{t("settingsThemeColor")}</p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 6 }}>
             {[{ id: "black-white", dot: "#e0e0e0", label: "B&W" }, { id: "teal-orange", dot: "#ff6a2a", label: "Teal" }, { id: "black-red", dot: "#dd3333", label: "Red" }, { id: "white-blue", dot: "#1a60d0", label: "Blue" }, { id: "black-yellow", dot: "#e8b84b", label: "Amber" }, { id: "black-blue", dot: "#3a80e8", label: "Navy" }].map(pal => (
-              <button key={pal.id} onClick={() => setThemePalette(pal.id)} style={{ padding: "8px 2px", borderRadius: 8, border: themePalette === pal.id ? `2px solid ${pal.dot}` : "1px solid var(--border-color,#2e3340)", background: "transparent", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+              <button key={pal.id} onClick={() => setThemePalette(pal.id)} style={{ padding: "8px 2px", borderRadius: 8, border: themePalette === pal.id ? `2px solid ${pal.dot}` : "1px solid var(--border-color,#D8E1EC)", background: "transparent", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                 <div style={{ width: 18, height: 18, borderRadius: "50%", background: pal.dot }} />
-                <span style={{ fontSize: 9, color: "var(--text-muted,#666)", fontWeight: 600, textTransform: "uppercase" }}>{pal.label}</span>
+                <span style={{ fontSize: 9, color: "var(--text-muted,#5F7A91)", fontWeight: 600, textTransform: "uppercase" }}>{pal.label}</span>
               </button>
             ))}
           </div>
@@ -6269,10 +6300,10 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             maxLength={40}
           />
           {!companyName.trim() && (
-            <span style={{ fontSize: 11, color: "var(--text-muted,#666)", flexShrink: 0 }}>{t("settingsUsesDefault")}</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", flexShrink: 0 }}>{t("settingsUsesDefault")}</span>
           )}
         </div>
-        <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>{t("settingsCompanyHint")}</p>
+        <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", marginTop: 6 }}>{t("settingsCompanyHint")}</p>
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
@@ -6284,7 +6315,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
               {TIMEZONES.some(tz => tz.id === timezone) ? null : <option value={timezone}>{timezone}</option>}
               {TIMEZONES.map(tz => <option key={tz.id} value={tz.id}>{tz.label}</option>)}
             </select>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>{t("settingsTimezoneHint")}</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", marginTop: 6 }}>{t("settingsTimezoneHint")}</p>
           </div>
           <div>
             <label style={S.label}>{t("settingsTimeFormat")}</label>
@@ -6293,7 +6324,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
                 <button key={o.v} onClick={() => setTimeFormat(o.v)} style={{ ...S.btn(timeFormat === o.v ? "primary" : "ghost"), flex: 1, justifyContent: "center" }}>{o.l}</button>
               ))}
             </div>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", marginTop: 6 }}>{t("settingsTimeFormatHint")}</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", marginTop: 6 }}>{t("settingsTimeFormatHint")}</p>
           </div>
         </div>
       </div>
@@ -6311,18 +6342,18 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             return (
               <div key={id} onClick={() => setVerificationConfig({ mode: id })}
                 style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderRadius: 8,
-                  background: active ? "rgba(232,184,75,0.07)" : "rgba(255,255,255,0.02)",
-                  border: `1px solid ${active ? "rgba(232,184,75,0.35)" : "#252830"}`,
+                  background: active ? "rgba(var(--accent-rgb,37,99,235),0.07)" : "rgba(22,50,74,0.04)",
+                  border: `1px solid ${active ? "rgba(var(--accent-rgb,37,99,235),0.35)" : "var(--divider-color,#D8E1EC)"}`,
                   cursor: "pointer", userSelect: "none" }}>
                 <div style={{ width: 18, height: 18, borderRadius: "50%", flexShrink: 0, marginTop: 1,
-                  background: active ? "#e8b84b" : "transparent",
-                  border: `2px solid ${active ? "#e8b84b" : "#555"}`,
+                  background: active ? "var(--accent,#2563EB)" : "transparent",
+                  border: `2px solid ${active ? "var(--accent,#2563EB)" : "var(--text-muted,#7B8FA3)"}`,
                   display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {active && <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#0f1117" }} />}
+                  {active && <div style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--surface2,#EAF0F7)" }} />}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: active ? "#e8b84b" : "var(--text,#e8e4dc)" }}>{t(labelKey)}</p>
-                  <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#666)", lineHeight: 1.5 }}>{t(descKey)}</p>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: active ? "var(--accent,#2563EB)" : "var(--text,#16324A)" }}>{t(labelKey)}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)", lineHeight: 1.5 }}>{t(descKey)}</p>
                 </div>
               </div>
             );
@@ -6334,15 +6365,15 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div style={{ flex: 1 }}>
             <p style={{ ...S.sectionTitle, margin: 0 }}>{t("settingsClearHistory")}</p>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "6px 0 0", lineHeight: 1.6 }}>{t("settingsClearHistoryDesc")}</p>
-            {checkoutsCount > 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#555)", margin: "4px 0 0" }}>{t("settingsClearHistoryCount").replace("{n}", checkoutsCount)}</p>}
+            <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "6px 0 0", lineHeight: 1.6 }}>{t("settingsClearHistoryDesc")}</p>
+            {checkoutsCount > 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)", margin: "4px 0 0" }}>{t("settingsClearHistoryCount").replace("{n}", checkoutsCount)}</p>}
           </div>
           <div style={{ flexShrink: 0 }}>
             {clearDone ? (
-              <span style={{ fontSize: 13, color: "#34d399", fontWeight: 600 }}>{t("settingsClearHistoryDone")}</span>
+              <span style={{ fontSize: 13, color: "#2F855A", fontWeight: 600 }}>{t("settingsClearHistoryDone")}</span>
             ) : confirmClear ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-                <p style={{ margin: 0, fontSize: 12, color: "#f87171", maxWidth: 240, textAlign: "right", lineHeight: 1.5 }}>{t("settingsClearHistoryConfirm")}</p>
+                <p style={{ margin: 0, fontSize: 12, color: "#C53030", maxWidth: 240, textAlign: "right", lineHeight: 1.5 }}>{t("settingsClearHistoryConfirm")}</p>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 12px" }} onClick={() => setConfirmClear(false)}>Cancel</button>
                   <button style={{ ...S.btn("danger"), fontSize: 12, padding: "6px 12px" }} onClick={() => { setCheckouts([]); setConfirmClear(false); setClearDone(true); setTimeout(() => setClearDone(false), 4000); }}>
@@ -6361,13 +6392,13 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
 
       <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>{t("settingsLineTitle")}</p>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "10px 14px", borderRadius: 8, background: lineGroupId ? "rgba(52,211,153,0.07)" : "rgba(255,255,255,0.03)", border: `1px solid ${lineGroupId ? "rgba(52,211,153,0.25)" : "#252830"}` }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: lineGroupId ? "#34d399" : "#444", flexShrink: 0 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: "10px 14px", borderRadius: 8, background: lineGroupId ? "rgba(47,133,90,0.07)" : "rgba(22,50,74,0.04)", border: `1px solid ${lineGroupId ? "rgba(47,133,90,0.25)" : "var(--divider-color,#D8E1EC)"}` }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: lineGroupId ? "#2F855A" : "var(--text-muted,#8CA2B5)", flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: lineGroupId ? "#34d399" : "#666" }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: lineGroupId ? "#2F855A" : "var(--text-muted,#5F7A91)" }}>
               {lineGroupId ? t("settingsLineConnected") : t("settingsLineNotConnected")}
             </p>
-            {lineGroupId && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#555", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lineGroupId}</p>}
+            {lineGroupId && <p style={{ margin: "2px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lineGroupId}</p>}
           </div>
           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
             <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => api.getData().then(d => { if (d.lineGroupId && d.lineGroupId !== lineGroupId) { setLineGroupId(d.lineGroupId); setLineTest(null); } })}>{t("settingsLineRefresh")}</button>
@@ -6387,10 +6418,10 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
           </div>
         </div>
         {lineTest && lineTest !== "sending" && (
-          <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 8, fontSize: 12, background: lineTest.ok ? "rgba(52,211,153,0.07)" : "rgba(239,68,68,0.07)", border: `1px solid ${lineTest.ok ? "rgba(52,211,153,0.25)" : "rgba(239,68,68,0.25)"}`, color: lineTest.ok ? "#34d399" : "#f87171" }}>
+          <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 8, fontSize: 12, background: lineTest.ok ? "rgba(47,133,90,0.07)" : "rgba(197,48,48,0.07)", border: `1px solid ${lineTest.ok ? "rgba(47,133,90,0.25)" : "rgba(197,48,48,0.25)"}`, color: lineTest.ok ? "#2F855A" : "#C53030" }}>
             {lineTest.ok ? "✅ " : "⚠️ "}{lineTest.text}
             {!lineTest.ok && /Failed to send messages/i.test(lineTest.text) && (
-              <p style={{ margin: "6px 0 0", color: "var(--text-muted,#8a8f9d)" }}>
+              <p style={{ margin: "6px 0 0", color: "var(--text-muted,#4E6B84)" }}>
                 The OA is probably no longer in this group (or the group was recreated). Re-invite the OA to the group, send any message there, then tap Refresh here to pick up the new group ID and test again.
               </p>
             )}
@@ -6398,28 +6429,28 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
         )}
         <div
           onClick={() => { const next = !lineNotifyMuted; setLineNotifyMuted(next); try { localStorage.setItem("psr_notify_muted", next ? "1" : "0"); } catch {} }}
-          style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: lineNotifyMuted ? "rgba(239,68,68,0.07)" : "rgba(52,211,153,0.05)", border: `1px solid ${lineNotifyMuted ? "rgba(239,68,68,0.25)" : "rgba(52,211,153,0.15)"}`, cursor: "pointer", userSelect: "none" }}>
-          <div style={{ width: 36, height: 20, borderRadius: 10, background: lineNotifyMuted ? "#ef4444" : "#34d399", position: "relative", flexShrink: 0, transition: "background .2s" }}>
-            <div style={{ position: "absolute", top: 2, left: lineNotifyMuted ? 2 : 18, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+          style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: lineNotifyMuted ? "rgba(197,48,48,0.07)" : "rgba(47,133,90,0.05)", border: `1px solid ${lineNotifyMuted ? "rgba(197,48,48,0.25)" : "rgba(47,133,90,0.15)"}`, cursor: "pointer", userSelect: "none" }}>
+          <div style={{ width: 36, height: 20, borderRadius: 10, background: lineNotifyMuted ? "#C53030" : "#2F855A", position: "relative", flexShrink: 0, transition: "background .2s" }}>
+            <div style={{ position: "absolute", top: 2, left: lineNotifyMuted ? 2 : 18, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(22,50,74,0.1)" }} />
           </div>
           <div style={{ flex: 1 }}>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: lineNotifyMuted ? "#f87171" : "#34d399" }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: lineNotifyMuted ? "#C53030" : "#2F855A" }}>
               {lineNotifyMuted ? t("settingsLineMuted") : t("settingsLineActive")}
             </p>
-            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#555)" }}>
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>
               {lineNotifyMuted ? t("settingsLineMutedDesc") : t("settingsLineActiveDesc")}
             </p>
           </div>
         </div>
-        <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.8, marginTop: 14 }}>
-          <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>Connect a Group Chat (one-time):</strong>
+        <div style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", lineHeight: 1.8, marginTop: 14 }}>
+          <strong style={{ color: "var(--text,#16324A)", display: "block", marginBottom: 6 }}>Connect a Group Chat (one-time):</strong>
           1. Add your LINE OA to the group chat<br />
           2. In <strong>LINE Developers Console</strong> → Messaging API → Webhook URL, set:<br />
-          <code style={{ background: "rgba(232,184,75,0.1)", color: "var(--accent,#e8b84b)", padding: "2px 8px", borderRadius: 4, display: "inline-block", margin: "4px 0", fontSize: 11 }}>https://pickshootreturn.pages.dev/api/webhook</code><br />
+          <code style={{ background: "rgba(var(--accent-rgb,37,99,235),0.1)", color: "var(--accent,#2563EB)", padding: "2px 8px", borderRadius: 4, display: "inline-block", margin: "4px 0", fontSize: 11 }}>https://pickshootreturn.pages.dev/api/webhook</code><br />
           3. Enable <strong>Use webhook</strong> and click <strong>Verify</strong><br />
           4. The group ID is captured automatically when the OA joins or receives a message in the group
         </div>
-        <p style={{ fontSize: 11, color: "var(--text-muted,#555)", marginTop: 10 }}>
+        <p style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)", marginTop: 10 }}>
           {lineGroupId ? t("settingsLineGroupConnected") : t("settingsLineGroupNotConnected")}
         </p>
       </div>
@@ -6429,23 +6460,23 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
         <p style={S.sectionTitle}>Internal Chat</p>
         <div
           onClick={() => setChatEnabled(v => !v)}
-          style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: chatEnabled ? "rgba(52,211,153,0.05)" : "rgba(255,255,255,0.03)", border: `1px solid ${chatEnabled ? "rgba(52,211,153,0.2)" : "#252830"}`, cursor: "pointer", userSelect: "none" }}
+          style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: chatEnabled ? "rgba(47,133,90,0.05)" : "rgba(22,50,74,0.04)", border: `1px solid ${chatEnabled ? "rgba(47,133,90,0.2)" : "var(--divider-color,#D8E1EC)"}`, cursor: "pointer", userSelect: "none" }}
         >
-          <div style={{ width: 36, height: 20, borderRadius: 10, background: chatEnabled ? "#34d399" : "#374151", position: "relative", flexShrink: 0, transition: "background .2s" }}>
-            <div style={{ position: "absolute", top: 2, left: chatEnabled ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+          <div style={{ width: 36, height: 20, borderRadius: 10, background: chatEnabled ? "#2F855A" : "#C9D4DF", position: "relative", flexShrink: 0, transition: "background .2s" }}>
+            <div style={{ position: "absolute", top: 2, left: chatEnabled ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(22,50,74,0.1)" }} />
           </div>
           <div style={{ flex: 1 }}>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: chatEnabled ? "#34d399" : "var(--text-muted,#666)" }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: chatEnabled ? "#2F855A" : "var(--text-muted,#5F7A91)" }}>
               {chatEnabled ? "Chat Enabled" : "Chat Disabled"}
             </p>
-            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#555)" }}>
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>
               {chatEnabled ? "Team members can send real-time messages" : "Enable real-time group chat for the whole team"}
             </p>
           </div>
-          <Icon d={icons.chat} size={16} color={chatEnabled ? "#34d399" : "#374151"} />
+          <Icon d={icons.chat} size={16} color={chatEnabled ? "#2F855A" : "#C9D4DF"} />
         </div>
         {chatEnabled && (
-          <p style={{ fontSize: 11, color: "var(--text-muted,#555)", marginTop: 10, lineHeight: 1.6 }}>
+          <p style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)", marginTop: 10, lineHeight: 1.6 }}>
             Messages appear instantly on all devices. Chat history is stored per-session (last 200 messages).
           </p>
         )}
@@ -6454,15 +6485,15 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
       <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>{t("settingsCalSync")}</p>
         <div style={S.col}>
-          <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.7 }}>
-            Subscribe to the job schedule in your iPhone Calendar. Pencil jobs appear as <strong style={{ color: "var(--text,#e8e4dc)" }}>tentative (striped)</strong>, Confirmed as <strong style={{ color: "#34d399" }}>solid</strong>. Auto-refreshes hourly.
+          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.7 }}>
+            Subscribe to the job schedule in your iPhone Calendar. Pencil jobs appear as <strong style={{ color: "var(--text,#16324A)" }}>tentative (striped)</strong>, Confirmed as <strong style={{ color: "#2F855A" }}>solid</strong>. Auto-refreshes hourly.
           </p>
-          <div style={{ fontSize: 12, color: "var(--text-muted,#666)", lineHeight: 1.8 }}>
-            <strong style={{ color: "var(--text,#e8e4dc)", display: "block", marginBottom: 6 }}>{t("settingsCalDescTitle")}</strong>
+          <div style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", lineHeight: 1.8 }}>
+            <strong style={{ color: "var(--text,#16324A)", display: "block", marginBottom: 6 }}>{t("settingsCalDescTitle")}</strong>
             1. Open <strong>Settings → Calendar → Accounts → Add Account → Other</strong><br />
             2. Tap <strong>Add Subscribed Calendar</strong><br />
             3. Paste this URL:<br />
-            <code style={{ background: "rgba(232,184,75,0.1)", color: "var(--accent,#e8b84b)", padding: "2px 8px", borderRadius: 4, display: "inline-block", margin: "4px 0", fontSize: 11 }}>https://pickshootreturn.pages.dev/api/calendar</code><br />
+            <code style={{ background: "rgba(var(--accent-rgb,37,99,235),0.1)", color: "var(--accent,#2563EB)", padding: "2px 8px", borderRadius: 4, display: "inline-block", margin: "4px 0", fontSize: 11 }}>https://pickshootreturn.pages.dev/api/calendar</code><br />
             4. Tap <strong>Next</strong> → <strong>Save</strong>
           </div>
           <button style={{ ...S.btn("ghost"), alignSelf: "flex-start", fontSize: 12 }} onClick={() => { navigator.clipboard?.writeText("https://pickshootreturn.pages.dev/api/calendar"); }}>
@@ -6474,7 +6505,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
       <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>{t("settingsAdminPin")}</p>
         <div style={S.col}>
-          <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0 }}>{t("settingsCurrPin")}: <strong style={{ color: "var(--accent,#e8b84b)", fontFamily: "monospace" }}>{adminPin}</strong></p>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("settingsCurrPin")}: <strong style={{ color: "var(--accent,#2563EB)", fontFamily: "monospace" }}>{adminPin}</strong></p>
           <div style={S.row}>
             <div style={{ flex: 1 }}>
               <label style={S.label}>{t("settingsNewPin")}</label>
@@ -6485,7 +6516,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
               <input style={S.input} type="password" inputMode="numeric" maxLength={6} value={apForm.confirmPin} onChange={e => setApForm(p => ({ ...p, confirmPin: e.target.value.replace(/\D/g, "") }))} placeholder={t("settingsPinReEnter")} />
             </div>
           </div>
-          {apMsg && <p style={{ fontSize: 12, color: apMsg.ok ? "#34d399" : "#f87171", margin: 0 }}>{apMsg.text}</p>}
+          {apMsg && <p style={{ fontSize: 12, color: apMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{apMsg.text}</p>}
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
             <button style={S.btn("primary")} onClick={() => {
               const { newPin, confirmPin } = apForm;
@@ -6503,16 +6534,16 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
       <div style={S.card}>
         <p style={S.sectionTitle}>{t("settingsBackup")}</p>
         <div style={S.col}>
-          <p style={{ fontSize: 13, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>{t("settingsBackupDesc")}</p>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.6 }}>{t("settingsBackupDesc")}</p>
           {lastBackupAt && (
-            <p style={{ fontSize: 12, color: "var(--text-muted,#666)", margin: 0 }}>
-              {t("settingsLastBackup")}: <strong style={{ color: "var(--text,#e8e4dc)" }}>{new Date(lastBackupAt).toLocaleString()}</strong>
+            <p style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", margin: 0 }}>
+              {t("settingsLastBackup")}: <strong style={{ color: "var(--text,#16324A)" }}>{new Date(lastBackupAt).toLocaleString()}</strong>
             </p>
           )}
-          {backupStatus === "saved" && <p style={{ fontSize: 12, color: "#34d399", margin: 0 }}>{t("settingsBackupSaved")}</p>}
-          {backupStatus === "error" && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>{t("settingsBackupError")}</p>}
-          {backupStatus === "restored" && <p style={{ fontSize: 12, color: "#34d399", margin: 0 }}>{t("settingsBackupRestored")}</p>}
-          {backupStatus === "no-backup" && <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>{t("settingsBackupNoBackup")}</p>}
+          {backupStatus === "saved" && <p style={{ fontSize: 12, color: "#2F855A", margin: 0 }}>{t("settingsBackupSaved")}</p>}
+          {backupStatus === "error" && <p style={{ fontSize: 12, color: "#C53030", margin: 0 }}>{t("settingsBackupError")}</p>}
+          {backupStatus === "restored" && <p style={{ fontSize: 12, color: "#2F855A", margin: 0 }}>{t("settingsBackupRestored")}</p>}
+          {backupStatus === "no-backup" && <p style={{ fontSize: 12, color: "#C53030", margin: 0 }}>{t("settingsBackupNoBackup")}</p>}
           <div style={S.row}>
             <button
               style={{ ...S.btn("primary"), flex: 1, justifyContent: "center", opacity: backupStatus === "saving" ? 0.7 : 1 }}
@@ -6545,8 +6576,8 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             </button>
           </div>
           {backupStatus === "confirm-restore" ? (
-            <div style={{ background: "rgba(248,113,113,0.1)", border: "1px solid #f87171", borderRadius: 8, padding: "12px 14px" }}>
-              <p style={{ fontSize: 13, color: "#f87171", margin: "0 0 10px 0", fontWeight: 600 }}>{t("settingsRestoreConfirmMsg")}</p>
+            <div style={{ background: "rgba(248,113,113,0.1)", border: "1px solid #C53030", borderRadius: 8, padding: "12px 14px" }}>
+              <p style={{ fontSize: 13, color: "#C53030", margin: "0 0 10px 0", fontWeight: 600 }}>{t("settingsRestoreConfirmMsg")}</p>
               <div style={S.row}>
                 <button style={{ ...S.btn("danger"), flex: 1, justifyContent: "center" }} onClick={async () => {
                   setBackupStatus("restoring");
@@ -6564,7 +6595,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             </div>
           ) : (
             <button
-              style={{ ...S.btn("ghost"), justifyContent: "center", borderColor: "#f87171", color: "#f87171", opacity: backupStatus === "saving" || backupStatus === "restoring" ? 0.5 : 1 }}
+              style={{ ...S.btn("ghost"), justifyContent: "center", borderColor: "#C53030", color: "#C53030", opacity: backupStatus === "saving" || backupStatus === "restoring" ? 0.5 : 1 }}
               disabled={backupStatus === "saving" || backupStatus === "restoring"}
               onClick={() => setBackupStatus("confirm-restore")}>
               {t("settingsRestoreFromBackup")}
@@ -6592,14 +6623,14 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
 
       <div style={{ ...S.card, marginTop: 20 }}>
         <p style={S.sectionTitle}>{t("settingsSystemInfo")}</p>
-        <p style={{ fontSize: 13, color: "#666" }}>{t("settingsSysDesc1")}</p>
-        <p style={{ fontSize: 13, color: "#666", marginTop: 8 }}>{t("settingsSysDesc2")}</p>
+        <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("settingsSysDesc1")}</p>
+        <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", marginTop: 8 }}>{t("settingsSysDesc2")}</p>
       </div>
 
       {/* Save all settings */}
       <div style={{ position: "sticky", bottom: 16, zIndex: 20, marginTop: 20 }}>
         <button
-          style={{ ...S.btn(saveState === "saved" ? "success" : saveState && saveState.error ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, boxShadow: "0 4px 24px rgba(0,0,0,0.5)", opacity: saveState === "saving" ? 0.75 : 1 }}
+          style={{ ...S.btn(saveState === "saved" ? "success" : saveState && saveState.error ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, boxShadow: "0 4px 24px rgba(22,50,74,0.17)", opacity: saveState === "saving" ? 0.75 : 1 }}
           disabled={saveState === "saving"}
           onClick={async () => {
             setSaveState("saving");
@@ -6614,12 +6645,12 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
             : t("settingsSaveAll")}
         </button>
         {saveState && saveState.error && (
-          <p style={{ fontSize: 12, color: "#f87171", textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>⚠ {saveState.error}</p>
+          <p style={{ fontSize: 12, color: "#C53030", textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>⚠ {saveState.error}</p>
         )}
         {saveState === "saved" && (
-          <p style={{ fontSize: 11, color: "#34d399", textAlign: "center", margin: "8px 0 0" }}>{t("settingsSavedAt")} {new Date().toLocaleTimeString()}</p>
+          <p style={{ fontSize: 11, color: "#2F855A", textAlign: "center", margin: "8px 0 0" }}>{t("settingsSavedAt")} {new Date().toLocaleTimeString()}</p>
         )}
-        <p style={{ fontSize: 11, color: "var(--text-muted,#666)", textAlign: "center", margin: "8px 0 0" }}>{t("settingsSaveHint")}</p>
+        <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", textAlign: "center", margin: "8px 0 0" }}>{t("settingsSaveHint")}</p>
       </div>
 
       </div>
@@ -6905,7 +6936,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
 
   const previewAdminInvoice = async (inv, doPrint = true) => {
     const win = window.open("", "_blank");
-    if (win) win.document.write('<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:14px">Loading…</body></html>');
+    if (win) win.document.write('<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:var(--text-muted,#6E8398);font-size:14px">Loading…</body></html>');
     const profileInfo = { phone: adminProfileInfo.phone, email: adminProfileInfo.email, legalAddress: adminProfileInfo.legalAddress, bankName: adminProfileInfo.bankName, bankAccount: adminProfileInfo.bankAccount, accountName: adminProfileInfo.accountName };
     const html = buildInvoiceHTML({ invoice: inv, employee: adminEmployee, profileInfo, promptPayQR: adminPromptPayQR, idCard: null, signature: adminSignature, productionCompanies, companyName, autoPrint: doPrint, headerLogo, headerLogoPos, watermarkLogo, watermarkLogoPos });
     if (win) { win.document.open(); win.document.write(html); win.document.close(); }
@@ -6917,7 +6948,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
     // Open window immediately while still in user-gesture context — popup blockers only allow
     // window.open() synchronously from a click handler, not after an await.
     const win = window.open("", "_blank");
-    if (win) win.document.write('<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:#888;font-size:14px">Loading invoice…</body></html>');
+    if (win) win.document.write('<html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;color:var(--text-muted,#6E8398);font-size:14px">Loading invoice…</body></html>');
     try {
       const emp = employees.find(e => e.id === inv.employeeId) || { name: inv.employeeName, id: inv.employeeId };
       const profileData = await api.getProfile(inv.employeeId).catch(() => null);
@@ -6991,9 +7022,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
           </div>
           {productionCompanies.length === 0 ? (
             <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
-              <Icon d={icons.building} size={36} color="var(--text-muted,#444)" />
-              <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No production companies yet.</p>
-              <p style={{ color: "var(--text-muted,#555)", fontSize: 12, marginTop: 4 }}>Add one — it will appear as a suggestion when creating jobs.</p>
+              <Icon d={icons.building} size={36} color="var(--text-muted,#8CA2B5)" />
+              <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13, marginTop: 12 }}>No production companies yet.</p>
+              <p style={{ color: "var(--text-muted,#7B8FA3)", fontSize: 12, marginTop: 4 }}>Add one — it will appear as a suggestion when creating jobs.</p>
             </div>
           ) : (
             <div style={S.col}>
@@ -7017,21 +7048,22 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                   const { count, paid, due } = coStats(co);
                   return (
                     <div key={co.id} style={{ ...S.card, display: "flex", alignItems: "flex-start", gap: 14 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(232,184,75,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
-                        <Icon d={icons.building} size={16} color="var(--accent,#e8b84b)" />
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(var(--accent-rgb,37,99,235),0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
+                        <Icon d={icons.building} size={16} color="var(--accent,#2563EB)" />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                          <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--text,#e8e4dc)" }}>{co.name}</p>
-                          {!co.address && <span style={{ fontSize: 10, fontWeight: 600, color: "#f87171", background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 4, padding: "1px 6px", letterSpacing: ".03em", flexShrink: 0 }}>Incomplete</span>}
+                          <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--text,#16324A)" }}>{co.name}</p>
+                          {!co.address && <span style={{ fontSize: 10, fontWeight: 600, color: "#C53030", background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 4, padding: "1px 6px", letterSpacing: ".03em", flexShrink: 0 }}>Incomplete</span>}
+                          {co.addedByName && <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted,#4E6B84)", background: "rgba(138,143,157,0.12)", border: "1px solid rgba(138,143,157,0.3)", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>{co.addedByName} added</span>}
                         </div>
-                        {co.address ? <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#666)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{co.address}</p>
-                          : <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#444)", fontStyle: "italic" }}>No billing address</p>}
+                        {co.address ? <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{co.address}</p>
+                          : <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#8CA2B5)", fontStyle: "italic" }}>No billing address</p>}
                         {count > 0 && (
                           <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
-                            <span style={{ fontSize: 11, color: "#8a8f9d" }}>{count} doc{count !== 1 ? "s" : ""}</span>
-                            {paid > 0 && <span style={{ fontSize: 11, color: "#34d399" }}>฿{paid.toLocaleString()} paid</span>}
-                            {due > 0 && <span style={{ fontSize: 11, color: "#e8b84b" }}>฿{due.toLocaleString()} due</span>}
+                            <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{count} doc{count !== 1 ? "s" : ""}</span>
+                            {paid > 0 && <span style={{ fontSize: 11, color: "#2F855A" }}>฿{paid.toLocaleString()} paid</span>}
+                            {due > 0 && <span style={{ fontSize: 11, color: "var(--accent,#2563EB)" }}>฿{due.toLocaleString()} due</span>}
                           </div>
                         )}
                       </div>
@@ -7069,8 +7101,8 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
               .sort((a, b) => b.updatedAt - a.updatedAt);
             if (declined.length === 0) return (
               <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
-                <Icon d={icons.invoice} size={36} color="var(--text-muted,#444)" />
-                <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No declined quotations.</p>
+                <Icon d={icons.invoice} size={36} color="var(--text-muted,#8CA2B5)" />
+                <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13, marginTop: 12 }}>No declined quotations.</p>
               </div>
             );
             // Group by Month/Year of updatedAt
@@ -7087,7 +7119,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
               <div style={S.col}>
                 {months.map((month, mi) => (
                   <div key={month.key}>
-                    {mi > 0 && <div style={{ height: 1, background: "#2e3340", margin: "4px 0 10px" }} />}
+                    {mi > 0 && <div style={{ height: 1, background: "var(--border-color,#D8E1EC)", margin: "4px 0 10px" }} />}
                     <p style={{ ...S.sectionTitle, marginBottom: 8 }}>{month.label}</p>
                     {month.docs.map((inv, idx, arr) => {
                       const total = calcTotal(inv);
@@ -7095,9 +7127,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                         <div key={inv.id} style={{ ...S.card, padding: "10px 14px", marginBottom: 8 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                             <span style={{ ...S.badge("red"), fontSize: 9, flexShrink: 0 }}>Declined</span>
-                            <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</span>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{inv.jobName || "—"}{inv.productionCompany ? <span style={{ color: "var(--text-muted,#8a8f9d)", fontWeight: 400 }}> · {inv.productionCompany}</span> : null}</span>
-                            <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
+                            <span style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{inv.jobName || "—"}{inv.productionCompany ? <span style={{ color: "var(--text-muted,#4E6B84)", fontWeight: 400 }}> · {inv.productionCompany}</span> : null}</span>
+                            <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#2563EB)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
                             <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                               <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
                               <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
@@ -7125,8 +7157,8 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             });
             if (filtered.length === 0) return (
               <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
-                <Icon d={icons.invoice} size={36} color="var(--text-muted,#444)" />
-                <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No documents found.</p>
+                <Icon d={icons.invoice} size={36} color="var(--text-muted,#8CA2B5)" />
+                <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13, marginTop: 12 }}>No documents found.</p>
               </div>
             );
             // Group by job
@@ -7191,10 +7223,10 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 !invoices.some(i => !i._deleted && i.jobId === group.key && (i.docType === "invoice" || !i.docType) && i.employeeId === "admin");
               return (
                 <div key={group.key} style={S.card}>
-                  <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #252830", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--divider-color,#D8E1EC)", display: "flex", alignItems: "flex-start", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.jobName}{group.productionCompany ? <span style={{ color: "var(--text-muted,#8a8f9d)", fontWeight: 400, margin: "0 5px" }}>·</span> : null}{group.productionCompany ? <span>{group.productionCompany}</span> : null}</p>
-                      {empNames ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#8a8f9d)" }}>{empNames}</p> : null}
+                      <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.jobName}{group.productionCompany ? <span style={{ color: "var(--text-muted,#4E6B84)", fontWeight: 400, margin: "0 5px" }}>·</span> : null}{group.productionCompany ? <span>{group.productionCompany}</span> : null}</p>
+                      {empNames ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{empNames}</p> : null}
                     </div>
                     {groupMissingAdminInv && (
                       <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px", flexShrink: 0 }} onClick={() => handleRegenerateInv(group.key)} title="Recreate the admin INV for this job">Regen INV</button>
@@ -7208,19 +7240,19 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                       ? (st === "Confirmed" ? "green" : st === "Declined" ? "red" : "amber")
                       : (isPaid ? "green" : "amber");
                     return (
-                      <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", flexWrap: "wrap" }}>
+                      <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", flexWrap: "wrap" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 5, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
                           <span style={{ ...S.badge("blue"), fontSize: 9, flexShrink: 0 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
                           <span style={{ ...S.badge(statusColor), fontSize: 9, flexShrink: 0 }}>{st}</span>
                           {inv.docType === "receipt" && (
-                            <span style={{ fontSize: 9, fontWeight: 700, flexShrink: 0, borderRadius: 4, padding: "1px 5px", border: `1px solid ${inv.whTaxDoc ? "rgba(52,211,153,0.4)" : "rgba(232,184,75,0.4)"}`, color: inv.whTaxDoc ? "#34d399" : "#e8b84b", background: inv.whTaxDoc ? "rgba(52,211,153,0.1)" : "rgba(232,184,75,0.1)" }}>W/H DOC</span>
+                            <span style={{ fontSize: 9, fontWeight: 700, flexShrink: 0, borderRadius: 4, padding: "1px 5px", border: `1px solid ${inv.whTaxDoc ? "rgba(47,133,90,0.4)" : "rgba(var(--accent-rgb,37,99,235),0.4)"}`, color: inv.whTaxDoc ? "#2F855A" : "var(--accent,#2563EB)", background: inv.whTaxDoc ? "rgba(47,133,90,0.1)" : "rgba(var(--accent-rgb,37,99,235),0.1)" }}>W/H DOC</span>
                           )}
-                          <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtInvoiceNo(inv)}</span>
+                          <span style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtInvoiceNo(inv)}</span>
                           {inv.docType === "receipt" && inv.paidDate && (
-                            <span style={{ fontSize: 10, color: "var(--text-muted,#666)", whiteSpace: "nowrap" }}>· Paid {new Date(inv.paidDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                            <span style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)", whiteSpace: "nowrap" }}>· Paid {new Date(inv.paidDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
                           )}
                         </div>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#2563EB)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
                         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                           <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
                           <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
@@ -7244,10 +7276,10 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
 
             const summaryRow = (m, style = {}) => (
               <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr 1fr", gap: "4px 10px", alignItems: "center", ...style }}>
-                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{m.label}</p>
-                <p style={{ margin: 0, fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--text,#e8e4dc)" }}>฿{Math.round(m.subtotal).toLocaleString()}</p>
-                <p style={{ margin: 0, fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--text-muted,#8a8f9d)" }}>฿{Math.round(m.vatAmount).toLocaleString()}</p>
-                <p style={{ margin: 0, fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--accent,#e8b84b)", fontWeight: 700 }}>฿{Math.round(m.total).toLocaleString()}</p>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#16324A)" }}>{m.label}</p>
+                <p style={{ margin: 0, fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--text,#16324A)" }}>฿{Math.round(m.subtotal).toLocaleString()}</p>
+                <p style={{ margin: 0, fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--text-muted,#4E6B84)" }}>฿{Math.round(m.vatAmount).toLocaleString()}</p>
+                <p style={{ margin: 0, fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--accent,#2563EB)", fontWeight: 700 }}>฿{Math.round(m.total).toLocaleString()}</p>
               </div>
             );
 
@@ -7259,19 +7291,19 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                     <div style={{ display: "grid", gridTemplateColumns: "80px 1fr 1fr 1fr", gap: "6px 10px", alignItems: "center" }}>
                       <div />
                       {["Subtotal", "VAT 7%", "Total"].map(h => (
-                        <p key={h} style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "var(--text-muted,#8a8f9d)", textAlign: "right", letterSpacing: ".03em" }}>{h}</p>
+                        <p key={h} style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "var(--text-muted,#4E6B84)", textAlign: "right", letterSpacing: ".03em" }}>{h}</p>
                       ))}
                       {monthSummary.map(m => (<>
-                        <p key={m.label + "-l"} style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{m.label}</p>
-                        <p key={m.label + "-st"} style={{ margin: 0, fontSize: 12, textAlign: "right", color: "var(--text,#e8e4dc)", fontFamily: "monospace" }}>฿{Math.round(m.subtotal).toLocaleString()}</p>
-                        <p key={m.label + "-vat"} style={{ margin: 0, fontSize: 12, textAlign: "right", color: "var(--text-muted,#8a8f9d)", fontFamily: "monospace" }}>฿{Math.round(m.vatAmount).toLocaleString()}</p>
-                        <p key={m.label + "-tt"} style={{ margin: 0, fontSize: 12, textAlign: "right", color: "var(--accent,#e8b84b)", fontWeight: 700, fontFamily: "monospace" }}>฿{Math.round(m.total).toLocaleString()}</p>
+                        <p key={m.label + "-l"} style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#16324A)" }}>{m.label}</p>
+                        <p key={m.label + "-st"} style={{ margin: 0, fontSize: 12, textAlign: "right", color: "var(--text,#16324A)", fontFamily: "monospace" }}>฿{Math.round(m.subtotal).toLocaleString()}</p>
+                        <p key={m.label + "-vat"} style={{ margin: 0, fontSize: 12, textAlign: "right", color: "var(--text-muted,#4E6B84)", fontFamily: "monospace" }}>฿{Math.round(m.vatAmount).toLocaleString()}</p>
+                        <p key={m.label + "-tt"} style={{ margin: 0, fontSize: 12, textAlign: "right", color: "var(--accent,#2563EB)", fontWeight: 700, fontFamily: "monospace" }}>฿{Math.round(m.total).toLocaleString()}</p>
                       </>))}
                       {monthSummary.length > 1 && (<>
-                        <p style={{ margin: "6px 0 0", fontSize: 11, fontWeight: 700, color: "var(--text-muted,#666)", borderTop: "1px solid #252830", paddingTop: 6 }}>Total</p>
-                        <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", borderTop: "1px solid #252830", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.subtotal, 0)).toLocaleString()}</p>
-                        <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--text-muted,#8a8f9d)", borderTop: "1px solid #252830", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.vatAmount, 0)).toLocaleString()}</p>
-                        <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--accent,#e8b84b)", fontWeight: 700, borderTop: "1px solid #252830", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.total, 0)).toLocaleString()}</p>
+                        <p style={{ margin: "6px 0 0", fontSize: 11, fontWeight: 700, color: "var(--text-muted,#5F7A91)", borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 6 }}>Total</p>
+                        <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.subtotal, 0)).toLocaleString()}</p>
+                        <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--text-muted,#4E6B84)", borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.vatAmount, 0)).toLocaleString()}</p>
+                        <p style={{ margin: "6px 0 0", fontSize: 12, textAlign: "right", fontFamily: "monospace", color: "var(--accent,#2563EB)", fontWeight: 700, borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 6 }}>฿{Math.round(monthSummary.reduce((s, m) => s + m.total, 0)).toLocaleString()}</p>
                       </>)}
                     </div>
                   </div>
@@ -7279,7 +7311,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 {monthBuckets ? (
                   monthBuckets.map((bucket, bi) => (
                     <div key={bucket.key}>
-                      {bi > 0 && <div style={{ height: 1, background: "#2e3340", margin: "6px 0" }} />}
+                      {bi > 0 && <div style={{ height: 1, background: "var(--border-color,#D8E1EC)", margin: "6px 0" }} />}
                       {summaryRow(bucket, { padding: "6px 4px" })}
                       <div style={S.col}>
                         {bucket.groups.map(renderGroup)}
@@ -7302,8 +7334,8 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             const teamInvoices = invoices.filter(inv => !inv._deleted && inv.employeeId !== "admin");
             if (teamInvoices.length === 0) return (
               <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
-                <Icon d={icons.invoice} size={36} color="var(--text-muted,#444)" />
-                <p style={{ color: "var(--text-muted,#666)", fontSize: 13, marginTop: 12 }}>No team invoices yet.</p>
+                <Icon d={icons.invoice} size={36} color="var(--text-muted,#8CA2B5)" />
+                <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13, marginTop: 12 }}>No team invoices yet.</p>
               </div>
             );
             const groupMap = {};
@@ -7315,22 +7347,22 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             const groups = Object.values(groupMap).sort((a, b) => (a.employeeName || "").localeCompare(b.employeeName || ""));
             return groups.map(group => (
               <div key={group.employeeId} style={S.card}>
-                <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #252830" }}>
+                <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
                   <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.employeeName}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#8a8f9d)" }}>{group.docs.length} document{group.docs.length !== 1 ? "s" : ""}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{group.docs.length} document{group.docs.length !== 1 ? "s" : ""}</p>
                 </div>
                 {[...group.docs].sort((a, b) => b.updatedAt - a.updatedAt).map((inv, idx, arr) => {
                   const total = calcTotal(inv);
                   const isPaid = (inv.status || "Pending") === "Paid";
                   return (
-                    <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", flexWrap: "wrap" }}>
+                    <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", flexWrap: "wrap" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 5, flex: 1, minWidth: 0 }}>
                         <span style={{ ...S.badge("blue"), fontSize: 9, flexShrink: 0 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
                         <span style={{ ...S.badge(isPaid ? "green" : "amber"), fontSize: 9, flexShrink: 0 }}>{inv.status || "Pending"}</span>
-                        <span style={{ fontSize: 10, color: "var(--text-muted,#666)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtInvoiceNo(inv)}</span>
-                        {inv.jobName && <span style={{ fontSize: 10, color: "var(--text-muted,#555)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {inv.jobName}</span>}
+                        <span style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmtInvoiceNo(inv)}</span>
+                        {inv.jobName && <span style={{ fontSize: 10, color: "var(--text-muted,#7B8FA3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>· {inv.jobName}</span>}
                       </div>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#e8b84b)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#2563EB)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
                       <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                         <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
                         <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
@@ -7352,9 +7384,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
 
       {/* My Info slide panel */}
       {myInfoPanelOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 500, display: "flex", justifyContent: "flex-end" }} onClick={e => { if (e.target === e.currentTarget) setMyInfoPanelOpen(false); }}>
-          <div style={{ width: "min(380px,100vw)", background: "var(--bg,#0f1117)", height: "100%", overflowY: "auto", borderLeft: "1px solid #252830", display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px", borderBottom: "1px solid #252830" }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(22,50,74,0.45)", zIndex: 500, display: "flex", justifyContent: "flex-end" }} onClick={e => { if (e.target === e.currentTarget) setMyInfoPanelOpen(false); }}>
+          <div style={{ width: "min(380px,100vw)", background: "var(--bg,#F4F7FB)", height: "100%", overflowY: "auto", borderLeft: "1px solid var(--divider-color,#D8E1EC)", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
               <p style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>My Info</p>
               <button style={{ ...S.btn("ghost"), padding: "6px 10px" }} onClick={() => setMyInfoPanelOpen(false)}><Icon d={icons.x} size={16} /></button>
             </div>
@@ -7365,12 +7397,12 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 { key: "doc", label: "Document", sub: [headerLogo && "Header logo", watermarkLogo && "Watermark logo"].filter(Boolean).join(" · ") || "Logos, signature, bank details", open: () => { setAdminDocOpen(true); setMyInfoPanelOpen(false); } },
                 { key: "presets", label: "Invoice Item Presets", sub: invoicePresets.length ? `${invoicePresets.length} preset${invoicePresets.length > 1 ? "s" : ""}` : "Quick-add line items", open: () => { setAdminPresetsOpen(true); setMyInfoPanelOpen(false); } },
               ].map(({ key, label, sub, open }, idx, arr) => (
-                <button key={key} onClick={open} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", background: "none", border: "none", borderBottom: idx < arr.length - 1 ? "1px solid #1e2230" : "none", cursor: "pointer", textAlign: "left" }}>
+                <button key={key} onClick={open} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", background: "none", border: "none", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", cursor: "pointer", textAlign: "left" }}>
                   <div>
-                    <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{label}</p>
-                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>{sub}</p>
+                    <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text,#16324A)" }}>{label}</p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{sub}</p>
                   </div>
-                  <Icon d={icons.arrow_left} size={14} color="var(--text-muted,#555)" strokeW={2} style={{ transform: "rotate(180deg)", flexShrink: 0, marginLeft: 8 }} />
+                  <Icon d={icons.arrow_left} size={14} color="var(--text-muted,#7B8FA3)" strokeW={2} style={{ transform: "rotate(180deg)", flexShrink: 0, marginLeft: 8 }} />
                 </button>
               ))}
             </div>
@@ -7382,7 +7414,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {adminMyInfoOpen && (
         <Modal title="My Info" onClose={() => setAdminMyInfoOpen(false)}>
           <div style={S.col}>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>Your personal details appear on invoices and documents.</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.6 }}>Your personal details appear on invoices and documents.</p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div><label style={S.label}>First Name</label><input style={S.input} placeholder="e.g. Koon" value={adminProfileInfo.firstName} onChange={e => setAdminProfileInfo(p => ({ ...p, firstName: e.target.value }))} /></div>
               <div><label style={S.label}>Last Name</label><input style={S.input} placeholder="e.g. Smith" value={adminProfileInfo.lastName} onChange={e => setAdminProfileInfo(p => ({ ...p, lastName: e.target.value }))} /></div>
@@ -7390,9 +7422,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             <div><label style={S.label}>Phone</label><input style={S.input} placeholder="e.g. +66 81 234 5678" value={adminProfileInfo.phone} onChange={e => setAdminProfileInfo(p => ({ ...p, phone: e.target.value }))} /></div>
             <div><label style={S.label}>Email</label><input style={S.input} type="email" placeholder="e.g. name@email.com" value={adminProfileInfo.email} onChange={e => setAdminProfileInfo(p => ({ ...p, email: e.target.value }))} /></div>
             <div><label style={S.label}>Legal Address</label><textarea style={{ ...S.input, height: 80, resize: "vertical", lineHeight: 1.5 }} placeholder={"e.g. 123 Sukhumvit Rd\nBangkok 10110\nThailand"} value={adminProfileInfo.legalAddress} onChange={e => setAdminProfileInfo(p => ({ ...p, legalAddress: e.target.value }))} /></div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid #252830", marginTop: 4 }}>
-              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
-              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid var(--divider-color,#D8E1EC)", marginTop: 4 }}>
+              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#2F855A" }}>Saved</span>}
+              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#C53030" }}>Save failed</span>}
               <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={saveAdminProfile} disabled={adminSaveStatus === "saving"}>{adminSaveStatus === "saving" ? "Saving…" : "Save Profile"}</button>
             </div>
           </div>
@@ -7403,14 +7435,14 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {adminPosOpen && (
         <Modal title={t("positionsTitle")} onClose={() => setAdminPosOpen(false)}>
           <div style={S.col}>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>{t("positionsDesc")}</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.6 }}>{t("positionsDesc")}</p>
             {adminPositions.length < 5 && <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12, alignSelf: "flex-start" }} onClick={addAdminPosition}><Icon d={icons.plus} size={12} /> {t("addRoleBtn")}</button>}
-            {adminPositions.length === 0 && <p style={{ fontSize: 13, color: "#666", margin: 0 }}>{t("positionsEmpty")}</p>}
+            {adminPositions.length === 0 && <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("positionsEmpty")}</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {adminPositions.map((pos, i) => {
                 const rph = (parseFloat(pos.dayRate) || 0) / (parseFloat(pos.hoursPerDay) || 12);
                 return (
-                  <div key={pos.id} style={{ border: "1px solid #2e3340", borderRadius: 10, padding: 14, background: "rgba(255,255,255,0.02)" }}>
+                  <div key={pos.id} style={{ border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 10, padding: 14, background: "rgba(22,50,74,0.04)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                       <span style={S.badge("amber")}>{t("roleLabel")} {i + 1}</span>
                       <div style={{ flex: 1 }} />
@@ -7422,7 +7454,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                         <div><label style={S.label}>{t("dayRateLabel")}</label><input style={S.input} type="number" min="0" inputMode="decimal" value={pos.dayRate} placeholder="4500" onChange={e => updateAdminPosition(pos.id, { dayRate: e.target.value })} /></div>
                         <div><label style={S.label}>{t("hoursPerDayLabel")}</label><input style={S.input} type="number" min="1" inputMode="decimal" value={pos.hoursPerDay} placeholder="12" onChange={e => updateAdminPosition(pos.id, { hoursPerDay: e.target.value })} /></div>
                       </div>
-                      {parseFloat(pos.dayRate) > 0 && parseFloat(pos.hoursPerDay) > 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0 }}>{t("hourlyRate")}: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}{t("perHr")}</p>}
+                      {parseFloat(pos.dayRate) > 0 && parseFloat(pos.hoursPerDay) > 0 && <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("hourlyRate")}: ฿{rph.toLocaleString(undefined, { maximumFractionDigits: 2 })}{t("perHr")}</p>}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <label style={{ ...S.label, margin: 0 }}>{t("otLabel").replace("{h}", parseFloat(pos.hoursPerDay) || 12)}</label>
                         <div style={{ flex: 1 }} />
@@ -7441,19 +7473,19 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                             return (
                               <div key={ti} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 32px", gap: 6, alignItems: "center", marginBottom: 6 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                                  <span style={{ fontSize: 11, color: "#666", whiteSpace: "nowrap" }}>{from}h–</span>
+                                  <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", whiteSpace: "nowrap" }}>{from}h–</span>
                                   <input style={{ ...S.input, padding: "7px 8px" }} type="number" min="0" inputMode="decimal" value={tr.untilHour} placeholder="14" onChange={e => updateAdminTier(pos.id, ti, { untilHour: e.target.value })} />
-                                  <span style={{ fontSize: 11, color: "#666" }}>h</span>
+                                  <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>h</span>
                                 </div>
                                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                   <input style={{ ...S.input, padding: "7px 8px" }} type="number" min="1" step="0.25" inputMode="decimal" value={tr.mult} placeholder="1.5" onChange={e => updateAdminTier(pos.id, ti, { mult: e.target.value })} />
-                                  <span style={{ fontSize: 11, color: "#666" }}>×</span>
+                                  <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>×</span>
                                 </div>
                                 <button style={{ ...S.btn("danger"), padding: "5px 6px", minWidth: 0 }} onClick={() => removeAdminTier(pos.id, ti)}><Icon d={icons.x} size={12} /></button>
                               </div>
                             );
                           })}
-                          <p style={{ fontSize: 10, color: "#555", margin: "2px 0 0" }}>{t("otTiersNote")}</p>
+                          <p style={{ fontSize: 10, color: "var(--text-muted,#7B8FA3)", margin: "2px 0 0" }}>{t("otTiersNote")}</p>
                         </div>
                       )}
                     </div>
@@ -7461,9 +7493,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 );
               })}
             </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid #252830", marginTop: 4 }}>
-              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
-              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid var(--divider-color,#D8E1EC)", marginTop: 4 }}>
+              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#2F855A" }}>Saved</span>}
+              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#C53030" }}>Save failed</span>}
               <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={saveAdminProfile} disabled={adminSaveStatus === "saving"}>{adminSaveStatus === "saving" ? "Saving…" : "Save Profile"}</button>
             </div>
           </div>
@@ -7480,7 +7512,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 <div>
                   <label style={S.label}>{t("promptPayQR")}</label>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    {adminPromptPayQR && <img src={adminPromptPayQR} alt="QR" style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff" }} />}
+                    {adminPromptPayQR && <img src={adminPromptPayQR} alt="QR" style={{ width: 80, height: 80, objectFit: "contain", borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "#fff" }} />}
                     <input ref={adminPromptPayRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; compressImage(f, { maxDim: 1000, quality: 0.85 }).then(d => d && setAdminPromptPayQR(d)); }} />
                     <button style={S.btn("ghost")} onClick={() => adminPromptPayRef.current.click()}><Icon d={icons.photo} size={14} /> {adminPromptPayQR ? t("replacePhoto") : t("uploadPhoto")}</button>
                     {adminPromptPayQR && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setAdminPromptPayQR(null)}><Icon d={icons.x} size={13} /></button>}
@@ -7496,25 +7528,25 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 </div>
                 <div>
                   <label style={S.label}>Invoice Prefix</label>
-                  <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 6px" }}>Used in invoice number: INV-<strong>XXXX</strong>-YY-####. Max 6 chars.</p>
+                  <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 6px" }}>Used in invoice number: INV-<strong>XXXX</strong>-YY-####. Max 6 chars.</p>
                   <input style={{ ...S.input, textTransform: "uppercase" }} placeholder="e.g. ADM" maxLength={6}
                     value={adminProfileInfo.invoicePrefix}
                     onChange={e => setAdminProfileInfo(p => ({ ...p, invoicePrefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))} />
                 </div>
-                <button onClick={() => setAdminProfileInfo(p => ({ ...p, showCompanyName: !p.showCompanyName }))} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: adminProfileInfo.showCompanyName ? "rgba(232,184,75,0.05)" : "rgba(255,255,255,0.02)", border: `1px solid ${adminProfileInfo.showCompanyName ? "rgba(232,184,75,0.25)" : "#252830"}`, cursor: "pointer", userSelect: "none", textAlign: "left" }}>
-                  <div style={{ width: 36, height: 20, borderRadius: 10, background: adminProfileInfo.showCompanyName ? "var(--accent,#e8b84b)" : "#444", position: "relative", flexShrink: 0, transition: "background .2s" }}>
-                    <div style={{ position: "absolute", top: 2, left: adminProfileInfo.showCompanyName ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(0,0,0,.3)" }} />
+                <button onClick={() => setAdminProfileInfo(p => ({ ...p, showCompanyName: !p.showCompanyName }))} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: adminProfileInfo.showCompanyName ? "rgba(var(--accent-rgb,37,99,235),0.05)" : "rgba(22,50,74,0.04)", border: `1px solid ${adminProfileInfo.showCompanyName ? "rgba(var(--accent-rgb,37,99,235),0.25)" : "var(--divider-color,#D8E1EC)"}`, cursor: "pointer", userSelect: "none", textAlign: "left" }}>
+                  <div style={{ width: 36, height: 20, borderRadius: 10, background: adminProfileInfo.showCompanyName ? "var(--accent,#2563EB)" : "var(--text-muted,#8CA2B5)", position: "relative", flexShrink: 0, transition: "background .2s" }}>
+                    <div style={{ position: "absolute", top: 2, left: adminProfileInfo.showCompanyName ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(22,50,74,0.1)" }} />
                   </div>
                   <div>
-                    <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: adminProfileInfo.showCompanyName ? "var(--accent,#e8b84b)" : "var(--text,#e8e4dc)" }}>Company name on invoice {adminProfileInfo.showCompanyName ? "ON" : "OFF"}</p>
-                    <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#666)", marginTop: 2 }}>{adminProfileInfo.showCompanyName ? `"${companyName || "Pick Shoot Return"}" shown at top of document` : "Company name hidden from document header"}</p>
+                    <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: adminProfileInfo.showCompanyName ? "var(--accent,#2563EB)" : "var(--text,#16324A)" }}>Company name on invoice {adminProfileInfo.showCompanyName ? "ON" : "OFF"}</p>
+                    <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#5F7A91)", marginTop: 2 }}>{adminProfileInfo.showCompanyName ? `"${companyName || "Pick Shoot Return"}" shown at top of document` : "Company name hidden from document header"}</p>
                   </div>
                 </button>
                 <div>
                   <label style={S.label}>{t("signatureSection")}</label>
-                  <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 8px" }}>{t("signatureHint")}</p>
+                  <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 8px" }}>{t("signatureHint")}</p>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    {adminSignature && <img src={adminSignature} alt="Signature" style={{ height: 50, maxWidth: 160, objectFit: "contain", borderRadius: 6, border: "1px solid #2e3340", background: "#fff", padding: 4 }} />}
+                    {adminSignature && <img src={adminSignature} alt="Signature" style={{ height: 50, maxWidth: 160, objectFit: "contain", borderRadius: 6, border: "1px solid var(--border-color,#D8E1EC)", background: "#fff", padding: 4 }} />}
                     <input ref={adminSigRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => makeSignatureTransparent(ev.target.result).then(setAdminSignature); r.readAsDataURL(f); }} />
                     <button style={S.btn("ghost")} onClick={() => adminSigRef.current.click()}><Icon d={icons.photo} size={14} /> {adminSignature ? t("replacePhoto") : t("uploadSignature")}</button>
                     {adminSignature && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setAdminSignature(null)}><Icon d={icons.x} size={13} /></button>}
@@ -7525,8 +7557,8 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
 
             <div style={{ ...S.card, marginTop: 12 }}>
               <p style={{ ...S.sectionTitle, margin: "0 0 4px" }}>A4 Preview</p>
-              <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: "0 0 10px" }}>Drag logos directly on the page. <span style={{ color: "#e8b84b" }}>H</span> = Header · <span style={{ color: "#818cf8" }}>W</span> = Watermark</p>
-              <div style={{ display: "flex", justifyContent: "center", background: "#0f1117", borderRadius: 6, padding: "14px 10px" }}>
+              <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 10px" }}>Drag logos directly on the page. <span style={{ color: "var(--accent,#2563EB)" }}>H</span> = Header · <span style={{ color: "#818cf8" }}>W</span> = Watermark</p>
+              <div style={{ display: "flex", justifyContent: "center", background: "var(--surface2,#EAF0F7)", borderRadius: 6, padding: "14px 10px" }}>
                 <div
                   ref={a4Ref}
                   style={{
@@ -7535,7 +7567,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                     maxWidth: 220,
                     aspectRatio: "210 / 297",
                     background: "#fff",
-                    boxShadow: "0 4px 24px rgba(0,0,0,0.7)",
+                    boxShadow: "0 4px 24px rgba(22,50,74,0.45)",
                     borderRadius: 2,
                     overflow: "hidden",
                     userSelect: "none",
@@ -7567,7 +7599,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                         onPointerDown={e => startLogoDrag(e, setHeaderLogoPos, headerLogoPos)}
                         onPointerMove={moveLogoDrag} onPointerUp={endLogoDrag} onPointerCancel={endLogoDrag}
                         style={{ position: "absolute", left: `${(headerLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(headerLogoPos.y / 297 * 100).toFixed(2)}%`, width: `${(headerLogoPos.width / 210 * 100).toFixed(2)}%`, opacity: headerLogoPos.opacity, cursor: "move", userSelect: "none", touchAction: "none", zIndex: 2 }} />
-                      <div style={{ position: "absolute", left: `${(headerLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(headerLogoPos.y / 297 * 100).toFixed(2)}%`, background: "rgba(232,184,75,0.9)", color: "#000", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 2, pointerEvents: "none", zIndex: 10, lineHeight: 1.4 }}>H</div>
+                      <div style={{ position: "absolute", left: `${(headerLogoPos.x / 210 * 100).toFixed(2)}%`, top: `${(headerLogoPos.y / 297 * 100).toFixed(2)}%`, background: "rgba(var(--accent-rgb,37,99,235),0.9)", color: "#fff", fontSize: 7, fontWeight: 700, padding: "1px 3px", borderRadius: 2, pointerEvents: "none", zIndex: 10, lineHeight: 1.4 }}>H</div>
                     </>
                   )}
                 </div>
@@ -7583,7 +7615,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 <div key={label} style={{ ...S.card, marginTop: 12 }}>
                   <p style={{ ...S.sectionTitle, margin: "0 0 10px" }}>{label}</p>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
-                    {logo && <img src={logo} alt="" style={{ height: 48, maxWidth: 120, objectFit: "contain", borderRadius: 4, border: "1px solid #252830", background: "#fff", padding: 2 }} />}
+                    {logo && <img src={logo} alt="" style={{ height: 48, maxWidth: 120, objectFit: "contain", borderRadius: 4, border: "1px solid var(--divider-color,#D8E1EC)", background: "#fff", padding: 2 }} />}
                     <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files[0]; if (!f) return; compressImage(f, { maxDim: 800, quality: 0.85 }).then(d => d && setLogo(d)); }} />
                     <button style={S.btn("ghost")} onClick={() => ref.current.click()}><Icon d={icons.photo} size={14} /> {logo ? "Replace" : "Upload"}</button>
                     {logo && <button style={{ ...S.btn("danger"), padding: "7px 10px" }} onClick={() => setLogo(null)}><Icon d={icons.x} size={13} /></button>}
@@ -7591,28 +7623,28 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                   {logo && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>X: {pos.x}mm</span>
+                        <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", width: 64, flexShrink: 0 }}>X: {pos.x}mm</span>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", -10)}>−10</button>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", -1)}>−1</button>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", 1)}>+1</button>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("x", 10)}>+10</button>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>Y: {pos.y}mm</span>
+                        <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", width: 64, flexShrink: 0 }}>Y: {pos.y}mm</span>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", -10)}>−10</button>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", -1)}>−1</button>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", 1)}>+1</button>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("y", 10)}>+10</button>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>W: {pos.width}mm</span>
+                        <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", width: 64, flexShrink: 0 }}>W: {pos.width}mm</span>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", -10)}>−10</button>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", -1)}>−1</button>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", 1)}>+1</button>
                         <button style={{ ...S.btn("ghost"), padding: "4px 8px", fontSize: 11 }} onClick={() => jog("width", 10)}>+10</button>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 12, color: "var(--text-muted,#666)", width: 64, flexShrink: 0 }}>Opacity: {Math.round(pos.opacity * 100)}%</span>
+                        <span style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", width: 64, flexShrink: 0 }}>Opacity: {Math.round(pos.opacity * 100)}%</span>
                         <input type="range" min="0" max="100" value={Math.round(pos.opacity * 100)} onChange={e => setPos(p => ({ ...p, opacity: parseInt(e.target.value) / 100 }))} style={{ flex: 1 }} />
                       </div>
                     </div>
@@ -7621,9 +7653,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
               );
             })}
 
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid #252830", marginTop: 4 }}>
-              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
-              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid var(--divider-color,#D8E1EC)", marginTop: 4 }}>
+              {adminSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#2F855A" }}>Saved</span>}
+              {adminSaveStatus === "error" && <span style={{ fontSize: 13, color: "#C53030" }}>Save failed</span>}
               <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={saveAdminProfile} disabled={adminSaveStatus === "saving"}>{adminSaveStatus === "saving" ? "Saving…" : "Save Profile"}</button>
             </div>
           </div>
@@ -7654,14 +7686,14 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {adminPresetsOpen && (
         <Modal title="Invoice Item Presets" onClose={() => setAdminPresetsOpen(false)}>
           <div style={S.col}>
-            <p style={{ fontSize: 11, color: "var(--text-muted,#666)", margin: 0, lineHeight: 1.6 }}>Saved items appear as quick-add chips when creating an invoice.</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.6 }}>Saved items appear as quick-add chips when creating an invoice.</p>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 12 }} onClick={() => setInvoicePresets(p => [...p, { id: "ip" + Date.now(), description: "", rate: "" }])}>
                 <Icon d={icons.plus} size={12} /> Add
               </button>
             </div>
             {invoicePresets.length === 0 && (
-              <p style={{ fontSize: 12, color: "var(--text-muted,#666)", textAlign: "center", padding: "12px 0" }}>No presets yet.</p>
+              <p style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", textAlign: "center", padding: "12px 0" }}>No presets yet.</p>
             )}
             <div style={S.col}>
               {invoicePresets.map(ip => (
@@ -7677,9 +7709,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 </div>
               ))}
             </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid #252830", marginTop: 4 }}>
-              {presetsSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#34d399" }}>Saved</span>}
-              {presetsSaveStatus === "error" && <span style={{ fontSize: 13, color: "#f87171" }}>Save failed</span>}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, paddingTop: 8, borderTop: "1px solid var(--divider-color,#D8E1EC)", marginTop: 4 }}>
+              {presetsSaveStatus === "saved" && <span style={{ fontSize: 13, color: "#2F855A" }}>Saved</span>}
+              {presetsSaveStatus === "error" && <span style={{ fontSize: 13, color: "#C53030" }}>Save failed</span>}
               <button style={{ ...S.btn("primary"), minWidth: 120 }} onClick={savePresets} disabled={presetsSaveStatus === "saving"}>{presetsSaveStatus === "saving" ? "Saving…" : "Save"}</button>
             </div>
           </div>
@@ -7725,6 +7757,7 @@ function ThemeSelector({ themeStyle, setThemeStyle, themePalette, setThemePalett
   }, [open]);
 
   const STYLE_OPTS = [
+    { id: "flat", label: "Flat" },
     { id: "neumorphism", label: "Neu" },
     { id: "glassmorphism", label: "Glass" },
     { id: "skeuomorphism", label: "Skeu" },
@@ -7737,45 +7770,45 @@ function ThemeSelector({ themeStyle, setThemeStyle, themePalette, setThemePalett
     { id: "black-yellow", dot: "#e8b84b", label: "Amber" },
     { id: "black-blue",   dot: "#3a80e8", label: "Blue" },
   ];
-  const activeDot = PALETTE_OPTS.find(p => p.id === themePalette)?.dot || "#e8b84b";
+  const activeDot = PALETTE_OPTS.find(p => p.id === themePalette)?.dot || "var(--accent,#2563EB)";
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <button
         onClick={() => setOpen(o => !o)}
-        style={{ display: "flex", alignItems: "center", gap: 5, background: open ? "rgba(232,184,75,0.1)" : "transparent", border: `1px solid ${open ? "var(--accent,#e8b84b)" : "var(--border-color,#2e3340)"}`, borderRadius: "var(--btn-radius,7px)", padding: "5px 10px", cursor: "pointer", color: "var(--text-muted,#8a8f9d)" }}
+        style={{ display: "flex", alignItems: "center", gap: 5, background: open ? "rgba(var(--accent-rgb,37,99,235),0.1)" : "transparent", border: `1px solid ${open ? "var(--accent,#2563EB)" : "var(--border-color,#D8E1EC)"}`, borderRadius: "var(--btn-radius,7px)", padding: "5px 10px", cursor: "pointer", color: "var(--text-muted,#4E6B84)" }}
         title="Theme"
       >
         <div style={{ width: 10, height: 10, borderRadius: "50%", background: activeDot, flexShrink: 0 }} />
-        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--accent,#e8b84b)" strokeWidth={1.8} strokeLinecap="round">
+        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="var(--accent,#2563EB)" strokeWidth={1.8} strokeLinecap="round">
           <path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2v-.5c0-.55.45-1 1-1h1.5a2 2 0 0 0 2-2 10 10 0 0 0-6.5-9.5M8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM12 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM16 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2z" />
         </svg>
       </button>
 
       {open && (
-        <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: "var(--card-radius,10px)", boxShadow: "0 8px 32px rgba(0,0,0,0.5)", backdropFilter: "var(--card-backdrop,none)", padding: 16, width: 210, zIndex: 300 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted,#666)", marginBottom: 8, textTransform: "uppercase" }}>Style</div>
+        <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", background: "var(--surface,#FFFFFF)", border: "var(--card-border,1px solid #D8E1EC)", borderRadius: "var(--card-radius,10px)", boxShadow: "0 8px 32px rgba(22,50,74,0.17)", backdropFilter: "var(--card-backdrop,none)", padding: 16, width: 210, zIndex: 300 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted,#5F7A91)", marginBottom: 8, textTransform: "uppercase" }}>Style</div>
           <div style={{ display: "flex", gap: 5, marginBottom: 14 }}>
             {STYLE_OPTS.map(s => (
               <button
                 key={s.id}
                 onClick={() => setThemeStyle(s.id)}
-                style={{ flex: 1, padding: "7px 4px", borderRadius: 6, border: themeStyle === s.id ? "2px solid var(--accent,#e8b84b)" : "1px solid var(--border-color,#2e3340)", background: themeStyle === s.id ? "rgba(232,184,75,0.08)" : "transparent", color: themeStyle === s.id ? "var(--accent,#e8b84b)" : "var(--text-muted,#666)", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em" }}
+                style={{ flex: 1, padding: "7px 4px", borderRadius: 6, border: themeStyle === s.id ? "2px solid var(--accent,#2563EB)" : "1px solid var(--border-color,#D8E1EC)", background: themeStyle === s.id ? "rgba(var(--accent-rgb,37,99,235),0.08)" : "transparent", color: themeStyle === s.id ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)", fontSize: 10, fontWeight: 700, cursor: "pointer", letterSpacing: "0.04em" }}
               >
                 {s.label}
               </button>
             ))}
           </div>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted,#666)", marginBottom: 8, textTransform: "uppercase" }}>Color</div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted,#5F7A91)", marginBottom: 8, textTransform: "uppercase" }}>Color</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 5 }}>
             {PALETTE_OPTS.map(pal => (
               <button
                 key={pal.id}
                 onClick={() => setThemePalette(pal.id)}
-                style={{ padding: "7px 4px", borderRadius: 6, border: themePalette === pal.id ? `2px solid ${pal.dot}` : "1px solid var(--border-color,#2e3340)", background: "transparent", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}
+                style={{ padding: "7px 4px", borderRadius: 6, border: themePalette === pal.id ? `2px solid ${pal.dot}` : "1px solid var(--border-color,#D8E1EC)", background: "transparent", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}
               >
                 <div style={{ width: 16, height: 16, borderRadius: "50%", background: pal.dot }} />
-                <span style={{ fontSize: 9, color: "var(--text-muted,#666)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>{pal.label}</span>
+                <span style={{ fontSize: 9, color: "var(--text-muted,#5F7A91)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>{pal.label}</span>
               </button>
             ))}
           </div>
@@ -7814,20 +7847,20 @@ function ChatWindow({ user, messages, onSend, onClose, isMobile }) {
       height: 460,
       zIndex: 9998,
       background: "rgba(13,15,20,0.97)",
-      border: "1px solid rgba(255,255,255,0.1)",
+      border: "1px solid rgba(22,50,74,0.1)",
       borderRadius: 16,
       backdropFilter: "blur(24px)",
       WebkitBackdropFilter: "blur(24px)",
       display: "flex",
       flexDirection: "column",
-      boxShadow: "0 20px 60px rgba(0,0,0,0.7)",
+      boxShadow: "0 20px 60px rgba(22,50,74,0.45)",
       overflow: "hidden",
     }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.07)", flexShrink: 0, gap: 10 }}>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#34d399", flexShrink: 0 }} />
-        <span style={{ fontWeight: 700, fontSize: 14, color: "#e8e4dc", flex: 1, letterSpacing: "0.01em" }}>Team Chat</span>
-        <button onClick={onClose} style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", padding: "4px 6px", borderRadius: 6, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid rgba(22,50,74,0.07)", flexShrink: 0, gap: 10 }}>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#2F855A", flexShrink: 0 }} />
+        <span style={{ fontWeight: 700, fontSize: 14, color: "var(--text,#16324A)", flex: 1, letterSpacing: "0.01em" }}>Team Chat</span>
+        <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--text-muted,#4E6B84)", cursor: "pointer", padding: "4px 6px", borderRadius: 6, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Icon d={icons.x} size={14} />
         </button>
       </div>
@@ -7835,7 +7868,7 @@ function ChatWindow({ user, messages, onSend, onClose, isMobile }) {
       {/* Message list */}
       <div ref={listRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px 6px", display: "flex", flexDirection: "column", gap: 12 }}>
         {messages.length === 0 && (
-          <div style={{ textAlign: "center", color: "#444", fontSize: 12, marginTop: "auto", paddingTop: 60 }}>
+          <div style={{ textAlign: "center", color: "var(--text-muted,#8CA2B5)", fontSize: 12, marginTop: "auto", paddingTop: 60 }}>
             No messages yet. Say hello! 👋
           </div>
         )}
@@ -7844,29 +7877,29 @@ function ChatWindow({ user, messages, onSend, onClose, isMobile }) {
           return (
             <div key={msg.id} style={{ display: "flex", gap: 8, alignItems: "flex-end", flexDirection: isMe ? "row-reverse" : "row" }}>
               {!isMe && (
-                <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: "rgba(232,184,75,0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, overflow: "hidden", background: "rgba(var(--accent-rgb,37,99,235),0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {msg.senderAvatar
                     ? <img src={msg.senderAvatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    : <span style={{ fontSize: 11, fontWeight: 700, color: "#e8b84b" }}>{(msg.senderName || "?")[0].toUpperCase()}</span>
+                    : <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent,#2563EB)" }}>{(msg.senderName || "?")[0].toUpperCase()}</span>
                   }
                 </div>
               )}
               <div style={{ maxWidth: "72%" }}>
-                {!isMe && <div style={{ fontSize: 10, color: "#666", marginBottom: 3, marginLeft: 2 }}>{msg.senderName}</div>}
+                {!isMe && <div style={{ fontSize: 10, color: "var(--text-muted,#5F7A91)", marginBottom: 3, marginLeft: 2 }}>{msg.senderName}</div>}
                 <div style={{
-                  background: isMe ? "rgba(232,184,75,0.13)" : "rgba(255,255,255,0.06)",
-                  border: isMe ? "1px solid rgba(232,184,75,0.28)" : "1px solid rgba(255,255,255,0.08)",
+                  background: isMe ? "rgba(var(--accent-rgb,37,99,235),0.13)" : "rgba(22,50,74,0.06)",
+                  border: isMe ? "1px solid rgba(var(--accent-rgb,37,99,235),0.28)" : "1px solid rgba(22,50,74,0.08)",
                   borderRadius: isMe ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
                   padding: "8px 12px",
                   fontSize: 13,
-                  color: "#e8e4dc",
+                  color: "var(--text,#16324A)",
                   lineHeight: 1.45,
                   wordBreak: "break-word",
                   whiteSpace: "pre-wrap",
                 }}>
                   {msg.text}
                 </div>
-                <div style={{ fontSize: 9, color: "#3a3f4a", marginTop: 3, textAlign: isMe ? "right" : "left" }}>
+                <div style={{ fontSize: 9, color: "var(--border-color,#D8E1EC)", marginTop: 3, textAlign: isMe ? "right" : "left" }}>
                   {new Date(msg.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </div>
               </div>
@@ -7876,10 +7909,10 @@ function ChatWindow({ user, messages, onSend, onClose, isMobile }) {
       </div>
 
       {/* Input bar */}
-      <div style={{ padding: "10px 12px", borderTop: "1px solid rgba(255,255,255,0.07)", display: "flex", gap: 8, flexShrink: 0, alignItems: "flex-end" }}>
+      <div style={{ padding: "10px 12px", borderTop: "1px solid rgba(22,50,74,0.07)", display: "flex", gap: 8, flexShrink: 0, alignItems: "flex-end" }}>
         <input
           ref={inputRef}
-          style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: "9px 12px", fontSize: 13, color: "#e8e4dc", outline: "none", fontFamily: "inherit" }}
+          style={{ flex: 1, background: "rgba(22,50,74,0.06)", border: "1px solid rgba(22,50,74,0.1)", borderRadius: 10, padding: "9px 12px", fontSize: 13, color: "var(--text,#16324A)", outline: "none", fontFamily: "inherit" }}
           placeholder="Message the team…"
           value={text}
           onChange={e => setText(e.target.value)}
@@ -7888,7 +7921,7 @@ function ChatWindow({ user, messages, onSend, onClose, isMobile }) {
         <button
           onClick={handleSend}
           disabled={!text.trim()}
-          style={{ background: text.trim() ? "rgba(232,184,75,0.18)" : "transparent", border: text.trim() ? "1px solid rgba(232,184,75,0.35)" : "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: "9px 11px", cursor: text.trim() ? "pointer" : "default", color: text.trim() ? "#e8b84b" : "#3a3f4a", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all .15s" }}
+          style={{ background: text.trim() ? "rgba(var(--accent-rgb,37,99,235),0.18)" : "transparent", border: text.trim() ? "1px solid rgba(var(--accent-rgb,37,99,235),0.35)" : "1px solid rgba(22,50,74,0.08)", borderRadius: 10, padding: "9px 11px", cursor: text.trim() ? "pointer" : "default", color: text.trim() ? "var(--accent,#2563EB)" : "var(--border-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all .15s" }}
         >
           <Icon d={icons.send} size={15} />
         </button>
@@ -7914,15 +7947,15 @@ function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettin
   return (
     <header style={S.topbar}>
       <div style={S.logo}>
-        <Icon d={icons.film} size={20} color="var(--accent,#e8b84b)" />
+        <Icon d={icons.film} size={20} color="var(--accent,#2563EB)" />
         <div>
           <div style={S.logoText}>{companyName || "GEAR DESK"}</div>
           <div style={{ ...S.logoSub, marginTop: 0 }}>Pick Shoot Return</div>
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        {offlineMode && <span title="Using cached data — reconnecting" style={{ fontSize: 10, color: "#e8b84b", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ OFFLINE</span>}
-        {!offlineMode && saveErr && <span title="Sync error — retrying" style={{ fontSize: 10, color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
+        {offlineMode && <span title="Using cached data — reconnecting" style={{ fontSize: 10, color: "var(--accent,#2563EB)", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ OFFLINE</span>}
+        {!offlineMode && saveErr && <span title="Sync error — retrying" style={{ fontSize: 10, color: "#C53030", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
 
         {/* Chat button */}
         {chatEnabled && (
@@ -7931,9 +7964,9 @@ function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettin
             style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
             title="Team Chat"
           >
-            <Icon d={icons.chat} size={18} color={chatUnread > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)"} />
+            <Icon d={icons.chat} size={18} color={chatUnread > 0 ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)"} />
             {chatUnread > 0 && (
-              <div style={{ position: "absolute", top: 4, right: 4, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", border: "1.5px solid var(--bg,#0f1117)" }} />
+              <div style={{ position: "absolute", top: 4, right: 4, width: 8, height: 8, borderRadius: "50%", background: "#C53030", border: "1.5px solid var(--bg,#F4F7FB)" }} />
             )}
           </button>
         )}
@@ -7942,24 +7975,24 @@ function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettin
         <div ref={notifRef} style={{ position: "relative" }}>
           <button
             onClick={() => setNotifOpen(o => !o)}
-            style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? "rgba(232,184,75,0.1)" : "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
+            style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? "rgba(var(--accent-rgb,37,99,235),0.1)" : "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
             title={t("notifTitle")}
           >
-            <Icon d={icons.bell} size={18} color={notifCount > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)"} />
+            <Icon d={icons.bell} size={18} color={notifCount > 0 ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)"} />
             {notifCount > 0 && (
-              <div style={{ position: "absolute", top: 4, right: 4, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", border: "1.5px solid var(--bg,#0f1117)" }} />
+              <div style={{ position: "absolute", top: 4, right: 4, width: 8, height: 8, borderRadius: "50%", background: "#C53030", border: "1.5px solid var(--bg,#F4F7FB)" }} />
             )}
           </button>
           {notifOpen && (
-            <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.6)", width: 270, zIndex: 300 }}>
-              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--divider-color,#252830)" }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>
-                  {t("notifTitle")} {notifCount > 0 && <span style={{ ...{ padding: "1px 7px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: "#ef4444", color: "#fff" } }}>{notifCount}</span>}
+            <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", background: "var(--surface,#FFFFFF)", border: "var(--card-border,1px solid #D8E1EC)", borderRadius: 12, boxShadow: "0 8px 32px rgba(22,50,74,0.21)", width: 270, zIndex: 300 }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)" }}>
+                  {t("notifTitle")} {notifCount > 0 && <span style={{ ...{ padding: "1px 7px", borderRadius: 10, fontSize: 11, fontWeight: 700, background: "#C53030", color: "#fff" } }}>{notifCount}</span>}
                 </p>
               </div>
               {notifCount === 0 ? (
                 <div style={{ padding: "20px 16px", textAlign: "center" }}>
-                  <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted,#666)" }}>{t("notifAllCaughtUp")}</p>
+                  <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("notifAllCaughtUp")}</p>
                 </div>
               ) : (
                 <div>
@@ -7967,16 +8000,16 @@ function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettin
                     <div
                       key={i}
                       onClick={() => { item.onClick(); setNotifOpen(false); }}
-                      style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", cursor: "pointer", borderBottom: i < notifItems.length - 1 ? "1px solid var(--divider-color,#252830)" : "none", background: "transparent" }}
+                      style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", cursor: "pointer", borderBottom: i < notifItems.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", background: "transparent" }}
                     >
                       <div style={{ width: 32, height: 32, borderRadius: 8, background: `${item.color}1a`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                         <Icon d={item.icon} size={15} color={item.color} />
                       </div>
                       <div style={{ flex: 1 }}>
-                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{item.label}</p>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text,#16324A)" }}>{item.label}</p>
                         <p style={{ margin: "2px 0 0", fontSize: 11, color: item.color }}>{item.count} {t("notifItemsAttention")}</p>
                       </div>
-                      <Icon d={icons.arrow_left} size={14} color="var(--text-muted,#555)" strokeW={2} style={{ transform: "rotate(180deg)" }} />
+                      <Icon d={icons.arrow_left} size={14} color="var(--text-muted,#7B8FA3)" strokeW={2} style={{ transform: "rotate(180deg)" }} />
                     </div>
                   ))}
                 </div>
@@ -7991,7 +8024,7 @@ function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettin
           style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
           title="Settings"
         >
-          <Icon d={icons.gear} size={18} color="var(--text-muted,#8a8f9d)" />
+          <Icon d={icons.gear} size={18} color="var(--text-muted,#4E6B84)" />
         </button>
 
         {/* Logout */}
@@ -8000,7 +8033,7 @@ function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettin
           style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", padding: "6px", borderRadius: 6 }}
           title="Log out"
         >
-          <Icon d={icons.logout} size={18} color="var(--text-muted,#8a8f9d)" />
+          <Icon d={icons.logout} size={18} color="var(--text-muted,#4E6B84)" />
         </button>
       </div>
     </header>
@@ -8132,7 +8165,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
   if (scanAe && selectedJob) {
     const eq = equipment.find(e => e.id === scanAe.eqId);
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg,#0f1117)" }}>
+      <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)" }}>
         <QRScanner
           key={scanAe.eqId}
           label={`Scan QR label on: ${eq?.name || ""}`}
@@ -8149,7 +8182,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
     const eq = equipment.find(e => e.id === captureAe.eqId);
     const isReturn = phase === "return";
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg,#0f1117)" }}>
+      <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)" }}>
         <div style={{ padding: "16px 16px 8px", display: "flex", alignItems: "center", gap: 12 }}>
           <button style={S.btn("ghost")} onClick={() => setCaptureAe(null)}><Icon d={icons.arrow_left} size={16} /> {t("back")}</button>
         </div>
@@ -8179,12 +8212,12 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
     const allDone = items.length > 0 && items.every(itemDone);
 
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg,#0f1117)", paddingBottom: 100 }}>
-        <div style={{ padding: "16px 16px 0", display: "flex", alignItems: "center", gap: 12, borderBottom: "1px solid var(--divider-color,#252830)", paddingBottom: 14, marginBottom: 16 }}>
+      <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", paddingBottom: 100 }}>
+        <div style={{ padding: "16px 16px 0", display: "flex", alignItems: "center", gap: 12, borderBottom: "1px solid var(--divider-color,#D8E1EC)", paddingBottom: 14, marginBottom: 16 }}>
           <button style={S.btn("ghost")} onClick={() => setSelectedJob(null)}><Icon d={icons.arrow_left} size={16} /> {t("back")}</button>
           <div style={{ flex: 1 }}>
-            <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{selectedJob.name}</p>
-            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{isReturn ? t("adminReturnLabel") : t("adminPickLabel")}</p>
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "var(--text,#16324A)" }}>{selectedJob.name}</p>
+            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{isReturn ? t("adminReturnLabel") : t("adminPickLabel")}</p>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <button style={{ ...S.btn(!isReturn ? "primary" : "ghost"), padding: "6px 12px", fontSize: 12 }} onClick={() => { setPhase("pick"); setItemResults({}); }}>{t("adminPickLabel")}</button>
@@ -8193,7 +8226,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
         </div>
         <div style={{ padding: "0 16px" }}>
           {items.length === 0 ? (
-            <p style={{ color: "#666", textAlign: "center", padding: 32 }}>{isReturn ? t("adminNoItemsOut") : t("adminAllPicked")}</p>
+            <p style={{ color: "var(--text-muted,#5F7A91)", textAlign: "center", padding: 32 }}>{isReturn ? t("adminNoItemsOut") : t("adminAllPicked")}</p>
           ) : items.map(ae => {
             const eq = equipment.find(e => e.id === ae.eqId);
             const done = itemDone(ae);
@@ -8204,15 +8237,15 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
                 {eq?.photo ? (
                   <img src={eq.photo} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
                 ) : (
-                  <div style={{ width: 44, height: 44, borderRadius: 8, background: "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    <Icon d={icons.camera} size={18} color="#555" />
+                  <div style={{ width: 44, height: 44, borderRadius: 8, background: "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Icon d={icons.camera} size={18} color="var(--text-muted,#7B8FA3)" />
                   </div>
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{eq?.name || ae.eqId}</p>
-                  {ae.qty > 1 && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#666)" }}>×{ae.qty}</p>}
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text,#16324A)" }}>{eq?.name || ae.eqId}</p>
+                  {ae.qty > 1 && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>×{ae.qty}</p>}
                   {vMode === "both" && !done && (
-                    <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>
+                    <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
                       {barcodeDone ? "✓ Scanned" : "○ Scan"} · {photoDone ? "✓ Photo" : "○ Photo"}
                     </p>
                   )}
@@ -8242,8 +8275,8 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
             );
           })}
           {allDone && (
-            <div style={{ ...S.card, background: "rgba(52,211,153,0.07)", border: "1px solid rgba(52,211,153,0.25)", textAlign: "center", padding: 20, marginTop: 8 }}>
-              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#34d399" }}>✓ {isReturn ? t("adminAllReturned") : t("adminAllPicked")}</p>
+            <div style={{ ...S.card, background: "rgba(47,133,90,0.07)", border: "1px solid rgba(47,133,90,0.25)", textAlign: "center", padding: 20, marginTop: 8 }}>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#2F855A" }}>✓ {isReturn ? t("adminAllReturned") : t("adminAllPicked")}</p>
             </div>
           )}
         </div>
@@ -8274,33 +8307,33 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
           <button style={S.btn("ghost")} onClick={() => setHistoryDetailJob(null)}><Icon d={icons.arrow_left} size={16} /> Back</button>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "var(--text,#e8e4dc)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{historyDetailJob.jobName}</p>
-            {historyDetailJob.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#e8b84b)", fontWeight: 600 }}>{historyDetailJob.production}</p>}
-            {historyDetailJob.dates.length > 0 && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{historyDetailJob.dates[0]}{historyDetailJob.dates[0] !== historyDetailJob.dates[historyDetailJob.dates.length-1] ? ` – ${historyDetailJob.dates[historyDetailJob.dates.length-1]}` : ""}</p>}
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{historyDetailJob.jobName}</p>
+            {historyDetailJob.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#2563EB)", fontWeight: 600 }}>{historyDetailJob.production}</p>}
+            {historyDetailJob.dates.length > 0 && <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{historyDetailJob.dates[0]}{historyDetailJob.dates[0] !== historyDetailJob.dates[historyDetailJob.dates.length-1] ? ` – ${historyDetailJob.dates[historyDetailJob.dates.length-1]}` : ""}</p>}
           </div>
           <button onClick={exportJobCsv} style={{ ...S.btn("ghost"), padding: "6px 12px", fontSize: 12, display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
             <Icon d={icons.invoice} size={13} />CSV
           </button>
         </div>
         {jobEvents.length === 0 ? (
-          <p style={{ color: "#666", textAlign: "center", padding: 32 }}>No events in this period.</p>
+          <p style={{ color: "var(--text-muted,#5F7A91)", textAlign: "center", padding: 32 }}>No events in this period.</p>
         ) : jobEvents.map(ev => {
           const eq = equipment.find(e => e.id === ev.eqId);
           const d = new Date(ev.ts);
           const isPick = isPickEvt(ev.type);
           return (
             <div key={ev.id} style={{ ...S.card, display: "flex", alignItems: "center", gap: 12, marginBottom: 8, padding: "12px 14px" }}>
-              <div style={{ width: 3, alignSelf: "stretch", minHeight: 32, borderRadius: 2, flexShrink: 0, background: isPick ? "#e8b84b" : "#34d399" }} />
+              <div style={{ width: 3, alignSelf: "stretch", minHeight: 32, borderRadius: 2, flexShrink: 0, background: isPick ? "var(--accent,#2563EB)" : "#2F855A" }} />
               {eq?.photo ? (
                 <img src={eq.photo} alt="" style={{ width: 36, height: 36, borderRadius: 7, objectFit: "cover", flexShrink: 0 }} />
               ) : (
-                <div style={{ width: 36, height: 36, borderRadius: 7, background: "#252830", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Icon d={icons.camera} size={15} color="#555" />
+                <div style={{ width: 36, height: 36, borderRadius: 7, background: "var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Icon d={icons.camera} size={15} color="var(--text-muted,#7B8FA3)" />
                 </div>
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{eq?.name || ev.eqId}</p>
-                <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{ev.employeeName} · {d.toLocaleDateString("en-GB",{day:"numeric",month:"short"})} {d.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</p>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text,#16324A)" }}>{eq?.name || ev.eqId}</p>
+                <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{ev.employeeName} · {d.toLocaleDateString("en-GB",{day:"numeric",month:"short"})} {d.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})}</p>
               </div>
               <span style={{ ...S.badge(isPick ? "amber" : "green"), flexShrink: 0 }}>{isPick ? "Pick" : "Return"}</span>
             </div>
@@ -8326,9 +8359,9 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
 
       {view === "active" ? (
         <>
-          <p style={{ fontSize: 12, color: "var(--text-muted,#666)", marginBottom: 16 }}>{t("adminCheckoutDesc")}</p>
+          <p style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", marginBottom: 16 }}>{t("adminCheckoutDesc")}</p>
           {confirmedJobs.length === 0 ? (
-            <p style={{ color: "#666", textAlign: "center", padding: 32 }}>{t("adminNoConfirmedJobs")}</p>
+            <p style={{ color: "var(--text-muted,#5F7A91)", textAlign: "center", padding: 32 }}>{t("adminNoConfirmedJobs")}</p>
           ) : confirmedJobs.map(job => {
             const { pickedIds, returnedIds, allPicked, allReturned } = getState(job);
             const outCount = pickedIds.size - returnedIds.size;
@@ -8339,9 +8372,9 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
               <div key={job.id} style={{ ...S.card, marginBottom: 12, cursor: "pointer" }} onClick={() => selectJob(job)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{job.name}</p>
-                    {job.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#e8b84b)", fontWeight: 600 }}>{job.production}</p>}
-                    <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>
+                    <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#16324A)" }}>{job.name}</p>
+                    {job.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#2563EB)", fontWeight: 600 }}>{job.production}</p>}
+                    <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
                       {(job.assignedEquipment || []).length} items · {dateRange}
                     </p>
                   </div>
@@ -8385,16 +8418,16 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
               {historyFilter === "custom" && (
                 <>
                   <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ ...S.input, width: "auto", padding: "5px 10px", fontSize: 12 }} />
-                  <span style={{ color: "var(--text-muted,#666)", fontSize: 12 }}>–</span>
+                  <span style={{ color: "var(--text-muted,#5F7A91)", fontSize: 12 }}>–</span>
                   <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ ...S.input, width: "auto", padding: "5px 10px", fontSize: 12 }} />
                 </>
               )}
             </div>
-            <span style={{ fontSize: 11, color: "var(--text-muted,#666)", marginLeft: "auto" }}>{filteredHistory.length} events</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", marginLeft: "auto" }}>{filteredHistory.length} events</span>
           </div>
 
           {filteredHistory.length === 0 ? (
-            <p style={{ color: "#666", textAlign: "center", padding: 32 }}>No checkout events in this period.</p>
+            <p style={{ color: "var(--text-muted,#5F7A91)", textAlign: "center", padding: 32 }}>No checkout events in this period.</p>
           ) : (() => {
             const groupMap = {};
             filteredHistory.forEach(ev => {
@@ -8414,15 +8447,15 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
                 <div key={grp.key} style={{ ...S.card, marginBottom: 10, cursor: "pointer" }} onClick={() => setHistoryDetailJob(grp)}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>{grp.jobName}</p>
-                      {grp.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#e8b84b)", fontWeight: 600 }}>{grp.production}</p>}
-                      {dateRange && <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#666)" }}>{dateRange}</p>}
+                      <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#16324A)" }}>{grp.jobName}</p>
+                      {grp.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#2563EB)", fontWeight: 600 }}>{grp.production}</p>}
+                      {dateRange && <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{dateRange}</p>}
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
                       <span style={S.badge("amber")}>{pickCount} pick</span>
                       <span style={S.badge("green")}>{returnCount} return</span>
                     </div>
-                    <Icon d={icons.arrow_left} size={14} color="var(--text-muted,#555)" strokeW={2} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />
+                    <Icon d={icons.arrow_left} size={14} color="var(--text-muted,#7B8FA3)" strokeW={2} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />
                   </div>
                 </div>
               );
@@ -8461,24 +8494,24 @@ function AdminSidebarNav({ activePage, setActivePage, unresolvedCount, navOrder,
   return (
     <nav style={{
       position: "fixed", top: 0, left: 0, bottom: 0, width: 240,
-      background: "var(--nav-bg,var(--topbar-bg,#161920))",
-      borderRight: "var(--nav-border,var(--topbar-border,1px solid #252830))",
+      background: "var(--nav-bg,var(--topbar-bg,#FFFFFF))",
+      borderRight: "var(--nav-border,var(--topbar-border,1px solid #D8E1EC))",
       display: "flex", flexDirection: "column",
       zIndex: 100, overflowY: "auto", overflowX: "hidden",
     }}>
       {/* Logo */}
-      <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid var(--divider-color,#252830)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-        <img src="/logo.png" alt="logo" style={{ width: 32, height: 32, objectFit: "contain", borderRadius: 6 }} onError={e => { e.target.style.display = "none"; }} />
+      <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid var(--divider-color,#D8E1EC)", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        <img src="/logo.png" alt="logo" style={{ width: 32, height: 32, objectFit: "contain", borderRadius: 6, background: "var(--logo-bg,#16324A)" }} onError={e => { e.target.style.display = "none"; }} />
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.04em", color: "var(--accent,#e8b84b)", lineHeight: 1.2 }}>{companyName || "GEAR DESK"}</div>
-          <div style={{ fontSize: 9, color: "var(--text-muted,#666)", letterSpacing: "0.12em", textTransform: "uppercase", marginTop: 1 }}>Pick Shoot Return</div>
+          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.04em", color: "var(--accent,#2563EB)", lineHeight: 1.2 }}>{companyName || "GEAR DESK"}</div>
+          <div style={{ fontSize: 9, color: "var(--text-muted,#5F7A91)", letterSpacing: "0.12em", textTransform: "uppercase", marginTop: 1 }}>Pick Shoot Return</div>
         </div>
       </div>
 
       {/* Offline/save-err indicator */}
       {(offlineMode || saveErr) && (
-        <div style={{ padding: "6px 14px", background: offlineMode ? "rgba(232,184,75,0.1)" : "rgba(239,68,68,0.08)", borderBottom: "1px solid var(--divider-color,#252830)" }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: offlineMode ? "#e8b84b" : "#f87171", letterSpacing: "0.04em" }}>
+        <div style={{ padding: "6px 14px", background: offlineMode ? "rgba(var(--accent-rgb,37,99,235),0.1)" : "rgba(197,48,48,0.08)", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: offlineMode ? "var(--accent,#2563EB)" : "#C53030", letterSpacing: "0.04em" }}>
             {offlineMode ? "⚠ OFFLINE" : "⚠ SYNC ERROR"}
           </span>
         </div>
@@ -8495,17 +8528,17 @@ function AdminSidebarNav({ activePage, setActivePage, unresolvedCount, navOrder,
               style={{
                 width: "100%", display: "flex", alignItems: "center", gap: 12,
                 padding: "11px 20px", border: "none", cursor: "pointer",
-                background: active ? "rgba(232,184,75,0.08)" : "transparent",
-                borderLeft: active ? "3px solid var(--accent,#e8b84b)" : "3px solid transparent",
-                color: active ? "var(--accent,#e8b84b)" : "var(--text-muted,#8a8f9d)",
+                background: active ? "rgba(var(--accent-rgb,37,99,235),0.08)" : "transparent",
+                borderLeft: active ? "3px solid var(--accent,#2563EB)" : "3px solid transparent",
+                color: active ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)",
                 fontSize: 13, fontWeight: active ? 700 : 500, textAlign: "left",
                 transition: "all 0.12s", boxSizing: "border-box",
               }}
             >
               <div style={{ position: "relative", flexShrink: 0 }}>
-                <Icon d={n.icon} size={18} color={active ? "var(--accent,#e8b84b)" : "var(--text-muted,#8a8f9d)"} />
+                <Icon d={n.icon} size={18} color={active ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)"} />
                 {n.key === "reports" && unresolvedCount > 0 && (
-                  <div style={{ position: "absolute", top: -4, right: -6, background: "#ef4444", color: "#fff", fontSize: 9, fontWeight: 800, borderRadius: 8, padding: "1px 4px", minWidth: 14, textAlign: "center", lineHeight: "14px" }}>{unresolvedCount}</div>
+                  <div style={{ position: "absolute", top: -4, right: -6, background: "#C53030", color: "#fff", fontSize: 9, fontWeight: 800, borderRadius: 8, padding: "1px 4px", minWidth: 14, textAlign: "center", lineHeight: "14px" }}>{unresolvedCount}</div>
                 )}
               </div>
               <span>{n.label}</span>
@@ -8515,37 +8548,37 @@ function AdminSidebarNav({ activePage, setActivePage, unresolvedCount, navOrder,
       </div>
 
       {/* Bottom actions */}
-      <div style={{ borderTop: "1px solid var(--divider-color,#252830)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+      <div style={{ borderTop: "1px solid var(--divider-color,#D8E1EC)", padding: "12px 14px", display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
         {/* Notifications */}
         <div ref={notifRef} style={{ position: "relative" }}>
           <button
             onClick={() => setNotifOpen(o => !o)}
-            style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px", border: "none", cursor: "pointer", background: notifOpen ? "rgba(232,184,75,0.08)" : "transparent", borderRadius: 8, color: notifCount > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)", fontSize: 13, fontWeight: 500, textAlign: "left" }}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px", border: "none", cursor: "pointer", background: notifOpen ? "rgba(var(--accent-rgb,37,99,235),0.08)" : "transparent", borderRadius: 8, color: notifCount > 0 ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)", fontSize: 13, fontWeight: 500, textAlign: "left" }}
           >
             <div style={{ position: "relative", flexShrink: 0 }}>
-              <Icon d={icons.bell} size={18} color={notifCount > 0 ? "#e8b84b" : "var(--text-muted,#8a8f9d)"} />
-              {notifCount > 0 && <div style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: "#ef4444", border: "1.5px solid var(--nav-bg,#161920)" }} />}
+              <Icon d={icons.bell} size={18} color={notifCount > 0 ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)"} />
+              {notifCount > 0 && <div style={{ position: "absolute", top: -4, right: -4, width: 8, height: 8, borderRadius: "50%", background: "#C53030", border: "1.5px solid var(--nav-bg,#FFFFFF)" }} />}
             </div>
-            <span>Notifications {notifCount > 0 && <span style={{ background: "#ef4444", color: "#fff", fontSize: 10, fontWeight: 800, borderRadius: 10, padding: "1px 5px" }}>{notifCount}</span>}</span>
+            <span>Notifications {notifCount > 0 && <span style={{ background: "#C53030", color: "#fff", fontSize: 10, fontWeight: 800, borderRadius: 10, padding: "1px 5px" }}>{notifCount}</span>}</span>
           </button>
           {notifOpen && (
-            <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, right: 0, background: "var(--surface,#1a1e27)", border: "var(--card-border,1px solid #252830)", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.6)", zIndex: 300, overflow: "hidden" }}>
-              <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--divider-color,#252830)" }}>
-                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#e8e4dc)" }}>Notifications</p>
+            <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, right: 0, background: "var(--surface,#FFFFFF)", border: "var(--card-border,1px solid #D8E1EC)", borderRadius: 12, boxShadow: "0 8px 32px rgba(22,50,74,0.21)", zIndex: 300, overflow: "hidden" }}>
+              <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
+                <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "var(--text,#16324A)" }}>Notifications</p>
               </div>
               {notifCount === 0 ? (
                 <div style={{ padding: "16px 14px", textAlign: "center" }}>
-                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted,#666)" }}>All caught up!</p>
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>All caught up!</p>
                 </div>
               ) : (
                 <div>
                   {(notifItems || []).map((item, i) => (
-                    <div key={i} onClick={() => { item.onClick(); setNotifOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", borderBottom: i < notifItems.length - 1 ? "1px solid var(--divider-color,#252830)" : "none" }}>
+                    <div key={i} onClick={() => { item.onClick(); setNotifOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer", borderBottom: i < notifItems.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
                       <div style={{ width: 28, height: 28, borderRadius: 7, background: `${item.color}1a`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                         <Icon d={item.icon} size={13} color={item.color} />
                       </div>
                       <div style={{ flex: 1 }}>
-                        <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: "var(--text,#e8e4dc)" }}>{item.label}</p>
+                        <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: "var(--text,#16324A)" }}>{item.label}</p>
                         <p style={{ margin: "1px 0 0", fontSize: 10, color: item.color }}>{item.count} need attention</p>
                       </div>
                     </div>
@@ -8557,16 +8590,16 @@ function AdminSidebarNav({ activePage, setActivePage, unresolvedCount, navOrder,
         </div>
         <button
           onClick={onOpenSettings}
-          style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px", border: "none", cursor: "pointer", background: "transparent", borderRadius: 8, color: "var(--text-muted,#8a8f9d)", fontSize: 13, fontWeight: 500, textAlign: "left" }}
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px", border: "none", cursor: "pointer", background: "transparent", borderRadius: 8, color: "var(--text-muted,#4E6B84)", fontSize: 13, fontWeight: 500, textAlign: "left" }}
         >
-          <Icon d={icons.gear} size={18} color="var(--text-muted,#8a8f9d)" />
+          <Icon d={icons.gear} size={18} color="var(--text-muted,#4E6B84)" />
           <span>Settings</span>
         </button>
         <button
           onClick={onLogout}
-          style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px", border: "none", cursor: "pointer", background: "transparent", borderRadius: 8, color: "var(--text-muted,#8a8f9d)", fontSize: 13, fontWeight: 500, textAlign: "left" }}
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "10px", border: "none", cursor: "pointer", background: "transparent", borderRadius: 8, color: "var(--text-muted,#4E6B84)", fontSize: 13, fontWeight: 500, textAlign: "left" }}
         >
-          <Icon d={icons.logout} size={18} color="var(--text-muted,#8a8f9d)" />
+          <Icon d={icons.logout} size={18} color="var(--text-muted,#4E6B84)" />
           <span>Log out</span>
         </button>
       </div>
@@ -8591,8 +8624,8 @@ function AdminBottomNav({ activePage, setActivePage, unresolvedCount, navOrder }
     <nav style={{
       position: "fixed", bottom: 0, left: 0, right: 0,
       height: 62,
-      background: "var(--nav-bg,var(--topbar-bg,#161920))",
-      borderTop: "var(--nav-border,var(--topbar-border,1px solid #252830))",
+      background: "var(--nav-bg,var(--topbar-bg,#FFFFFF))",
+      borderTop: "var(--nav-border,var(--topbar-border,1px solid #D8E1EC))",
       boxShadow: "var(--nav-shadow,none)",
       backdropFilter: "var(--card-backdrop,none)",
       display: "flex", alignItems: "stretch",
@@ -8609,15 +8642,15 @@ function AdminBottomNav({ activePage, setActivePage, unresolvedCount, navOrder }
             style={{
               flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
               gap: 3, border: "none", cursor: "pointer", background: "transparent",
-              color: active ? "var(--accent,#e8b84b)" : "var(--text-muted,#8a8f9d)",
+              color: active ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)",
               position: "relative", padding: "8px 2px 6px",
             }}
           >
-            {active && <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: "var(--accent,#e8b84b)", borderRadius: "0 0 3px 3px" }} />}
+            {active && <div style={{ position: "absolute", top: 0, left: "25%", right: "25%", height: 2, background: "var(--accent,#2563EB)", borderRadius: "0 0 3px 3px" }} />}
             <div style={{ position: "relative" }}>
-              <Icon d={n.icon} size={20} color={active ? "var(--accent,#e8b84b)" : "var(--text-muted,#8a8f9d)"} />
+              <Icon d={n.icon} size={20} color={active ? "var(--accent,#2563EB)" : "var(--text-muted,#4E6B84)"} />
               {n.key === "reports" && unresolvedCount > 0 && (
-                <div style={{ position: "absolute", top: -4, right: -6, background: "#ef4444", color: "#fff", fontSize: 9, fontWeight: 800, borderRadius: 8, padding: "1px 4px", minWidth: 14, textAlign: "center", lineHeight: "14px" }}>
+                <div style={{ position: "absolute", top: -4, right: -6, background: "#C53030", color: "#fff", fontSize: 9, fontWeight: 800, borderRadius: 8, padding: "1px 4px", minWidth: 14, textAlign: "center", lineHeight: "14px" }}>
                   {unresolvedCount}
                 </div>
               )}
@@ -8723,8 +8756,8 @@ export default function App() {
   // Holds the last savePayload that failed — drained by the online-retry effect.
   const pendingSaveRef = useRef(null);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
-  const [themeStyle, setThemeStyle] = useState(() => { try { return localStorage.getItem("psr_theme_style") || "glassmorphism"; } catch { return "glassmorphism"; } });
-  const [themePalette, setThemePalette] = useState(() => { try { return localStorage.getItem("psr_theme_palette") || "black-yellow"; } catch { return "black-yellow"; } });
+  const [themeStyle, setThemeStyle] = useState(() => { try { return localStorage.getItem("psr_theme_style2") || "flat"; } catch { return "flat"; } });
+  const [themePalette, setThemePalette] = useState(() => { try { return localStorage.getItem("psr_theme_palette2") || "white-blue"; } catch { return "white-blue"; } });
   const [navOrder, setNavOrder] = useState(null);
   const [invoicePresets, setInvoicePresets] = useState([]);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -8944,7 +8977,7 @@ export default function App() {
     let el = document.getElementById(id);
     if (!el) { el = document.createElement("style"); el.id = id; document.head.appendChild(el); }
     el.textContent = buildThemeCss(themeStyle, themePalette);
-    try { localStorage.setItem("psr_theme_style", themeStyle); localStorage.setItem("psr_theme_palette", themePalette); } catch {}
+    try { localStorage.setItem("psr_theme_style2", themeStyle); localStorage.setItem("psr_theme_palette2", themePalette); } catch {}
   }, [themeStyle, themePalette]);
 
   // Stable data-apply function — used by both the initial load and the offline reconnect loop.
@@ -9274,9 +9307,9 @@ export default function App() {
   const pendingEquipReqCount = (equipmentRequests || []).filter(r => r.status === "pending").length;
   const _tRoot = (key) => (LANG[lang] || LANG.en)[key] ?? LANG.en[key] ?? key;
   const notifItems = [
-    pendingAdminRequests.length > 0 && { label: _tRoot("notifAdminApprovals"), count: pendingAdminRequests.length, color: "#e8b84b", icon: icons.check, onClick: () => { setActivePage("dashboard"); setTimeout(() => document.getElementById("approvals-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120); } },
-    pendingEquipReqCount > 0 && { label: _tRoot("notifEquipRequests"), count: pendingEquipReqCount, color: "#60a5fa", icon: icons.gear, onClick: () => setActivePage("team") },
-    unresolvedCount > 0 && { label: _tRoot("notifDamageReports"), count: unresolvedCount, color: "#f87171", icon: icons.alert, onClick: () => { setEqInitialTab("reports"); setActivePage("equipment"); } },
+    pendingAdminRequests.length > 0 && { label: _tRoot("notifAdminApprovals"), count: pendingAdminRequests.length, color: "var(--accent,#2563EB)", icon: icons.check, onClick: () => { setActivePage("dashboard"); setTimeout(() => document.getElementById("approvals-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120); } },
+    pendingEquipReqCount > 0 && { label: _tRoot("notifEquipRequests"), count: pendingEquipReqCount, color: "#2563EB", icon: icons.gear, onClick: () => setActivePage("team") },
+    unresolvedCount > 0 && { label: _tRoot("notifDamageReports"), count: unresolvedCount, color: "#C53030", icon: icons.alert, onClick: () => { setEqInitialTab("reports"); setActivePage("equipment"); } },
   ].filter(Boolean);
 
   const approveAdminRequest = (req) => {
@@ -9342,18 +9375,18 @@ export default function App() {
   return (
     <LangCtx.Provider value={lang}>
       {!loaded ? (
-        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 32 }}>
+        <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 32 }}>
           {/* Logo spins in following the circular-arrow direction of the mark */}
           <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ position: "absolute", width: 260, height: 260, borderRadius: "50%", background: "radial-gradient(circle, rgba(232,184,75,0.10) 0%, transparent 68%)", animation: "psrGlow 2.4s ease-in-out infinite alternate" }} />
-            <img src="/logo.png" alt="Pick Shoot Return" style={{ width: "min(72vw, 320px)", height: "auto", position: "relative", zIndex: 1, animation: "psrSpinIn 0.85s cubic-bezier(0.34,1.56,0.64,1) forwards" }} />
+            <div style={{ position: "absolute", width: 260, height: 260, borderRadius: "50%", background: "radial-gradient(circle, rgba(var(--accent-rgb,37,99,235),0.10) 0%, transparent 68%)", animation: "psrGlow 2.4s ease-in-out infinite alternate" }} />
+            <img src="/logo.png" alt="Pick Shoot Return" style={{ width: "min(72vw, 320px)", height: "auto", position: "relative", zIndex: 1, background: "var(--logo-bg,#16324A)", borderRadius: 32, animation: "psrSpinIn 0.85s cubic-bezier(0.34,1.56,0.64,1) forwards" }} />
           </div>
           {/* Thin progress bar */}
           <div style={{ width: "min(72vw, 300px)", display: "flex", flexDirection: "column", gap: 6 }}>
-            <div style={{ height: 2, background: "#141720", borderRadius: 2, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${loadProgress}%`, background: "linear-gradient(90deg, #a06820, #e8b84b)", borderRadius: 2, transition: "width 0.15s ease-out", boxShadow: "0 0 8px #e8b84b55" }} />
+            <div style={{ height: 2, background: "#E3EAF2", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${loadProgress}%`, background: "linear-gradient(90deg, #1D4ED8, var(--accent,#2563EB))", borderRadius: 2, transition: "width 0.15s ease-out", boxShadow: "0 0 8px #2563EB55" }} />
             </div>
-            <p style={{ margin: 0, textAlign: "right", fontSize: 10, color: "#383c48", letterSpacing: "0.10em", fontFamily: "monospace" }}>{Math.round(loadProgress)}%</p>
+            <p style={{ margin: 0, textAlign: "right", fontSize: 10, color: "#8CA2B5", letterSpacing: "0.10em", fontFamily: "monospace" }}>{Math.round(loadProgress)}%</p>
           </div>
           <style>{`
             @keyframes psrSpinIn {
@@ -9369,30 +9402,30 @@ export default function App() {
           `}</style>
         </div>
       ) : loadError ? (
-        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
+        <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
           <div style={{ fontSize: 40 }}>⚠️</div>
-          <p style={{ color: "#f87171", fontSize: 17, fontWeight: 700, textAlign: "center" }}>Could Not Connect to Cloud Storage</p>
-          <p style={{ color: "#666", fontSize: 13, textAlign: "center", maxWidth: 320, lineHeight: 1.6 }}>
-            The app tried 3 times and could not reach the server. Your data has <strong style={{ color: "#e8b84b" }}>not been changed</strong>. Check your internet connection and try again.
+          <p style={{ color: "#C53030", fontSize: 17, fontWeight: 700, textAlign: "center" }}>Could Not Connect to Cloud Storage</p>
+          <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13, textAlign: "center", maxWidth: 320, lineHeight: 1.6 }}>
+            The app tried 3 times and could not reach the server. Your data has <strong style={{ color: "var(--accent,#2563EB)" }}>not been changed</strong>. Check your internet connection and try again.
           </p>
-          <button onClick={() => window.location.reload()} style={{ marginTop: 8, padding: "12px 28px", background: "#e8b84b", color: "#0e0e08", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Retry</button>
+          <button onClick={() => window.location.reload()} style={{ marginTop: 8, padding: "12px 28px", background: "var(--accent,#2563EB)", color: "#0e0e08", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Retry</button>
         </div>
       ) : needsInit && user?.role === "admin" ? (
-        <div style={{ minHeight: "100vh", background: "#0f1117", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
+        <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
           <div style={{ fontSize: 40 }}>🗄️</div>
           <p style={{ color: "#f0f0dc", fontSize: 17, fontWeight: 700, textAlign: "center" }}>No Data Found in Cloud Storage</p>
           <p style={{ color: "#8a8a68", fontSize: 13, textAlign: "center", maxWidth: 340, lineHeight: 1.6 }}>
-            All cloud storage fields came back empty. This is expected for a <strong style={{ color: "#e8b84b" }}>brand-new account</strong>.<br /><br />
-            If you <strong style={{ color: "#f87171" }}>previously had data</strong>, this may be a temporary connection issue — try reloading before clicking Initialize.
+            All cloud storage fields came back empty. This is expected for a <strong style={{ color: "var(--accent,#2563EB)" }}>brand-new account</strong>.<br /><br />
+            If you <strong style={{ color: "#C53030" }}>previously had data</strong>, this may be a temporary connection issue — try reloading before clicking Initialize.
           </p>
           <button onClick={() => window.location.reload()} style={{ padding: "10px 24px", background: "transparent", color: "#8a8a68", border: "1px solid #353520", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Reload First</button>
-          <button onClick={initializeAccount} style={{ padding: "12px 28px", background: "#e8b84b", color: "#0e0e08", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Initialize Fresh Account</button>
-          {saveErr && <p style={{ color: "#f87171", fontSize: 12 }}>Save failed — check your connection and try again.</p>}
+          <button onClick={initializeAccount} style={{ padding: "12px 28px", background: "var(--accent,#2563EB)", color: "#0e0e08", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Initialize Fresh Account</button>
+          {saveErr && <p style={{ color: "#C53030", fontSize: 12 }}>Save failed — check your connection and try again.</p>}
         </div>
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
       ) : (
         <div id="admin-layout" style={S.app}>
           {isMobile ? (
@@ -9422,18 +9455,18 @@ export default function App() {
             />
           )}
           {offlineMode && isMobile && (
-            <div style={{ background: "rgba(232,184,75,0.12)", borderBottom: "1px solid rgba(232,184,75,0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", borderBottom: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 13 }}>⚠️</span>
-              <p style={{ margin: 0, fontSize: 12, color: "#e8b84b", lineHeight: 1.4 }}>
+              <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
                 <strong>Offline</strong> — showing cached data. Changes will not be saved until connection is restored. Reconnecting automatically…
               </p>
             </div>
           )}
           <main style={{ ...S.main, paddingBottom: isMobile ? 80 : 20, marginLeft: isMobile ? 0 : 240, minHeight: isMobile ? "calc(100vh - 54px)" : "100vh" }}>
             {!isMobile && offlineMode && (
-              <div style={{ background: "rgba(232,184,75,0.12)", border: "1px solid rgba(232,184,75,0.25)", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+              <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
                 <span style={{ fontSize: 13 }}>⚠️</span>
-                <p style={{ margin: 0, fontSize: 12, color: "#e8b84b", lineHeight: 1.4 }}>
+                <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
                   <strong>Offline</strong> — showing cached data. Changes will not be saved until connection is restored.
                 </p>
               </div>
@@ -9478,11 +9511,11 @@ export default function App() {
           display: "flex",
           alignItems: "center",
           gap: 10,
-          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+          boxShadow: "0 8px 32px rgba(22,50,74,0.17)",
         }}>
           <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#fbbf24", lineHeight: 1.3 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#B7791F", lineHeight: 1.3 }}>
               Another device is active
             </p>
             <p style={{ margin: "3px 0 0", fontSize: 11, color: "#9ca3af", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -9491,7 +9524,7 @@ export default function App() {
           </div>
           <button
             onClick={() => setConcurrentSessions([])}
-            style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", padding: "4px 6px", borderRadius: 6, flexShrink: 0, lineHeight: 1 }}
+            style={{ background: "none", border: "none", color: "var(--text-muted,#4E6B84)", cursor: "pointer", padding: "4px 6px", borderRadius: 6, flexShrink: 0, lineHeight: 1 }}
           >
             <Icon d={icons.x} size={14} />
           </button>
