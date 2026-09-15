@@ -111,3 +111,21 @@ house read-only vs own editable (tax ID + branch), 72 h share link + view counte
 Thai modal. Admin (1280x900): nothing minted on mount, Create quote from job, Create invoice
 from quote, paid dialog, Issue receipt, void, Companies tax ID, Presets Save, positions OT
 example, and the same modal at 390px. Screenshots in `tests/.walk-shots/`.
+
+## 6. Crew UX / Thai track walk-through
+
+```sh
+node tests/sticky.mjs $PORT          # P1-3: every [data-sticky-primary] button is hittable at 390x844
+node tests/walk-crew-ux.mjs $PORT    # P1-6, P2-5, P2-12, P2-13, P2-15, P3-1, P3-2, P3-3, P3-6
+```
+
+`sticky.mjs` scrolls Profile / checkout / Settings to several offsets and asserts
+`document.elementFromPoint` at the centre of the Save button returns the button itself
+(the bottom nav used to win), then really clicks Save Profile. `walk-crew-ux.mjs` (Nong,
+390x844, then admin 1280x900): login EN/TH pill, 44px controls + 11px nav labels, crew label
+from profile positions, gear-request submit gated with an inline reason, the Dialog
+primitive (role=dialog in body, Esc, Tab trap, dirty backdrop confirm, focus return), scroll
+reset on tab change, Gear list rows + sort select + no QR in photo mode, KPI rules under the
+score, Thai mode on the checkout screen / Today / Gear / Invoice / both modals, admin
+"Deductions" wording and a +5 / -10 adjustment persisted to KV. Screenshots in
+`tests/.sticky-shots/` and `tests/.walk-crew-shots/`.

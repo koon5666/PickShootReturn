@@ -13,3 +13,5 @@ tests/.walk-shots/
 .wrangler-*/
 tests/.walk-shots/
 tests/.checkout-shots/
+tests/.sticky-shots/
+tests/.walk-crew-shots/

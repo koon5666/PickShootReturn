@@ -1694,11 +1694,11 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
               <label style={S.label}>{t("docStatus")}</label>
               <select style={S.select} value={status} onChange={e => setStatus(e.target.value)}>
                 {docType === "quotation" ? <>
-                  <option value="Pending">{t("stPending")}</option>
+                  <option value="Pending">{t("quoPending")}</option>
                   <option value="Confirmed">{t("stConfirmed")}</option>
                   <option value="Declined">{t("stDeclined")}</option>
                 </> : <>
-                  <option value="Pending">{t("stPending")}</option>
+                  <option value="Pending">{t("invPending")}</option>
                   <option value="Paid">{t("stPaid")}</option>
                 </>}
               </select>
@@ -3258,7 +3258,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
             <div key={req.id}
               onClick={() => setDashReqModal(req)}
               style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", cursor: "pointer" }}>
-              <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
+              <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{statusLabel(t, req.status)}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)" }}>{req.employeeName}</p>
                 <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{itemLabel}</p>
@@ -3279,7 +3279,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           <Modal title={t("dashGearReqDetail")} onClose={() => setDashReqModal(null)}>
             <div style={S.col}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
+                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{statusLabel(t, req.status)}</span>
                 <span style={{ fontWeight: 700, fontSize: 15 }}>{req.employeeName}</span>
               </div>
 
@@ -5148,7 +5148,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 <div>
                   <label style={S.label}>{t("profilePrefix")} <span style={{ color: "#C53030" }}>*</span></label>
                   <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 6px", lineHeight: 1.5 }}>{t("profilePrefixHint").replace("{prefix}", profileInfo.invoicePrefix || "XXXX")}</p>
-                  <input style={{ ...S.input, textTransform: "uppercase", borderColor: profileInfo.invoicePrefix ? undefined : "#C53030" }} placeholder={derivePrefix({ nickname: profileInfo.nickname, firstName: profileInfo.firstName, name: employee.name, id: employee.id })} maxLength={6}
+                  <input style={{ ...S.input, borderColor: profileInfo.invoicePrefix ? undefined : "#C53030" }} autoCapitalize="characters" placeholder={derivePrefix({ nickname: profileInfo.nickname, firstName: profileInfo.firstName, name: employee.name, id: employee.id })} maxLength={6}
                     value={profileInfo.invoicePrefix}
                     onChange={e => setProfileInfo(p => ({ ...p, invoicePrefix: sanitizePrefix(e.target.value) }))}
                     onBlur={() => setProfileInfo(p => ({ ...p, invoicePrefix: derivePrefix({ invoicePrefix: p.invoicePrefix, nickname: p.nickname, firstName: p.firstName, name: employee.name, id: employee.id }) }))} />
@@ -5191,11 +5191,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 {pinChangeMsg && <p style={{ fontSize: 12, color: pinChangeMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{pinChangeMsg.text}</p>}
                 <button style={{ ...S.btn("primary"), alignSelf: "flex-end" }} onClick={() => {
                   const { newPin, confirmPin } = pinChangeForm;
-                  if (!/^\d{4,6}$/.test(newPin)) { setPinChangeMsg({ ok: false, text: "PIN must be 4–6 digits." }); return; }
-                  if (newPin !== confirmPin) { setPinChangeMsg({ ok: false, text: "PINs do not match." }); return; }
+                  if (!/^\d{4,6}$/.test(newPin)) { setPinChangeMsg({ ok: false, text: t("loginPinDigits") }); return; }
+                  if (newPin !== confirmPin) { setPinChangeMsg({ ok: false, text: t("loginPinMatch") }); return; }
                   setEmployees(p => p.map(e => e.id === employee.id ? { ...e, pin: newPin } : e));
                   setPinChangeForm({ newPin: "", confirmPin: "" });
-                  setPinChangeMsg({ ok: true, text: "Passcode updated!" });
+                  setPinChangeMsg({ ok: true, text: t("passcodeUpdated") });
                   setTimeout(() => setPinChangeMsg(null), 3000);
                 }}>{t("updatePasscode")}</button>
               </div>
@@ -5206,13 +5206,13 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <p style={{ ...S.sectionTitle, display: "flex", alignItems: "center", gap: 6 }}><Icon d={icons.calendar} size={13} /> {t("calendarSync")}</p>
               <div style={S.col}>
                 <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.7 }}>
-                  Subscribe to the production schedule in your iPhone Calendar. Pencil jobs appear <strong style={{ color: "var(--text,#16324A)" }}>tentative (striped)</strong>, Confirmed are <strong style={{ color: "#2F855A" }}>solid</strong>. Updates hourly.
+                  {lang === "th" ? t("calSyncDesc") : <>Subscribe to the production schedule in your iPhone Calendar. Pencil jobs appear <strong style={{ color: "var(--text,#16324A)" }}>tentative (striped)</strong>, Confirmed are <strong style={{ color: "#2F855A" }}>solid</strong>. Updates hourly.</>}
                 </p>
                 <div style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", lineHeight: 1.8 }}>
-                  <strong style={{ color: "var(--text,#16324A)", display: "block", marginBottom: 6 }}>iPhone setup:</strong>
-                  1. <strong>Settings → Calendar → Accounts → Add Account → Other</strong><br />
-                  2. Tap <strong>Add Subscribed Calendar</strong><br />
-                  3. Paste the URL below → <strong>Next → Save</strong>
+                  <strong style={{ color: "var(--text,#16324A)", display: "block", marginBottom: 6 }}>{t("calSyncSetup")}</strong>
+                  1. <strong>{t("calSyncStep1")}</strong><br />
+                  2. <strong>{t("calSyncStep2")}</strong><br />
+                  3. <strong>{t("calSyncStep3")}</strong>
                 </div>
                 <code style={{ background: "rgba(var(--accent-rgb,37,99,235),0.1)", color: "var(--accent,#2563EB)", padding: "6px 10px", borderRadius: 6, fontSize: 11, wordBreak: "break-all" }}>
                   https://pickshootreturn.pages.dev/api/calendar
@@ -5411,7 +5411,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 {["all", "Pending", "Paid"].map(f => (
                   <button key={f} style={S.chip(invFilter === f)} onClick={() => setInvFilter(f)}>
-                    {f === "all" ? t("filterAll") : f === "Paid" ? t("stPaid") : t("stPending")}
+                    {f === "all" ? t("filterAll") : f === "Paid" ? t("stPaid") : t("invPending")}
                   </button>
                 ))}
                 <div style={{ flex: 1 }} />
@@ -5490,7 +5490,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               {/* My saved invoices */}
               {myInvoices.length === 0 ? (
                 <div style={{ ...S.card, textAlign: "center", padding: 32 }}>
-                  <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{invFilter === "all" ? t("noInvoicesYet") : t("noInvoicesFilter").replace("{status}", invFilter === "Paid" ? t("stPaid") : t("stPending"))}</p>
+                  <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13 }}>{invFilter === "all" ? t("noInvoicesYet") : t("noInvoicesFilter").replace("{status}", invFilter === "Paid" ? t("stPaid") : t("invPending"))}</p>
                 </div>
               ) : (
                 <div style={S.col}>
@@ -5509,7 +5509,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}>
                               <span style={{ ...S.badge("blue"), fontSize: 9 }}>{{ quotation: "QUO", receipt: "RTX" }[inv.docType] || "INV"}</span>
-                              <span style={{ ...S.badge(isVoid ? "red" : isPaid ? "green" : "amber"), fontSize: 10 }}>{isVoid ? t("receiptVoided") : ({ Paid: t("stPaid"), Pending: t("stPending"), Confirmed: t("stConfirmed"), Declined: t("stDeclined") }[inv.status || "Pending"] || inv.status)}</span>
+                              <span style={{ ...S.badge(isVoid ? "red" : isPaid ? "green" : "amber"), fontSize: 10 }}>{isVoid ? t("receiptVoided") : ({ Paid: t("stPaid"), Pending: inv.docType === "quotation" ? t("quoPending") : t("invPending"), Confirmed: t("stConfirmed"), Declined: t("stDeclined") }[inv.status || "Pending"] || inv.status)}</span>
                               <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted,#5F7A91)", fontFamily: "monospace" }}>{fmtInvoiceNo(inv)}</p>
                             </div>
                             <p style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>{inv.jobName}</p>
@@ -6211,7 +6211,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
           return (
             <div key={req.id} style={{ paddingBottom: i < arr.length - 1 ? 14 : 0, marginBottom: i < arr.length - 1 ? 14 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{req.status}</span>
+                <span style={S.badge(req.status === "approved" ? "green" : req.status === "denied" ? "red" : "amber")}>{statusLabel(t, req.status)}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.employeeName}</p>
                   <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>
@@ -6298,7 +6298,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
                     <input style={S.input} value={kpiForm.reason} placeholder={t("teamKpiReason")} onChange={e => setKpiForm(f => ({ ...f, reason: e.target.value }))} />
                   </div>
                   {kpiMsg && <p style={{ fontSize: 12, color: kpiMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{kpiMsg.text}</p>}
-                  <button style={{ ...S.btn(isAdd ? "success" : "danger"), justifyContent: "center" }} onClick={submit}>{isAdd ? t("teamKpiAdd") : t("teamKpiDeduct")}</button>
+                  <button data-testid="kpi-submit" style={{ ...S.btn(isAdd ? "success" : "danger"), justifyContent: "center" }} onClick={submit}>{isAdd ? t("teamKpiAdd") : t("teamKpiDeduct")}</button>
                 </div>
                 {myEvents.length > 0 && (
                   <div style={{ marginTop: 12, borderTop: "1px solid var(--divider-color,#D8E1EC)", paddingTop: 10 }}>
@@ -6968,7 +6968,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
           {saveState === "saving" ? t("settingsSaving")
             : saveState === "saved" ? t("settingsSaved")
             : saveState && saveState.error ? t("settingsSaveFailed")
-            : t("settingsSaveAll")}
+            : <><Icon d={icons.save} size={17} /> {t("settingsSaveAll")}</>}
         </button>
         {saveState && saveState.error && (
           <p style={{ fontSize: 12, color: "#C53030", textAlign: "center", margin: "8px 0 0", lineHeight: 1.5 }}>⚠ {saveState.error}</p>
@@ -7826,7 +7826,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                 <div>
                   <label style={S.label}>{t("profilePrefix")}</label>
                   <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: "0 0 6px" }}>House series: {adminProfileInfo.invoicePrefix ? `INV-${adminProfileInfo.invoicePrefix}-YY-0001` : "INV-YY-0001 (no prefix)"}. Max 6 chars.</p>
-                  <input style={{ ...S.input, textTransform: "uppercase" }} placeholder="e.g. LCR" maxLength={6}
+                  <input style={S.input} autoCapitalize="characters" placeholder="e.g. LCR" maxLength={6}
                     value={adminProfileInfo.invoicePrefix}
                     onChange={e => setAdminProfileInfo(p => ({ ...p, invoicePrefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") }))} />
                 </div>
