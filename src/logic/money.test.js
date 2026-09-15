@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hoursWorked, calcOtAmount, calcVatBreakdown, calcTotal, DEFAULT_OT_TIERS } from "./money.js";
+import { hoursWorked, calcOtAmount, calcVatBreakdown, calcTotal, DEFAULT_OT_TIERS, otExample } from "./money.js";
 
 describe("hoursWorked", () => {
   it("returns 0 when either time is missing", () => {
@@ -82,5 +82,22 @@ describe("calcVatBreakdown / calcTotal", () => {
   it("garbage qty/rate count as zero", () => {
     expect(calcTotal({ items: [{ qty: "x", rate: "y" }] })).toBe(0);
     expect(calcVatBreakdown({ items: [{ qty: "x", rate: "y" }] })).toEqual({ subtotal: 0, vatAmount: 0, total: 0 });
+  });
+});
+
+describe("flat ฿/hour OT mode (P3-4)", () => {
+  const pos = { dayRate: "3500", hoursPerDay: "12", otMultiplier: "1.5", otMode: "flatRate", otFlatRate: "500" };
+  it("bills every OT hour at the flat rate", () => {
+    expect(calcOtAmount("06:00", "20:00", pos)).toBe(1000);
+    expect(calcOtAmount("06:00", "18:00", pos)).toBe(0);
+  });
+  it("falls back to the multiplier when the flat rate is empty", () => {
+    expect(calcOtAmount("06:00", "20:00", { ...pos, otFlatRate: "" })).toBeCloseTo(2 * (3500 / 12) * 1.5, 6);
+  });
+  it("otExample explains one OT hour", () => {
+    expect(otExample({ dayRate: "3500", hoursPerDay: "12", otMultiplier: "1.5" })).toMatchObject({ mode: "multiplier", mult: 1.5 });
+    expect(otExample({ dayRate: "3500", hoursPerDay: "12", otMultiplier: "1.5" }).otPerHour).toBeCloseTo(437.5, 6);
+    expect(otExample(pos)).toMatchObject({ mode: "flatRate", otPerHour: 500 });
+    expect(otExample({ dayRate: "", hoursPerDay: "12" })).toBeNull();
   });
 });
