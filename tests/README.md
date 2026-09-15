@@ -165,3 +165,7 @@ reset on tab change, Gear list rows + sort select + no QR in photo mode, KPI rul
 score, Thai mode on the checkout screen / Today / Gear / Invoice / both modals, admin
 "Deductions" wording and a +5 / -10 adjustment persisted to KV. Screenshots in
 `tests/.sticky-shots/` and `tests/.walk-crew-shots/`.
+
+Both scripts log in through the auth-track Login (Crew / ทีมงาน, Rental house admin) and
+read KV through `tests/apiclient.mjs`; run them on a fresh default seed (walk-auth changes
+Nong's PIN, so reseed after it).

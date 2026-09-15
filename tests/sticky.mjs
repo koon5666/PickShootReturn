@@ -75,12 +75,13 @@ async function assertHittable(name, { scroller = null, offsets = [0, 300, 900, 1
 }
 
 try {
-  const health = await fetch(URL + "/api/data").catch(() => null);
-  if (!health || health.status !== 200) fail(`GET ${URL}/api/data -> ${health ? health.status : "unreachable"}`);
+  // Auth (P0-2): /api/data needs a session; /api/public is the open health endpoint.
+  const health = await fetch(URL + "/api/public").catch(() => null);
+  if (!health || health.status !== 200) fail(`GET ${URL}/api/public -> ${health ? health.status : "unreachable"}; boot + seed first (tests/README.md)`);
 
   // ── crew: Profile "Save Profile" ───────────────────────────────────────
-  await waitText("Employee Login");
-  await clickText("Employee Login", "button", false);
+  await waitText("Crew / ทีมงาน");
+  await clickText("Crew / ทีมงาน", "button", false);
   await waitText("Select account");
   await clickText("Select account", "button", false);
   await waitText("Nong", 5_000);
@@ -112,8 +113,8 @@ try {
 
   // ── admin: Settings "Save All Settings" (390px) ────────────────────────
   await clickText("Log Out", "button", false);
-  await waitText("Admin Login");
-  await clickText("Admin Login", "button", false);
+  await waitText("Crew / ทีมงาน");
+  await clickText("Rental house admin", "button", false);
   await waitText("Enter PIN");
   await pin("9999");
   await waitText("Overview");

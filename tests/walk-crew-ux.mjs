@@ -6,6 +6,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { apiClient } from "./apiclient.mjs";
 
 const PUPPETEER = process.env.PUPPETEER_CORE
   || "/private/tmp/claude-501/-Users-koonya-inta/bd16a78f-33be-43a8-91b5-db242cf9f6df/scratchpad/puptest/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
@@ -65,12 +66,15 @@ const step = async (name, fn) => { process.stdout.write(`- ${name}\n`); await fn
 const expectNo = async (txt, where) => { if (await has(txt)) { await shot("fail"); fail(`"${txt}" still in English on ${where}`); } };
 
 try {
-  const health = await fetch(URL + "/api/data").catch(() => null);
-  if (!health || health.status !== 200) fail(`GET ${URL}/api/data -> ${health ? health.status : "unreachable"}`);
+  // Auth (P0-2): /api/data needs a session, so health = /api/public + an API login as the owner.
+  const health = await fetch(URL + "/api/public").catch(() => null);
+  if (!health || health.status !== 200) fail(`GET ${URL}/api/public -> ${health ? health.status : "unreachable"}; boot + seed first (tests/README.md)`);
+  const kvAdmin = await apiClient(URL).loginAdmin("9999").catch(e => fail("owner login 9999 failed: seed first. " + e.message));
 
   await step("login screen has an EN/TH pill (P1-6)", async () => {
-    await waitText("Employee Login");
-    const pill = await page.$('[data-testid="login-langpill"]');
+    await waitText("Crew / ทีมงาน");
+    // The auth track's Login renders its own LangPill (top-right); assert the EN/TH buttons exist.
+    const pill = await page.evaluate(() => [...document.querySelectorAll("button")].filter(b => /^(EN|TH)$/.test(b.textContent.trim())).length === 2);
     if (!pill) fail("no LangPill on the login screen");
     await clickText("TH");
     await sleep(300);
@@ -81,7 +85,7 @@ try {
   });
 
   await step("crew login Nong (1111)", async () => {
-    await clickText("Employee Login", "button", false);
+    await clickText("Crew / ทีมงาน", "button", false);
     await waitText("Select account");
     await clickText("Select account", "button", false);
     await waitText("Nong", 5_000);
@@ -276,11 +280,11 @@ try {
 
   await step("admin: Deductions wording + positive adjustment (P3-2)", async () => {
     await clickText("Log Out", "button", false);
-    await waitText("Admin Login");
+    await waitText("Crew / ทีมงาน");
     await page.setViewport({ width: 1280, height: 900, isMobile: false, hasTouch: false }); // puppeteer reloads when isMobile flips
     await page.goto(URL, { waitUntil: "networkidle0", timeout: 60_000 });
-    await waitText("Admin Login");
-    await clickText("Admin Login", "button", false);
+    await waitText("Crew / ทีมงาน");
+    await clickText("Rental house admin", "button", false);
     await waitText("Enter PIN");
     await pin("9999");
     await waitText("Overview");
@@ -309,7 +313,7 @@ try {
     if (!new RegExp(`${expected}/100 pts`).test(t)) { await shot("team-fail"); fail(`score after +5 (clamped at 100) and -10 should be ${expected}/100 (was ${before})`); }
     console.log(`  ok  Deductions wording, ${before} +5 (clamped) -10 = ${expected}/100`);
     await sleep(2500); // let the debounced save flush
-    const kv = await (await fetch(URL + "/api/data")).json();
+    const kv = await kvAdmin.get("/api/data");
     const add = (kv.kpiEvents || []).find(e => e.kind === "add");
     if (!add) fail("positive adjustment not persisted to KV");
     console.log("  ok  kind:add event persisted");
