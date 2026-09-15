@@ -95,6 +95,7 @@ export function buildDefaultSeed() {
       kpiConfig: { startDate: day(-30), resetMonths: 12, maxPoints: 100 },
       punishments: [{ id: "pun1", label: "Late return", points: 5, description: "Gear back after the return day" }, { id: "pun2", label: "Missing photo", points: 2, description: "No verification photo" }],
       kpiEvents: [], photoVerification: true, verificationConfig: { mode: "photo" }, invoicePresets: [{ description: "Travel fee", rate: 500 }], chatEnabled: false,
+      lineGroupId: null, // a re-seed after a walk that set a group must not leave a local run pushing to it
     },
     profiles: {
       [E.nong]: { firstName: "Nong", lastName: "Srisuk", nickname: "Nong", phone: "081-111-1111", email: "nong@example.com", invoicePrefix: "NG", positions: [{ id: "pos_nong", name: "1st AC", dayRate: "3500", hoursPerDay: "12", variableOT: false, otMultiplier: "1.5", otTiers: [] }] },

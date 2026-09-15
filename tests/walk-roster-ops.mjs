@@ -16,6 +16,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { apiClient } from "./apiclient.mjs";
 
 const PUPPETEER = process.env.PUPPETEER_CORE
   || "/private/tmp/claude-501/-Users-koonya-inta/bd16a78f-33be-43a8-91b5-db242cf9f6df/scratchpad/puptest/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
@@ -63,6 +64,9 @@ async function newPage(viewport, { keepStorage = false } = {}) {
   // Fresh localStorage for every NEW tab, but a reload of the same tab keeps it
   // (the session + offline cache must survive the reloads below).
   if (!keepStorage) await page.evaluateOnNewDocument(() => { try { if (!sessionStorage.getItem("walk_cleared")) { localStorage.clear(); sessionStorage.setItem("walk_cleared", "1"); } } catch {} });
+  // The session is a cookie now (P0-2), shared by every tab of this browser: a fresh
+  // tab must start logged out, so drop the cookies too.
+  if (!keepStorage) { const cdp = await page.createCDPSession(); await cdp.send("Network.clearBrowserCookies"); await cdp.detach(); }
   await page.goto(URL, { waitUntil: "networkidle0", timeout: 60_000 });
 }
 const shot = async (name) => { const p = `${SHOTS}/${String(++shotN).padStart(2, "0")}-${name}.png`; await page.screenshot({ path: p }); return p; };
@@ -100,16 +104,16 @@ async function clickJobDay(d) {
 async function pin(digits) { for (const d of digits) await clickText(d); await clickText("Unlock", "button", false); }
 async function adminLogin(viewport = { width: 1280, height: 900 }, opts) {
   await newPage(viewport, opts);
-  await waitText("Admin Login");
-  await clickText("Admin Login", "button", false);
+  await waitText("Crew / ทีมงาน");
+  await clickText("Rental house admin", "button", false);
   await waitText("Enter PIN");
   await pin("9999");
   await waitText("Overview");
 }
 async function crewLogin(name, digits) {
   await newPage({ width: 390, height: 844, isMobile: true, hasTouch: false });
-  await waitText("Employee Login");
-  await clickText("Employee Login", "button", false);
+  await waitText("Crew / ทีมงาน");
+  await clickText("Crew / ทีมงาน", "button", false);
   await waitText("Select account");
   await clickText("Select account", "button", false);
   await waitText(name, 5_000);
@@ -117,14 +121,18 @@ async function crewLogin(name, digits) {
   await pin(digits);
   await waitText("Today's Jobs");
 }
-const kv = async () => (await fetch(URL + "/api/data")).json();
+// Auth (P0-2): every /api route needs the session cookie, so KV reads/writes go
+// through tests/apiclient.mjs as the owner (set up in the health check below).
+let kvAdmin = null;
+const kv = async () => kvAdmin.get("/api/data");
 const step = async (name, fn) => { process.stdout.write(`- ${name}\n`); await fn(); };
 
 try {
-  const health = await fetch(URL + "/api/data").catch(() => null);
-  if (!health || health.status !== 200) fail(`GET ${URL}/api/data -> ${health ? health.status : "unreachable"}`);
-  const seed = await health.json();
-  if (!(seed.employees || []).some(e => e.name === "Nong" && e.pin === "1111") || seed.adminPin !== "9999") fail("server is not seeded with the default profile");
+  const health = await fetch(URL + "/api/public").catch(() => null);
+  if (!health || health.status !== 200) fail(`GET ${URL}/api/public -> ${health ? health.status : "unreachable"}; boot + seed first (tests/README.md)`);
+  kvAdmin = await apiClient(URL).loginAdmin("9999").catch(e => fail("owner login 9999 failed: seed first. " + e.message));
+  const seed = await kv();
+  if (!(seed.employees || []).some(e => e.name === "Nong")) fail("server is not seeded with the default profile");
   const nong = seed.employees.find(e => e.name === "Nong");
 
   // ── ADMIN: dashboard layout (P2-11) ─────────────────────────────────────
@@ -176,7 +184,7 @@ try {
   });
 
   // ── ADMIN: crew roster on a job (P1-10) ─────────────────────────────────
-  await fetch(URL + "/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lineGroupId: "Gwalk" }) });
+  await kvAdmin.put("/api/data", { lineGroupId: "Gwalk" });
   await step("admin: put Nong (1st AC, pickup 06:30, call 07:30) on Netflix; KV crew + checkoutRoles; LINE push once", async () => {
     await page.reload({ waitUntil: "networkidle0" });
     await waitText("Overview");
@@ -356,7 +364,7 @@ try {
     await shot("offline-admin-dirty");
     // Meanwhile another device renames the pencil job: the reconnect must merge, not overwrite.
     const before = await kv();
-    await fetch(URL + "/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobs: before.jobs.map(j => j.id === "job3" ? { ...j, name: "Music Video (renamed elsewhere)" } : j) }) });
+    await kvAdmin.put("/api/data", { jobs: before.jobs.map(j => j.id === "job3" ? { ...j, name: "Music Video (renamed elsewhere)" } : j) });
     blockData = false;
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30_000 }).catch(() => {});
@@ -388,7 +396,7 @@ try {
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     await page.waitForNavigation({ waitUntil: "networkidle0", timeout: 30_000 }).catch(() => {});
     await sleep(1000);
-    const prof = await (await fetch(URL + "/api/profile/" + nong.id)).json();
+    const prof = await kvAdmin.get("/api/profile/" + nong.id);
     if (prof.phone !== "099-000-1234") fail(`queued profile save not drained: phone=${prof.phone}`);
     console.log("  ok  queued profile save reached KV after reconnect");
   });
