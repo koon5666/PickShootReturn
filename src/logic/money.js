@@ -17,6 +17,8 @@ export const DEFAULT_OT_TIERS = [{ untilHour: 14, mult: 1.5 }, { untilHour: 16, 
 // Overtime amount (THB) for one day worked, under a position's rate rules.
 // ratePerHour = dayRate / hoursPerDay. Flat OT = otHours × ratePerHour × otMultiplier.
 // Variable OT walks tiered multipliers by total-hour bands (e.g. 12–14h ×1.5, 14–16h ×2…).
+// Flat ฿/hour OT (review item P3-4): pos.otMode === "flatRate" with otFlatRate > 0
+// bills every OT hour at that fixed amount, ignoring the multiplier.
 export function calcOtAmount(call, wrap, pos) {
   if (!pos) return 0;
   const base = parseFloat(pos.hoursPerDay) || 12;
@@ -24,6 +26,10 @@ export function calcOtAmount(call, wrap, pos) {
   if (worked <= base) return 0;
   const dayRate = parseFloat(pos.dayRate) || 0;
   const ratePerHour = base > 0 ? dayRate / base : 0;
+  if (pos.otMode === "flatRate") {
+    const flat = parseFloat(pos.otFlatRate) || 0;
+    if (flat > 0) return (worked - base) * flat;
+  }
   if (pos.variableOT && (pos.otTiers || []).length) {
     const tiers = (pos.otTiers || [])
       .map(tr => ({ untilHour: parseFloat(tr.untilHour), mult: parseFloat(tr.mult) }))
@@ -84,4 +90,20 @@ export function calcTotal(inv) {
   return [inv.laborFee, inv.overtime, inv.travelFee, inv.perDiem]
     .map(v => parseFloat((v || "").toString().replace(/,/g, "")) || 0)
     .reduce((a, b) => a + b, 0);
+}
+
+// Worked example for the OT field (P3-4): what one OT hour pays under this
+// position's rules. { ratePerHour, otPerHour, mode } or null when no rate yet.
+export function otExample(pos) {
+  if (!pos) return null;
+  const base = parseFloat(pos.hoursPerDay) || 12;
+  const dayRate = parseFloat(pos.dayRate) || 0;
+  if (!(dayRate > 0) || !(base > 0)) return null;
+  const ratePerHour = dayRate / base;
+  if (pos.otMode === "flatRate") {
+    const flat = parseFloat(pos.otFlatRate) || 0;
+    return { ratePerHour, otPerHour: flat, mode: "flatRate", mult: null, base, dayRate };
+  }
+  const mult = parseFloat(pos.otMultiplier) || 1.5;
+  return { ratePerHour, otPerHour: ratePerHour * mult, mode: "multiplier", mult, base, dayRate };
 }
