@@ -13,7 +13,7 @@ export function newVersion() {
 // invoices) are already safe to write from a stale session and are not checked.
 export const VERSIONED = new Set([
   "equipment", "jobs", "employees", "reports", "productionCompanies", "companyName",
-  "adminPin", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents",
+  "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents",
   "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled",
 ]);
 

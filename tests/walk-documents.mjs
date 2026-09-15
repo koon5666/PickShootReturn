@@ -9,6 +9,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { apiClient } from "./apiclient.mjs";
 const PUPPETEER = process.env.PUPPETEER_CORE
   || "/private/tmp/claude-501/-Users-koonya-inta/bd16a78f-33be-43a8-91b5-db242cf9f6df/scratchpad/puptest/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -25,7 +26,7 @@ const browser = await puppeteer.launch({ executablePath: CHROME, headless: true,
 let page; let shotN = 0;
 const fail = (m) => { throw new Error(m); };
 async function newPage(viewport) {
-  if (page) await page.close();
+  if (page) { try { await page.evaluate(() => fetch("/api/logout", { method: "POST" })); } catch {} await page.close(); } // one cookie jar per browser (P0-2)
   page = await browser.newPage();
   await page.setViewport(viewport);
   page.on("pageerror", e => errors.push("pageerror: " + e.message));
@@ -59,7 +60,9 @@ async function clickText(txt, tag = "button", exact = true, nth = 0) {
 async function pin(digits) { for (const d of digits) await clickText(d); await clickText("Unlock", "button", false); }
 async function selectOption(selector, value) { await page.select(selector, value); await sleep(200); }
 async function typeInto(selector, text) { await page.click(selector, { clickCount: 3 }); await page.type(selector, text); }
-const kv = async () => (await fetch(URL + "/api/data")).json();
+// Auth (P0-2): API reads/writes go through an owner session; the crew profile read through Nong's.
+const kvAdmin = await apiClient(URL).loginAdmin("9999").catch(e => { console.error("owner login 9999 failed: seed first. " + e.message); process.exit(1); });
+const kv = async () => kvAdmin.get("/api/data");
 // Admin document tab: "INV" or "INV (2)"
 async function clickTab(label) {
   const pos = await page.evaluate((label) => {
@@ -74,8 +77,8 @@ async function clickTab(label) {
 const step = async (name, fn) => { console.log("- " + name); await fn(); };
 // Every navigation clears localStorage (fresh first-run), so re-login after a reload.
 async function loginNong() {
-  await waitText("Employee Login");
-  await clickText("Employee Login", "button", false);
+  await waitText("Crew / ทีมงาน");
+  await clickText("Crew / ทีมงาน", "button", false);
   await waitText("Select account");
   await clickText("Select account", "button", false);
   await waitText("Nong", 5_000);
@@ -88,8 +91,8 @@ try {
   // ───────────── CREW (Nong) ─────────────
   await step("crew login Nong", async () => {
     await newPage({ width: 390, height: 844, isMobile: true, hasTouch: false });
-    await waitText("Employee Login");
-    await clickText("Employee Login", "button", false);
+    await waitText("Crew / ทีมงาน");
+    await clickText("Crew / ทีมงาน", "button", false);
     await waitText("Select account");
     await clickText("Select account", "button", false);
     await waitText("Nong", 5_000);
@@ -124,7 +127,7 @@ try {
     await typeInto("input[placeholder='1234567890123']", "1234567890123");
     await clickText("Save Profile", "button", false);
     await sleep(1200);
-    const prof = await (await fetch(URL + "/api/profile/e_nong")).json();
+    const prof = await kvAdmin.get("/api/profile/e_nong");
     if (prof.taxId !== "1234567890123") fail("taxId not saved: " + prof.taxId);
     if (prof.invoicePrefix !== "NG") fail("prefix not saved");
     console.log("  ok profile saved taxId + prefix");
@@ -305,8 +308,8 @@ try {
 
   await step("crew: share link 72h + view count + revoke", async () => {
     // give the house a LINE group id so the Send to Group button shows (notify will fail locally; that is caught)
-    await fetch(URL + "/api/data", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ lineGroupId: "Clocaltest" }) });
-    await page.reload({ waitUntil: "networkidle0" });
+    await kvAdmin.put("/api/data", { lineGroupId: "Clocaltest" });
+    await page.evaluate(() => fetch("/api/logout", { method: "POST" })); await page.reload({ waitUntil: "networkidle0" }); // the session cookie survives a reload (P0-2): end it so the script re-logs in as before
     await loginNong();
     await clickText("Invoice"); await waitText("My Invoices");
     await sleep(400);
@@ -328,10 +331,10 @@ try {
     if (v1.status !== 200 || !(await v1.text()).includes("INV-NG-26-0002")) fail("public view failed");
     await fetch(`${URL}/api/invoice-view/${inv.share.key}`);
     await sleep(500);
-    const st = await (await fetch(`${URL}/api/invoice-share?key=${inv.share.key}&token=${inv.share.token}`)).json();
+    const st = await kvAdmin.get(`/api/invoice-share?key=${inv.share.key}&token=${inv.share.token}`);
     console.log("  share status", st);
     if (st.views !== 2) fail("view counter wrong: " + st.views);
-    const bad = await fetch(`${URL}/api/invoice-share?key=${inv.share.key}&token=wrong`);
+    const bad = await kvAdmin.raw(`/api/invoice-share?key=${inv.share.key}&token=wrong`);
     if (bad.status !== 403) fail("status with wrong token should be 403");
     // UI shows views after collapse/expand refresh
     await clickText("INV-NG-26-0002", "p", false); await sleep(200); await clickText("INV-NG-26-0002", "p", false); await sleep(800);
@@ -345,11 +348,11 @@ try {
     console.log("  ok share revoked (404)");
     await shot("crew-share-revoked");
     // sanity: legacy plain-HTML share still readable
-    await fetch(URL + "/api/data", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ lineGroupId: null }) });
+    await kvAdmin.put("/api/data", { lineGroupId: null });
   });
 
   await step("crew: Thai UI strings in modal", async () => {
-    await page.reload({ waitUntil: "networkidle0" });
+    await page.evaluate(() => fetch("/api/logout", { method: "POST" })); await page.reload({ waitUntil: "networkidle0" }); // the session cookie survives a reload (P0-2): end it so the script re-logs in as before
     await loginNong();
     await clickText("TH");
     await sleep(300);
@@ -368,8 +371,8 @@ try {
   // ───────────── ADMIN ─────────────
   await step("admin login", async () => {
     await newPage({ width: 1280, height: 900 });
-    await waitText("Admin Login");
-    await clickText("Admin Login", "button", false);
+    await waitText("Crew / ทีมงาน");
+    await clickText("Rental house admin", "button", false);
     await waitText("Enter PIN");
     await pin("9999");
     await waitText("Overview");
@@ -486,9 +489,9 @@ try {
   await step("admin: My Info tax id + positions OT example", async () => {
     await page.keyboard.press("Escape");
     await page.evaluate(() => { const b = [...document.querySelectorAll("button")].find(b => b.querySelector("svg") && b.textContent.trim() === ""); });
-    await page.reload({ waitUntil: "networkidle0" });
-    await waitText("Admin Login");
-    await clickText("Admin Login", "button", false);
+    await page.evaluate(() => fetch("/api/logout", { method: "POST" })); await page.reload({ waitUntil: "networkidle0" }); // the session cookie survives a reload (P0-2): end it so the script re-logs in as before
+    await waitText("Crew / ทีมงาน");
+    await clickText("Rental house admin", "button", false);
     await waitText("Enter PIN");
     await pin("9999");
     await waitText("Overview");
@@ -504,8 +507,8 @@ try {
 
   await step("admin: same modal on a phone gets two-row line items", async () => {
     await newPage({ width: 390, height: 844, isMobile: true });
-    await waitText("Admin Login");
-    await clickText("Admin Login", "button", false);
+    await waitText("Crew / ทีมงาน");
+    await clickText("Rental house admin", "button", false);
     await waitText("Enter PIN");
     await pin("9999");
     await waitText("Overview");

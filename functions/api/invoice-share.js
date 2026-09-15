@@ -5,19 +5,21 @@
 // The revoke token is returned once at creation and must be presented for
 // GET/DELETE, so only the device that created the link can inspect or kill it.
 // The public reader is /api/invoice-view/<key> (no token, counts views).
+// Creating / inspecting / revoking a link needs a session (P0-2); reading the
+// link itself (/api/invoice-view/<key>) stays public, that is the point of it.
 import { SHARE_TTL_SECONDS, isShareKey, newShareKey, newRevokeToken, makeEnvelope, parseStored, isExpired, shareStatus, tokenMatches } from "../_lib/share.js";
+import { requireSession } from "../_lib/auth.js";
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+const CORS = {};
 
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost(context) {
+  const auth = await requireSession(context);
+  if (!auth.ok) return auth.response;
+  const { request, env } = context;
   try {
     const html = await request.text();
     if (!html || html.length > 4_000_000) return Response.json({ error: "bad body" }, { status: 400, headers: CORS });
@@ -42,13 +44,19 @@ async function loadOwned(request, env) {
   return { key, stored };
 }
 
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet(context) {
+  const auth = await requireSession(context);
+  if (!auth.ok) return auth.response;
+  const { request, env } = context;
   const r = await loadOwned(request, env);
   if (r.status) return Response.json({ found: false }, { status: r.status, headers: CORS });
   return Response.json(shareStatus(r.stored), { headers: CORS });
 }
 
-export async function onRequestDelete({ request, env }) {
+export async function onRequestDelete(context) {
+  const auth = await requireSession(context);
+  if (!auth.ok) return auth.response;
+  const { request, env } = context;
   const r = await loadOwned(request, env);
   if (r.status) return Response.json({ ok: false }, { status: r.status, headers: CORS });
   await env.KV.delete(r.key);

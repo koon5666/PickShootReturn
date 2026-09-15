@@ -14,6 +14,8 @@ export const FIELDS = [
   "invoices", "companyName", "equipmentRequests", "adminRequests", "adminPin",
   "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents",
   "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled",
+  // auth track (P0-2 / P2-6): server-owned, never sent by the client, backed up like the rest
+  "adminPinHash", "staff", "calendarToken", "auditLog",
 ];
 
 // Fields whose photos the client renders immediately on boot, so GET re-inlines

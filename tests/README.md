@@ -11,7 +11,8 @@ node tests/local-server.mjs $PORT ./.wrangler-local --session <your-track>
 ```
 
 Builds `dist` (vite), starts `wrangler pages dev dist --port $PORT --persist-to ./.wrangler-local`
-detached, waits for `GET /api/data` = 200, prints the PID. `--session <name>` registers
+detached, waits for `GET /api/public` = 200, prints the PID. Writes a random `SESSION_SECRET`
+to `.dev.vars` (gitignored) if there is none: the functions refuse to run without one. `--session <name>` registers
 the server in `/tmp/claude-dev-servers.json` (parallel-session etiquette). Log:
 `<stateDir>/wrangler.log`. `--no-build` reuses the existing `dist`.
 In a worktree use the worktree's own state dir (`<worktree>/.wrangler-local`, gitignored).
@@ -38,6 +39,21 @@ production companies (Indie House has no address), crew + admin profiles.
 `PUT /api/data` merges per field (checkouts / adminRequests / equipmentRequests / invoices
 keep KV-only ids), so seeding is additive: for a clean slate stop the server, delete the
 state dir (or use a new one) and boot again.
+
+Every `/api` route needs a session cookie (auth track, P0-2). The seed logs in as the
+owner first (fresh state: bootstrap PIN 1234; after the default seed: 9999) and the PINs it
+PUTs in the clear are hashed server-side. Scripts use `tests/apiclient.mjs`:
+
+```js
+import { apiClient } from "./apiclient.mjs";
+const owner = await apiClient(base).loginAdmin("9999");        // or ("2468", staffId) for a staff account
+const nong  = await apiClient(base).loginEmployee("e_nong", "1111");
+await owner.get("/api/data"); await owner.put("/api/data", {...}); await nong.post("/api/pin", {...});
+```
+
+One browser = one cookie jar: a puppeteer script that switches persona must log out first
+(`fetch("/api/logout", { method: "POST" })`), and a `page.reload()` keeps the session (it used to
+log out because localStorage was cleared). GET /api/data never returns a PIN field.
 
 ## 3. Smoke (headless Chrome, real mouse clicks)
 
@@ -74,9 +90,9 @@ node tests/migrate-proof.mjs $PORT                           # migrates in batch
 Or drive it from the UI: admin > Settings > Photo storage > "Move photos to separate storage".
 `GET /api/migrate-photos` shows progress without writing.
 
-API helpers in this area (all local): `POST /api/tombstone {field,id,adminPin}`,
-`POST /api/history-clear {adminPin}`, `GET /api/backup?list=1`, `GET /api/backup?id=`,
-`PUT /api/backup {label?}`, `POST /api/backup {id,adminPin}` (restore, safety copy first).
+API helpers in this area (all local, admin session): `POST /api/tombstone {field,id}`,
+`POST /api/history-clear`, `GET /api/backup?list=1`, `GET /api/backup?id=`,
+`PUT /api/backup {label?}`, `POST /api/backup {id}` (restore, owner only, safety copy first).
 `PUT /api/data` accepts `_v` (per-field versions from GET) and answers 409 on a stale
 whole-value field, 413 on a value over 20 MiB.
 
@@ -111,3 +127,24 @@ house read-only vs own editable (tax ID + branch), 72 h share link + view counte
 Thai modal. Admin (1280x900): nothing minted on mount, Create quote from job, Create invoice
 from quote, paid dialog, Issue receipt, void, Companies tax ID, Presets Save, positions OT
 example, and the same modal at 390px. Screenshots in `tests/.walk-shots/`.
+
+## 6. Auth track walk-through
+
+```sh
+node tests/walk-auth.mjs $PORT        # needs a FRESH default seed (it registers / adds accounts)
+```
+
+Login screen (crew primary, admin link, LangPill, PIN hint, TH), 5 wrong PINs -> the
+server's 429 countdown (survives a reload), owner Settings (no PIN shown, My PIN needs the
+current PIN, staff accounts add / reset / owner name), Team (no show toggle, Reset PIN and
+Add Member go to `/api/employees/:id/pin`), KPI event stamped with the actor, register with
+a contact -> "Waiting for approval" on that device -> admin approves (row shows the contact,
+never the PIN, `approvedBy`) -> "Your account is ready", counter staff Bee logs in through
+the account picker and her approval is stamped `by: Bee`, logout really ends the session,
+crew PIN self-change (wrong current PIN refused), a crew page cannot write another crew's
+invoice / profile / checkout, offline boot from the cached session + cache. Screenshots in
+`tests/.auth-shots/`.
+
+Legacy data: load the prod copy straight into KV (section 3b) and log in with the old
+plaintext PINs; the first successful login of each account rewrites it as a hash and deletes
+the plaintext (`functions/_lib/accounts.js`).

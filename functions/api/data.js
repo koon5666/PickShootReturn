@@ -2,12 +2,12 @@ import { stripPhoto, mergePhotoArray, mergeById, mergeInvoices, withoutTombstone
 import { FIELDS, readAllFields, readField, inlineField, prepareWrite, commitWrites } from "../_lib/store.js";
 import { PHOTO_FIELDS } from "../_lib/photos.js";
 import { isStale, VERSIONED } from "../_lib/versions.js";
+import { requireSession, stripCredentials } from "../_lib/auth.js";
+import { protectEmployees, adoptPlainAdminPin } from "../_lib/accounts.js";
+import { forbiddenFields, restrictOwn, mergeOwnedWhole, ownInvoices, OWNER_KEY, SERVER_OWNED_FIELDS } from "../_lib/roles.js";
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+// Same-origin API: no Access-Control-Allow-* headers on purpose (P0-2).
+const CORS = {};
 
 // FIELDS (every top-level field, one KV key each) lives in functions/_lib/store.js.
 // Keep it in sync with the app's DATA_FIELDS (src/App.jsx); the backup module
@@ -35,6 +35,18 @@ const CORS = {
 // if a stale device re-saves the live copy) and stripped from the GET payload
 // for checkouts / adminRequests / equipmentRequests. Invoices keep them (the UI
 // filters `_deleted` itself). POST /api/tombstone writes one.
+//
+// ── Auth (P0-2) ──────────────────────────────────────────────────────────────
+// Every request needs the session cookie (functions/_lib/auth.js). GET never
+// returns a credential (adminPin / adminPinHash / employees[].pin|pinHash /
+// staff[].pinHash / member-register requestedPin*). PUT: an admin may write any
+// client field; an employee only checkouts / equipmentRequests / adminRequests /
+// invoices / reports / productionCompanies and inside them only their own records
+// (functions/_lib/roles.js). Employee credentials come from KV on every admin
+// employees write (a plaintext `pin` from an old client or the seed script is
+// hashed on the spot); `adminPin` sent by an admin becomes the hashed owner PIN.
+// Server-owned fields (adminPinHash, staff, calendarToken, auditLog) are never
+// written through PUT.
 
 function leanAdminRequests(arr) {
   return Array.isArray(arr)
@@ -46,11 +58,16 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-export async function onRequestGet({ env, request }) {
+export async function onRequestGet(context) {
+  const { env, request } = context;
+  const auth = await requireSession(context);
+  if (!auth.ok) return auth.response;
   const url = new URL(request.url);
-  const full = url.searchParams.get("full") === "1"; // escape hatch: full payload w/ photos
+  const full = url.searchParams.get("full") === "1" && auth.session.role === "admin"; // escape hatch: full payload w/ photos (admin)
   const { values, versions } = await readAllFields(env.KV);
-  const out = { ...values };
+  const out = stripCredentials(values);
+  if (auth.session.role !== "admin") delete out.auditLog; // actor log is for the house only
+  delete versions.adminPin; delete versions.adminPinHash;
   for (const f of ["checkouts", "adminRequests", "equipmentRequests"]) out[f] = withoutTombstones(out[f]);
   // Re-inline photos the client renders immediately.
   const [equipment, reports, adminRequests] = await Promise.all([
@@ -78,10 +95,22 @@ const PHOTO_ARRAYS = new Set(["checkouts", "adminRequests"]);
 // On PUT: incoming entries win for shared IDs, KV-only IDs are preserved.
 const MERGE_ARRAYS = new Set(["equipmentRequests"]);
 
-export async function onRequestPut({ request, env }) {
+export async function onRequestPut(context) {
+  const { request, env } = context;
+  const auth = await requireSession(context);
+  if (!auth.ok) return auth.response;
+  const session = auth.session;
+  const isAdmin = session.role === "admin";
   let body;
   try { body = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400, headers: CORS }); }
+  if (!body || typeof body !== "object") return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400, headers: CORS });
+  const denied = forbiddenFields(body, session, FIELDS);
+  if (denied.length) return Response.json({ ok: false, error: "forbidden", fields: denied }, { status: 403, headers: CORS });
   const sentV = body && typeof body._v === "object" ? body._v : null;
+  // Owner PIN sent in the clear by an old client / the seed script: hash it now.
+  if (isAdmin && body.adminPin !== undefined && body.adminPin !== null) {
+    if (!(await adoptPlainAdminPin(env.KV, body.adminPin))) return Response.json({ ok: false, error: "adminPin must be 4-6 digits" }, { status: 400, headers: CORS });
+  }
 
   // Phase 1: compute every value to store (no writes yet), collecting stale
   // conflicts and oversize values so a PUT is all-or-nothing.
@@ -92,17 +121,32 @@ export async function onRequestPut({ request, env }) {
   const metaByField = {};
   for (const k of FIELDS) {
     if (body[k] === undefined) continue;               // field not sent → leave untouched
+    if (k === "adminPin" || SERVER_OWNED_FIELDS.has(k)) continue; // handled above / never via PUT
     if (k === "lineGroupId" && body[k] === null) { deletes.push("lineGroupId"); continue; }
 
     let value = body[k];
     const merged = (k === "invoices" || PHOTO_ARRAYS.has(k) || MERGE_ARRAYS.has(k)) && Array.isArray(value);
-    const needExisting = merged || PHOTO_FIELDS[k] || (VERSIONED.has(k) && sentV && (k in sentV));
+    const ownedWhole = !isAdmin && k === "productionCompanies" && Array.isArray(value);
+    const needExisting = merged || ownedWhole || k === "employees" || PHOTO_FIELDS[k] || (VERSIONED.has(k) && sentV && (k in sentV));
     const cur = needExisting ? await readField(env.KV, k) : null;
     const existing = cur && Array.isArray(cur.value) ? cur.value : [];
     if (merged) {
-      if (k === "invoices") value = mergeInvoices(value, existing, body._invoiceEmployeeId);
-      else if (PHOTO_ARRAYS.has(k)) value = mergePhotoArray(value, existing, { clearedAt: cur.meta.clearedAt || 0 });
-      else value = mergeById(value, existing);
+      if (k === "invoices") {
+        // Employee sessions: ownership is the SESSION, never a client-declared id.
+        const owner = isAdmin ? "admin" : session.id;
+        if (!isAdmin) value = ownInvoices(value, existing, owner);
+        value = mergeInvoices(value, existing, owner);
+      } else {
+        if (!isAdmin) value = restrictOwn(value, existing, session.id, OWNER_KEY[k]);
+        if (PHOTO_ARRAYS.has(k)) value = mergePhotoArray(value, existing, { clearedAt: cur.meta.clearedAt || 0 });
+        else value = mergeById(value, existing);
+      }
+    } else if (ownedWhole) {
+      value = mergeOwnedWhole(value, existing, session.id, OWNER_KEY[k]);
+      if (VERSIONED.has(k) && sentV && (k in sentV)) { currentV[k] = cur.v; if (isStale(k, sentV, cur.v)) conflicts.push(k); }
+    } else if (k === "employees" && Array.isArray(value)) {
+      value = await protectEmployees(value, existing);
+      if (VERSIONED.has(k) && sentV && (k in sentV)) { currentV[k] = cur.v; if (isStale(k, sentV, cur.v)) conflicts.push(k); }
     } else if (VERSIONED.has(k) && sentV && (k in sentV)) {
       currentV[k] = cur.v;
       if (isStale(k, sentV, cur.v)) conflicts.push(k);

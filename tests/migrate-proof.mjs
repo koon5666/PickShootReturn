@@ -13,12 +13,15 @@
 const port = parseInt(process.argv[2], 10);
 if (!(port > 0)) { console.error("usage: node tests/migrate-proof.mjs <PORT>"); process.exit(2); }
 const B = `http://127.0.0.1:${port}`;
-const j = (r) => r.json();
-const get = (p) => fetch(B + p).then(j);
-const post = (p, b) => fetch(B + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) }).then(r => r.json());
 const isD = s => typeof s === "string" && s.startsWith("data:");
 const src = JSON.parse((await import("node:fs")).readFileSync(process.env.HOME + "/psr-backups/2026-09-16_pre-theme/data-full.json", "utf8"));
-const adminPin = src.adminPin;
+// Auth (P0-2): the endpoints need an owner session; the prod copy's legacy
+// plaintext adminPin logs in once and is upgraded to a hash on the way.
+const { apiClient } = await import("./apiclient.mjs");
+const owner = await apiClient(B).loginAdmin(String(src.adminPin));
+const j = (r) => r.json();
+const get = (p) => owner.get(p);
+const post = (p, b) => owner.post(p, b).then(r => r.json());
 const expect = {}; // photoKey -> data from the source of truth
 for (const f of ["checkouts", "adminRequests", "equipment"]) for (const e of src[f] || []) if (e && isD(e.photo)) expect[`${f}:${e.id}`] = e.photo;
 for (const e of src.reports || []) if (e && Array.isArray(e.photos)) e.photos.forEach((p, i) => { if (isD(p)) expect[`reports:${e.id}:${i}`] = p; });
@@ -39,7 +42,7 @@ console.log("photo fallback before migration:", ph.photos[sampleId] === expect["
 // run the migration in batches (same call the Settings button makes)
 let calls = 0, moved = 0;
 for (;;) {
-  const r = await post("/api/migrate-photos", { adminPin, limit: 20 });
+  const r = await post("/api/migrate-photos", { limit: 20 });
   calls++;
   if (!r.ok) { console.log("FAILED:", r); process.exit(1); }
   moved += r.moved;
@@ -49,7 +52,7 @@ for (;;) {
 }
 console.log(`migration: ${moved} photos in ${calls} calls, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 // idempotent re-run
-const again = await post("/api/migrate-photos", { adminPin, limit: 20 });
+const again = await post("/api/migrate-photos", { limit: 20 });
 console.log("re-run moved:", again.moved, "remaining:", again.remaining);
 
 st = await get("/api/migrate-photos");
@@ -88,9 +91,9 @@ console.log("?full=1 checkouts with photo:", full.checkouts.filter(c => isD(c.ph
 d = await get("/api/data");
 console.log("lean GET after:", (JSON.stringify(d).length / 1048576).toFixed(2), "MiB; hasPhoto markers on checkouts:", d.checkouts.filter(c => c.hasPhoto).length, "; pending adminRequests inline:", d.adminRequests.filter(r => r.status === "pending" && isD(r.photo)).length, "; equipment inline:", d.equipment.filter(e => isD(e.photo)).length, "; report photos inline:", d.reports.reduce((n, r) => n + (r.photos || []).filter(isD).length, 0));
 // backup of the migrated dataset, then restore it (round trip)
-const bk = await fetch(B + "/api/backup", { method: "PUT", headers: { "content-type": "application/json" }, body: "{}" }).then(j);
+const bk = await owner.put("/api/backup", {}).then(j);
 console.log("backup:", bk.id, "photos", bk.backup.photoCount, "counts", JSON.stringify(bk.backup.counts));
-const rs = await post("/api/backup", { id: bk.id, adminPin });
+const rs = await post("/api/backup", { id: bk.id });
 console.log("restore:", rs.ok, "safety", rs.safetyId, "orphans", rs.orphanPhotosRemoved);
 const after = await get("/api/data?full=1");
 v = verify(after);

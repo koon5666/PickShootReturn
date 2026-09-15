@@ -1,3 +1,10 @@
+// iCal feed of the job calendar. Needs the per-tenant token (P0-2):
+//   GET /api/calendar?token=<calendarToken>
+// The token is created at first login (functions/_lib/accounts.js) and shown in
+// Settings / crew Profile; rotating it there invalidates every old subscription.
+// No token in KV yet (nobody has logged in since the upgrade) -> 403 as well.
+import { readField } from "../_lib/store.js";
+
 function esc(str) {
   return (str || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 }
@@ -16,7 +23,13 @@ function nextDay(dateStr) {
   return d.toISOString().slice(0, 10).replace(/-/g, "");
 }
 
-export async function onRequestGet({ env }) {
+export async function onRequestGet({ env, request }) {
+  const url = new URL(request.url);
+  const sent = url.searchParams.get("token") || "";
+  const { value: token } = await readField(env.KV, "calendarToken");
+  if (!(typeof token === "string" && token.length >= 32 && sent === token)) {
+    return new Response("calendar token required", { status: 403, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
+  }
   const jobs = await env.KV.get("jobs", "json") || [];
   const stamp = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
 
@@ -59,11 +72,10 @@ export async function onRequestGet({ env }) {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
       "Cache-Control": "no-cache, no-store",
-      "Access-Control-Allow-Origin": "*",
     },
   });
 }
 
 export async function onRequestOptions() {
-  return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
+  return new Response(null, { status: 204 });
 }

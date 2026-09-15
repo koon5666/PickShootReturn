@@ -30,5 +30,5 @@ export async function onRequestGet({ env, params, waitUntil }) {
 }
 
 export async function onRequestOptions() {
-  return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
+  return new Response(null, { status: 204 });
 }

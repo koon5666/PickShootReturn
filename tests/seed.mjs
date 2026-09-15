@@ -11,10 +11,17 @@
 // PUT /api/data MERGES per field (checkouts/adminRequests/equipmentRequests/invoices keep
 // KV-only ids), so seeding is additive: for a clean slate boot the server on a fresh
 // --persist-to dir. Only ever talks to 127.0.0.1:<PORT>.
+//
+// Auth (P0-2): every /api route needs a session. The seed logs in as the owner
+// first: on a FRESH state the owner PIN is the bootstrap default 1234 (nothing set
+// yet); after the default seed it is 9999 (the plaintext `adminPin` the seed PUTs
+// is hashed server-side). Crew PINs are seeded as plaintext `pin` and hashed by the
+// server as well, so Nong 1111 / Arthit 2222 / Ploy 3333 keep working.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { apiClient } from "./apiclient.mjs";
 
 const port = parseInt(process.argv[2], 10);
 const profile = process.argv[3] || "default";
@@ -104,17 +111,29 @@ export function buildProdCopySeed() {
   return { data, profiles: {} };
 }
 
+let client = null;
 async function put(path, body) {
-  const r = await fetch(base + path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) throw new Error(`PUT ${path} -> ${r.status}`);
+  const r = await client.put(path, body);
+  if (!r.ok) throw new Error(`PUT ${path} -> ${r.status} ${await r.text().catch(() => "")}`);
   return r;
+}
+
+// Owner login for seeding: try the seed PIN (a re-seed), then the fresh-state
+// default, then any PIN given as SEED_ADMIN_PIN.
+async function loginOwner() {
+  const pins = [...new Set([process.env.SEED_ADMIN_PIN, "9999", "1234"].filter(Boolean))];
+  for (const pin of pins) {
+    try { return await apiClient(base).loginAdmin(pin); } catch {}
+  }
+  throw new Error(`could not log in as owner with ${pins.join("/")}; pass SEED_ADMIN_PIN=<pin>`);
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  const health = await fetch(base + "/api/data").catch(() => null);
-  if (!health || health.status !== 200) { console.error(`no server at ${base} (GET /api/data ${health ? health.status : "unreachable"}); boot one with tests/local-server.mjs`); process.exit(1); }
-  const before = await health.json();
+  const health = await fetch(base + "/api/public").catch(() => null);
+  if (!health || health.status !== 200) { console.error(`no server at ${base} (GET /api/public ${health ? health.status : "unreachable"}); boot one with tests/local-server.mjs`); process.exit(1); }
+  client = await loginOwner();
+  const before = await client.get("/api/data");
   const nonEmpty = Object.keys(before).filter(k => before[k] !== null && before[k] !== undefined);
   if (nonEmpty.length) console.log(`note: KV already has ${nonEmpty.length} field(s) (${nonEmpty.slice(0, 5).join(", ")}…); PUT merges, use a fresh --persist-to dir for a clean slate`);
 
@@ -128,6 +147,8 @@ if (isMain) {
     console.log(`  ${k.padEnd(20)} ${Array.isArray(v) ? v.length + " rows" : typeof v}${size > 100_000 ? ` (${(size / 1048576).toFixed(1)} MB)` : ""}`);
   }
   for (const [id, prof] of Object.entries(seed.profiles)) { await put(`/api/profile/${id}`, prof); console.log(`  profile_${id}`); }
-  const after = await (await fetch(base + "/api/data")).json();
+  // The seed changed the owner PIN (adminPin): log in again with it for the final read.
+  client = await loginOwner();
+  const after = await client.get("/api/data");
   console.log(`seeded profile "${profile}" on ${base}: ${(after.employees || []).length} employees, ${(after.equipment || []).length} gear, ${(after.jobs || []).length} jobs, ${(after.checkouts || []).length} checkouts, company "${after.companyName}"`);
 }

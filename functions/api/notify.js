@@ -1,20 +1,24 @@
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+// LINE push relay. Session required (P0-2): it used to be an open relay that
+// anyone could burn the shared monthly push quota through.
+import { requireSession } from "../_lib/auth.js";
+
+const CORS = {};
 
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost(context) {
+  const auth = await requireSession(context);
+  if (!auth.ok) return auth.response;
+  const { request, env } = context;
   const token = env.LINE_CHANNEL_ACCESS_TOKEN;
   if (!token) {
     return Response.json({ ok: false, error: "LINE_CHANNEL_ACCESS_TOKEN not configured" }, { status: 500, headers: CORS });
   }
 
-  const { userIds, message } = await request.json();
+  let userIds, message;
+  try { ({ userIds, message } = await request.json()); } catch { return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400, headers: CORS }); }
   if (!userIds?.length || !message) {
     return Response.json({ ok: false, error: "Missing userIds or message" }, { status: 400, headers: CORS });
   }

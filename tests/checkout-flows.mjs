@@ -14,6 +14,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { apiClient } from "./apiclient.mjs";
 
 const PUPPETEER = process.env.PUPPETEER_CORE
   || "/private/tmp/claude-501/-Users-koonya-inta/bd16a78f-33be-43a8-91b5-db242cf9f6df/scratchpad/puptest/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
@@ -44,7 +45,7 @@ await browser.defaultBrowserContext().overridePermissions(URL, ["geolocation"]);
 let page;
 
 async function newPage(viewport) {
-  if (page) await page.close();
+  if (page) { try { await page.evaluate(() => fetch("/api/logout", { method: "POST" })); } catch {} await page.close(); } // one cookie jar per browser (P0-2)
   page = await browser.newPage();
   await page.setViewport(viewport);
   page.on("pageerror", e => errors.push("pageerror: " + e.message));
@@ -90,7 +91,9 @@ async function tapAndPickPhoto(txt, within) {
   await chooser.accept([PHOTO]);
 }
 async function pin(digits) { for (const d of digits) await clickText(d); await clickText("Unlock", "button", false); }
-const kv = async () => (await fetch(URL + "/api/data")).json();
+// Auth (P0-2): API reads/writes go through an owner session.
+const kvAdmin = await apiClient(URL).loginAdmin("9999").catch(e => { console.error("owner login 9999 failed: seed first. " + e.message); process.exit(1); });
+const kv = async () => kvAdmin.get("/api/data");
 const step = async (name, fn) => { process.stdout.write(`- ${name}\n`); await fn(); };
 const TZ = "Asia/Bangkok";
 const day = (offset = 0) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() + offset * 86_400_000));
@@ -98,13 +101,13 @@ const at = (offsetDays, hh) => { const d = new Date(day(offsetDays) + "T00:00:00
 
 try {
   const data = await kv();
-  if (!(data.employees || []).some(e => e.name === "Nong" && e.pin === "1111") || data.adminPin !== "9999") fail("server is not seeded with the default profile");
+  if (!(data.employees || []).some(e => e.name === "Nong")) fail("server is not seeded with the default profile");
 
   // Fixture: a daily-mode night shoot (yesterday + today) with the RS3 picked at 19:00 yesterday by Nong (P1-2).
   const nightJob = { id: "job_night", name: "Night Shoot Sathorn", production: "Netflix Thailand", dates: [day(-1), day(0)], status: "Confirmed", shootTime: "Night", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "", dateOverrides: {}, assignedEquipment: [{ eqId: "eq_tripod", qty: 1 }], checkoutMode: "daily", checkoutRoles: { barcode: "anyone", photo: "anyone" } };
   const nightPick = { id: "co_night_pick", jobId: "job_night", requestId: null, jobName: nightJob.name, eqId: "eq_tripod", qty: 1, employeeId: "e_nong", employeeName: "Nong", type: "pick", ts: at(-1, 19), photo: null, location: { lat: 13.7563, lng: 100.5018, acc: 12 } };
   if (!(data.jobs || []).some(j => j.id === "job_night")) {
-    const r = await fetch(URL + "/api/data", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobs: [...data.jobs, nightJob], checkouts: [...data.checkouts, nightPick] }) });
+    const r = await kvAdmin.put("/api/data", { jobs: [...data.jobs, nightJob], checkouts: [...data.checkouts, nightPick] });
     if (!r.ok) fail("fixture PUT failed " + r.status);
   }
 
@@ -112,8 +115,8 @@ try {
   await step("crew login Nong (1111)", async () => {
     await newPage({ width: 390, height: 844, isMobile: true, hasTouch: false });
     await page.screenshot({ path: PHOTO }); // any image works as the "camera" photo
-    await waitText("Employee Login");
-    await clickText("Employee Login", "button", false);
+    await waitText("Crew / ทีมงาน");
+    await clickText("Crew / ทีมงาน", "button", false);
     await waitText("Select account");
     await clickText("Select account", "button", false);
     await waitText("Nong", 5_000);
@@ -247,8 +250,8 @@ try {
   // ── ADMIN 1280x900 ───────────────────────────────────────────────────────
   await step("admin login + Checkout page (P0-4/P3-7)", async () => {
     await newPage({ width: 1280, height: 900 });
-    await waitText("Admin Login");
-    await clickText("Admin Login", "button", false);
+    await waitText("Crew / ทีมงาน");
+    await clickText("Rental house admin", "button", false);
     await waitText("Enter PIN");
     await pin("9999");
     await waitText("Overview");
@@ -272,7 +275,7 @@ try {
     await sleep(2_500);
     const d = await kv();
     const ret = (d.checkouts || []).find(c => c.jobId === "job1" && c.eqId === "eq_vmount" && c.type === "return");
-    if (!ret || ret.qty !== 3 || ret.condition !== "damaged" || !ret.adminApproved || ret.by !== "admin") fail("approved geo return should carry qty 3 / damaged / adminApproved: " + JSON.stringify(ret));
+    if (!ret || ret.qty !== 3 || ret.condition !== "damaged" || !ret.adminApproved || !ret.by) fail("approved geo return should carry qty 3 / damaged / adminApproved: " + JSON.stringify(ret));
     console.log("  ok  approval wrote a partial return event");
   });
 
@@ -314,7 +317,7 @@ try {
     await sleep(2_500);
     const d = await kv();
     const lost = (d.checkouts || []).find(c => c.type === "lost" && c.eqId === "eq_vmount");
-    if (!lost || lost.qty !== 1 || lost.condition !== "written_off" || lost.by !== "admin" || lost.jobId !== "job1") fail("lost event not persisted: " + JSON.stringify(lost));
+    if (!lost || lost.qty !== 1 || lost.condition !== "written_off" || !lost.by || lost.jobId !== "job1") fail("lost event not persisted: " + JSON.stringify(lost));
     const rec = (d.checkouts || []).find(c => c.type === "return" && c.eqId === "eq_aputure" && c.jobId === "job2");
     if (!rec || rec.qty !== 1 || !rec.adminApproved || rec.employeeId !== "admin") fail("admin receive event not persisted: " + JSON.stringify(rec));
     console.log("  ok  lost + receive events persisted");

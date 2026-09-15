@@ -41,7 +41,7 @@ async function clickText(sel, txt, opt = {}) {
   await sleep(opt.wait ?? 350);
 }
 async function newPage(viewport) {
-  if (page) await page.close();
+  if (page) { try { await page.evaluate(() => fetch("/api/logout", { method: "POST" })); } catch {} await page.close(); } // one cookie jar per browser (P0-2)
   page = await browser.newPage();
   await page.setViewport(viewport);
   page.on("pageerror", e => errors.push("pageerror: " + e.message));
@@ -51,7 +51,7 @@ async function newPage(viewport) {
   await page.goto(URL, { waitUntil: "networkidle0", timeout: 60_000 });
 }
 async function adminLogin() {
-  await clickText("button", "Admin");
+  await clickText("button", "Rental house admin");
   for (const d of "9999") await clickText("button", d, { wait: 60 });
   await clickText("button", "Unlock", { wait: 1500 });
 }
@@ -220,7 +220,7 @@ try {
   await expectText("1 unit(s) · 1 item(s)");
   await shot("dashboard-after-receive");
   // persisted? reload and check
-  await page.reload({ waitUntil: "networkidle0" });
+  await page.evaluate(() => fetch("/api/logout", { method: "POST" })); await page.reload({ waitUntil: "networkidle0" }); // the session cookie survives a reload (P0-2): end it so the script re-logs in as before
   await sleep(800);
   await adminLogin();
   await expectText("1 unit(s) · 1 item(s)", "receive persisted after reload");
@@ -243,7 +243,7 @@ try {
 
   console.log("== crew: Nong");
   await newPage({ width: 390, height: 844 });
-  await clickText("button", "Employee Login");
+  await clickText("button", "Crew / ทีมงาน");
   await clickText("button", "Select account", { wait: 400 });
   await clickText("span", "Nong", { wait: 300, exact: true });
   for (const d of "1111") await clickText("button", d, { wait: 60 });

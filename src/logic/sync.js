@@ -11,7 +11,7 @@
 // Fields the server version-checks. Mirrors functions/_lib/versions.js VERSIONED.
 export const VERSIONED_FIELDS = [
   "equipment", "jobs", "employees", "reports", "productionCompanies", "companyName",
-  "adminPin", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents",
+  "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents",
   "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled",
 ];
 

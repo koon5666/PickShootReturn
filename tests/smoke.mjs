@@ -15,6 +15,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { apiClient } from "./apiclient.mjs";
 
 const PUPPETEER = process.env.PUPPETEER_CORE
   || "/private/tmp/claude-501/-Users-koonya-inta/bd16a78f-33be-43a8-91b5-db242cf9f6df/scratchpad/puptest/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
@@ -109,16 +110,22 @@ const step = async (name, fn) => { process.stdout.write(`- ${name}\n`); await fn
 
 try {
   // ── health ──────────────────────────────────────────────────────────────
-  const health = await fetch(URL + "/api/data").catch(() => null);
-  if (!health || health.status !== 200) fail(`GET ${URL}/api/data -> ${health ? health.status : "unreachable"}; boot + seed first (tests/README.md)`);
-  const data = await health.json();
-  if (!(data.employees || []).some(e => e.name === "Nong" && e.pin === "1111") || data.adminPin !== "9999") fail("server is not seeded with the default profile (node tests/seed.mjs <PORT>)");
+  // Auth (P0-2): /api/data needs a session, so the check logs in as the owner
+  // (9999) and as Nong (1111) through the API first; the payload must carry NO PIN.
+  const health = await fetch(URL + "/api/public").catch(() => null);
+  if (!health || health.status !== 200) fail(`GET ${URL}/api/public -> ${health ? health.status : "unreachable"}; boot + seed first (tests/README.md)`);
+  if ((await fetch(URL + "/api/data")).status !== 401) fail("GET /api/data without a session must be 401");
+  const kvAdmin = await apiClient(URL).loginAdmin("9999").catch(e => fail("owner login 9999 failed: seed first. " + e.message));
+  await apiClient(URL).loginEmployee("e_nong", "1111").catch(e => fail("crew login Nong 1111 failed: " + e.message));
+  const data = await kvAdmin.get("/api/data");
+  if (!(data.employees || []).some(e => e.name === "Nong")) fail("server is not seeded with the default profile (node tests/seed.mjs <PORT>)");
+  if (/"pin"|pinHash|adminPin/.test(JSON.stringify(data))) fail("GET /api/data leaked a PIN field");
 
   // ── ADMIN 1280x900 ───────────────────────────────────────────────────────
   await step("admin login (9999)", async () => {
     await newPage({ width: 1280, height: 900 });
-    await waitText("Admin Login");
-    await clickText("Admin Login", "button", false);
+    await waitText("Crew / ทีมงาน");
+    await clickText("Rental house admin", "button", false);
     await waitText("Enter PIN");
     await pin("9999");
     await waitText("Overview");
@@ -155,13 +162,13 @@ try {
     await closeByTitle("Settings");
     await clickText("Dashboard"); await waitText("Overview");
   });
-  await step("admin: log out", async () => { await clickText("Log out"); await waitText("Admin Login"); });
+  await step("admin: log out", async () => { await clickText("Log out"); await waitText("Crew / ทีมงาน"); });
 
   // ── CREW 390x844 ─────────────────────────────────────────────────────────
   await step("crew login Nong (1111)", async () => {
     await newPage({ width: 390, height: 844, isMobile: true, hasTouch: false });
-    await waitText("Employee Login");
-    await clickText("Employee Login", "button", false);
+    await waitText("Crew / ทีมงาน");
+    await clickText("Crew / ทีมงาน", "button", false);
     await waitText("Select account");
     await clickText("Select account", "button", false);
     await waitText("Nong", 5_000);
@@ -194,7 +201,7 @@ try {
     if (await hasText("Add Production House")) fail("Add Production House modal did not close after Save");
     await shot("crew-prodhouse-added");
     await sleep(3_500); // debounced save
-    const kv = await (await fetch(URL + "/api/data")).json();
+    const kv = await kvAdmin.get("/api/data");
     if (!(kv.productionCompanies || []).some(c => c.name === name)) fail("new production house was not persisted to KV");
     console.log("  ok  production house persisted");
   });
