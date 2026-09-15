@@ -1,3 +1,5 @@
+import { calendarTimezone } from "../_lib/tz.js";
+
 function esc(str) {
   return (str || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 }
@@ -17,7 +19,11 @@ function nextDay(dateStr) {
 }
 
 export async function onRequestGet({ env }) {
-  const jobs = await env.KV.get("jobs", "json") || [];
+  const [jobs, savedTz] = await Promise.all([
+    env.KV.get("jobs", "json").then(v => v || []),
+    env.KV.get("timezone", "json").catch(() => null),
+  ]);
+  const tz = calendarTimezone(savedTz);
   const stamp = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
 
   const lines = [
@@ -28,7 +34,7 @@ export async function onRequestGet({ env }) {
     "METHOD:PUBLISH",
     "X-WR-CALNAME:PickShootReturn",
     "X-WR-CALDESC:Film Production Schedule",
-    "X-WR-TIMEZONE:Asia/Bangkok",
+    `X-WR-TIMEZONE:${tz}`,
     "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
     "X-PUBLISHED-TTL:PT1H",
   ];

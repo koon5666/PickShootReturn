@@ -10,6 +10,10 @@ import { derivePrefix, sanitizePrefix, nextDocNo, rtxNoFromInv, fmtDocNo } from 
 import { printableItems, validateDocument, docTotals, snapshotBillTo, resolveBillTo, canEditCompany, dateInTz, dueDateFrom, canMarkPaid, embedFlags, docTitle, WHT_DEFAULT_RATE } from "./logic/invoiceDoc.js";
 import { roleOptions, DEFAULT_POSITION_NAMES } from "./logic/positions.js";
 import { ToastProvider, useToast } from "./components/toast.jsx";
+import { normalizeCrew, hasRoster, isOnRoster, myRosterEntry, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage, EMPTY_CREW_ROW } from "./logic/roster.js";
+import { buildSavePayload, dirtyFields, queueProfile, drainProfileQueue } from "./logic/offline.js";
+import { utilisation, utilisationCsv, overdueCsv, customerHistory, customerHistoryCsv, customerNames, crewStatement, crewStatementCsv, periodPreset, monthOf } from "./logic/reports.js";
+import { qrSvg } from "./vendor/qrcodegen.js";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const JOB_STATUSES = ["Pencil", "Confirmed", "Cancelled", "Declined"];
@@ -53,7 +57,25 @@ const api = {
 const CACHE_KEY = "psr_cache"; // localStorage key for offline fallback cache
 
 // Top-level fields persisted to KV (mirrors functions/api/data.js FIELDS).
-const DATA_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "adminPin", "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled"];
+const DATA_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "adminPin", "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled", "theme"];
+
+// Admin theme (P3-8): saved per tenant in KV as { style, palette }; localStorage
+// only caches it so the first paint after a reload already has the right look.
+const THEME_STYLES = ["flat", "neumorphism", "glassmorphism", "skeuomorphism"];
+const DEFAULT_THEME = { style: "flat", palette: "white-blue" };
+function readCachedTheme() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("psr_theme") || "null");
+    if (raw && typeof raw === "object") return normalizeTheme(raw);
+    // pre-P3-8 per-device keys
+    return normalizeTheme({ style: localStorage.getItem("psr_theme_style2"), palette: localStorage.getItem("psr_theme_palette2") });
+  } catch { return DEFAULT_THEME; }
+}
+function normalizeTheme(t) {
+  const style = THEME_STYLES.includes(t && t.style) ? t.style : DEFAULT_THEME.style;
+  const palette = t && t.palette && Object.prototype.hasOwnProperty.call(PALETTES, t.palette) ? t.palette : DEFAULT_THEME.palette;
+  return { style, palette };
+}
 
 // Replace inline base64 verification photos with a lightweight marker before a
 // snapshot is cached. Keeps the localStorage cache well under quota (the full
@@ -654,39 +676,37 @@ function AvReasons({ av, t, max = 2, style }) {
 }
 
 // ─── EQUIPMENT PAGE ───────────────────────────────────────────────────────────
-function printQRForItems(items, autoprint = true) {
+// QR labels for laser/inkjet: one label per item TYPE, encoding "psr_eq:<eqId>"
+// (what QRScanner accepts). The QR is rendered as inline SVG by the vendored
+// encoder (src/vendor/qrcodegen.js), so the print window works offline (P3-8).
+function printQRForItems(items, autoprint = true, title = "QR Labels") {
+  const escHtml = (v) => String(v == null ? "" : v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const rows = items.map(eq => `
     <div class="label">
-      <div class="qr" id="qr_${eq.id}"></div>
+      <div class="qr">${qrSvg("psr_eq:" + eq.id, { size: "100%", margin: 1 })}</div>
       <div class="info">
-        <div class="name">${eq.name.replace(/</g,"&lt;")}</div>
-        <div class="cat">${(eq.category||"").replace(/</g,"&lt;")}${eq.total > 1 ? ` · ×${eq.total}` : ""}</div>
-        <div class="code">psr_eq:${eq.id}</div>
+        <div class="name">${escHtml(eq.name)}</div>
+        <div class="cat">${escHtml(eq.category || "")}${eq.total > 1 ? ` · ×${+eq.total}` : ""}</div>
+        <div class="code">psr_eq:${escHtml(eq.id)}</div>
       </div>
     </div>`).join("");
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR Labels</title>
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escHtml(title)}</title>
 <style>
   body{margin:0;padding:10mm;font-family:sans-serif;background:#fff;color:#000}
   .grid{display:flex;flex-wrap:wrap;gap:6mm}
-  .label{width:55mm;border:1px solid #ccc;border-radius:3mm;padding:4mm;display:flex;align-items:center;gap:3mm;page-break-inside:avoid}
+  .label{width:55mm;border:1px solid #ccc;border-radius:3mm;padding:4mm;display:flex;align-items:center;gap:3mm;page-break-inside:avoid;box-sizing:border-box}
   .qr{width:24mm;height:24mm;flex-shrink:0}
-  .qr canvas,.qr img{width:100%;height:100%}
+  .qr svg{width:100%;height:100%;display:block}
   .info{flex:1;min-width:0;overflow:hidden}
   .name{font-weight:700;font-size:10pt;line-height:1.2;word-break:break-word}
   .cat{font-size:8pt;color:#555;margin-top:2px}
   .code{font-size:6pt;color:#aaa;margin-top:3px;word-break:break-all}
   @media print{body{padding:5mm}@page{size:A4;margin:10mm}}
 </style></head><body>
-<h2 style="margin:0 0 6mm;font-size:13pt">QR Labels (${items.length} item${items.length!==1?"s":""})</h2>
+<h2 style="margin:0 0 6mm;font-size:13pt">${escHtml(title)} (${items.length} item${items.length !== 1 ? "s" : ""})</h2>
 <div class="grid">${rows}</div>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"><\/script>
-<script>
-  document.querySelectorAll(".label").forEach(function(el){
-    var id=el.querySelector(".qr").id.replace("qr_","");
-    new QRCode(el.querySelector(".qr"),{text:"psr_eq:"+id,width:90,height:90,correctLevel:QRCode.CorrectLevel.M});
-  });
-  ${autoprint ? "setTimeout(function(){window.print();},800);" : ""}
-<\/script></body></html>`;
+${autoprint ? "<script>setTimeout(function(){window.print();},400);<\/script>" : ""}
+</body></html>`;
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
   window.open(url, "_blank");
@@ -763,54 +783,9 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
   // P3-5: full per-item log, newest first, date-filterable, paged 20 at a time.
   const getHistory = (eqId) => filterHistory(checkouts, eqId, { from: histRange.from, to: histRange.to, limit: histLimit, tz: APP_TZ });
 
-  // Generate a printable A4 sheet of QR code labels for all equipment.
-  // Each QR encodes "psr_eq:{eqId}" — scanned by QRScanner in checkout flow.
-  const printQRLabels = () => {
-    const items = equipment.map(eq => ({ id: eq.id, name: eq.name, category: eq.category, total: eq.total }));
-    const rows = [];
-    items.forEach(eq => {
-      // For multi-unit items, repeat the label `total` times (one sticker per physical unit isn't required;
-      // one label per item type is enough — scan counts as confirming the assigned qty).
-      rows.push(`
-        <div class="label">
-          <div class="qr" id="qr_${eq.id}"></div>
-          <div class="info">
-            <div class="name">${eq.name.replace(/</g,"&lt;")}</div>
-            <div class="cat">${(eq.category||"").replace(/</g,"&lt;")}${eq.total > 1 ? ` · ×${eq.total}` : ""}</div>
-            <div class="code">psr_eq:${eq.id}</div>
-          </div>
-        </div>`);
-    });
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>QR Labels</title>
-<style>
-  body{margin:0;padding:10mm;font-family:sans-serif;background:#fff;color:#000}
-  .grid{display:flex;flex-wrap:wrap;gap:6mm}
-  .label{width:55mm;border:1px solid #ccc;border-radius:3mm;padding:4mm;display:flex;align-items:center;gap:3mm;page-break-inside:avoid}
-  .qr{width:24mm;height:24mm;flex-shrink:0}
-  .qr canvas,.qr img{width:100%;height:100%}
-  .info{flex:1;min-width:0;overflow:hidden}
-  .name{font-weight:700;font-size:10pt;line-height:1.2;word-break:break-word}
-  .cat{font-size:8pt;color:#555;margin-top:2px}
-  .code{font-size:6pt;color:#aaa;margin-top:3px;word-break:break-all}
-  @media print{body{padding:5mm}@page{size:A4;margin:10mm}}
-</style>
-</head><body>
-<h2 style="margin:0 0 6mm;font-size:13pt">Pick Shoot Return — QR Labels (${items.length} items)</h2>
-<div class="grid">${rows.join("")}</div>
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-<script>
-  document.querySelectorAll(".label").forEach(function(el){
-    var id = el.querySelector(".qr").id.replace("qr_","");
-    new QRCode(el.querySelector(".qr"),{text:"psr_eq:"+id,width:90,height:90,correctLevel:QRCode.CorrectLevel.M});
-  });
-  setTimeout(function(){window.print();},800);
-<\/script>
-</body></html>`;
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-  };
+  // Printable A4 sheet of QR labels for every item (same renderer as the
+  // selection print; inline SVG, no network).
+  const printQRLabels = () => printQRForItems(equipment, true, "Pick Shoot Return QR Labels");
 
   const AvStatus = ({ av }) => <AvChip av={av} t={t} />;
 
@@ -1995,8 +1970,15 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
   const conflictRef = useRef(null);
   useEffect(() => { if (conflicts && conflictRef.current) conflictRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, [conflicts]);
   const CONTACT_PLATFORMS = ["Line", "Facebook", "WhatsApp", "Instagram", "Phone"];
-  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line", dateOverrides: {}, pickupDate: "", returnDate: "" };
-  const [form, setForm] = useState(editTarget ? { ...editTarget, dateOverrides: editTarget.dateOverrides || {} } : EMPTY);
+  const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line", dateOverrides: {}, pickupDate: "", returnDate: "", crew: [] };
+  const [form, setForm] = useState(editTarget ? { ...editTarget, dateOverrides: editTarget.dateOverrides || {}, crew: Array.isArray(editTarget.crew) ? editTarget.crew.map(r => ({ ...EMPTY_CREW_ROW, ...r })) : [] } : EMPTY);
+  const lang = useContext(LangCtx);
+  const roleList = roleOptions(lang);
+  // Crew roster rows (P1-10): employee + role + pickup / call time. Rows are kept
+  // loose while editing; normalizeCrew() drops blank / duplicate ones on save.
+  const setCrewRow = (idx, patch) => setForm(p => ({ ...p, crew: (p.crew || []).map((r, i) => i === idx ? { ...r, ...patch } : r) }));
+  const addCrewRow = () => setForm(p => ({ ...p, crew: [...(p.crew || []), { ...EMPTY_CREW_ROW }] }));
+  const removeCrewRow = (idx) => setForm(p => ({ ...p, crew: (p.crew || []).filter((_, i) => i !== idx) }));
   const [jobErr, setJobErr] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const d = editTarget?.dates?.[0] ? new Date(editTarget.dates[0] + "T00:00:00") : new Date();
@@ -2036,7 +2018,12 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
       ...form,
       pickupDate: form.pickupDate && form.pickupDate < sorted[0] ? form.pickupDate : "",
       returnDate: form.returnDate && form.returnDate > sorted[sorted.length - 1] ? form.returnDate : "",
+      crew: normalizeCrew(form.crew),
     };
+    // The roster is the default for the checkout lanes: a new roster (or a changed
+    // one) re-derives checkoutRoles; the Assign Gear modal can still override it.
+    const changes = jobChangeSet(editTarget, clean);
+    if (isNew || changes.includes("roster")) clean.checkoutRoles = defaultCheckoutRoles(clean);
     // P1-9: a date / status / window edit re-checks the job's OWN gear against
     // everything else (other Confirmed jobs across their windows, gear still out,
     // loans, open damage) and names the colliding jobs before anything is saved.
@@ -2056,28 +2043,23 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
     } else {
       setJobs(p => [...p, { ...clean, id: "job" + Date.now(), assignedEquipment: [] }]);
     }
-    {
-      const emoji = form.status === "Confirmed" ? "✅" : form.status === "Cancelled" ? "❌" : "✏️";
-      const action = isNew ? "New Job" : statusChanged ? `Status → ${form.status}` : "Updated";
-      const groups = {};
-      [...(form.dates || [])].sort().forEach(d => {
-        const dt = new Date(d + "T00:00:00");
-        const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
-        const label = dt.toLocaleString("en-GB", { month: "short" });
-        if (!groups[key]) groups[key] = { label, days: [] };
-        groups[key].days.push(dt.getDate());
-      });
-      const dateStr = Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
-      const locationStr = form.location + (form.locationCity ? ` — ${form.locationCity}` : "");
-      const msg = `${emoji} [${action}] ${form.name}\n🎬 ${form.production || "—"}\n📅 ${dateStr}\n📍 ${locationStr}\n🔗 https://pickshootreturn.pages.dev`;
-      if (!lineNotifyMuted) {
-        if (lineGroupId) {
-          api.notify({ userIds: [lineGroupId], message: msg });
-        } else {
-          const lineIds = (employees || []).filter(e => e.lineUserId).map(e => e.lineUserId);
-          if (lineIds.length > 0) api.notify({ userIds: lineIds, message: msg });
-        }
-      }
+    // LINE push only when something the crew cares about changed (new job, dates,
+    // status, location, roster); a contact-person tweak stays silent (P1-10).
+    if (!lineNotifyMuted && shouldNotify(changes)) {
+      const formatDates = (dates) => {
+        const groups = {};
+        [...(dates || [])].sort().forEach(d => {
+          const dt = new Date(d + "T00:00:00");
+          const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
+          const label = dt.toLocaleString("en-GB", { month: "short" });
+          if (!groups[key]) groups[key] = { label, days: [] };
+          groups[key].days.push(dt.getDate());
+        });
+        return Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
+      };
+      const msg = buildJobMessage(clean, { changes, employees: employees || [], formatDates });
+      const to = pushRecipients(clean, employees || [], lineGroupId);
+      if (to.length > 0) api.notify({ userIds: to, message: msg });
     }
     onClose();
   };
@@ -2189,6 +2171,38 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
           );
         })()}
 
+        {/* Crew roster (P1-10): who is on this job, their role and times */}
+        <div data-testid="job-crew">
+          <label style={S.label}>{t("jobCrewField")} <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>({t("jobCrewHint")})</span></label>
+          {(form.crew || []).length === 0 && <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("jobCrewEmpty")}</p>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(form.crew || []).map((row, idx) => {
+              const taken = new Set((form.crew || []).filter((_, i) => i !== idx).map(r => r.employeeId));
+              return (
+                <div key={idx} data-testid="crew-row" style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.3fr) minmax(110px,1.2fr) 92px 92px 32px", gap: 6, alignItems: "center", padding: "7px 10px", borderRadius: 8, border: "1px solid var(--border-color,#D8E1EC)", background: "var(--surface2,#EAF0F7)" }}>
+                  <select style={{ ...S.select, fontSize: 12, padding: "7px 8px" }} value={row.employeeId || ""} onChange={e => setCrewRow(idx, { employeeId: e.target.value })} aria-label={t("jobCrewMember")}>
+                    <option value="">{t("jobCrewPick")}</option>
+                    {(employees || []).filter(emp => !taken.has(emp.id) || emp.id === row.employeeId).map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                  </select>
+                  <input style={{ ...S.input, fontSize: 12, padding: "7px 8px" }} list={"crew-roles-" + idx} value={row.role || ""} onChange={e => setCrewRow(idx, { role: e.target.value })} placeholder={t("jobCrewRole")} aria-label={t("jobCrewRole")} />
+                  <datalist id={"crew-roles-" + idx}>{roleList.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}</datalist>
+                  <input type="time" style={{ ...S.input, fontSize: 12, padding: "7px 6px" }} value={row.pickupTime || ""} onChange={e => setCrewRow(idx, { pickupTime: e.target.value })} title={t("jobCrewPickupTime")} aria-label={t("jobCrewPickupTime")} />
+                  <input type="time" style={{ ...S.input, fontSize: 12, padding: "7px 6px" }} value={row.callTime || ""} onChange={e => setCrewRow(idx, { callTime: e.target.value })} title={t("jobCrewCallTime")} aria-label={t("jobCrewCallTime")} />
+                  <button style={{ ...S.btn("ghost"), padding: "5px 7px", fontSize: 12, justifyContent: "center" }} onClick={() => removeCrewRow(idx)} title={t("jobCrewRemove")}>✕</button>
+                </div>
+              );
+            })}
+          </div>
+          {(form.crew || []).length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,1.3fr) minmax(110px,1.2fr) 92px 92px 32px", gap: 6, padding: "2px 10px 0", fontSize: 10, color: "var(--text-muted,#5F7A91)" }}>
+              <span>{t("jobCrewMember")}</span><span>{t("jobCrewRole")}</span><span>{t("jobCrewPickupTime")}</span><span>{t("jobCrewCallTime")}</span><span />
+            </div>
+          )}
+          <button style={{ ...S.btn("ghost"), fontSize: 12, marginTop: 8 }} onClick={addCrewRow} disabled={(employees || []).length === 0} data-testid="add-crew">
+            <Icon d={icons.plus} size={13} /> {t("jobCrewAdd")}
+          </button>
+        </div>
+
         {/* Per-date location / time overrides */}
         {form.dates.length > 0 && (
           <div>
@@ -2290,7 +2304,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
     setAssignForm(init);
     setAssignTarget(job);
     setAssignCheckoutMode(job.checkoutMode || "span");
-    setAssignRoles(job.checkoutRoles || { barcode: "anyone", photo: "anyone" });
+    setAssignRoles(job.checkoutRoles || defaultCheckoutRoles(job)); // roster = default lanes (P1-10)
     setModal("assign");
   };
 
@@ -2385,6 +2399,9 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                     {job.dates.length} day{job.dates.length !== 1 ? "s" : ""} · {job.dates[0] ? formatDate(job.dates[0]) : "No date"}{job.dates.length > 1 ? ` → ${formatDate(job.dates[job.dates.length - 1])}` : ""}
                   </p>
                   {outCount > 0 && <p style={{ margin: "4px 0 0", fontSize: 11, color: "#2563EB" }}>{outCount} assigned · {picked} picked · {returned} returned</p>}
+                  {hasRoster(job)
+                    ? <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }} data-testid="job-crew-line">👥 {crewNames(job, employees).join(", ")}</p>
+                    : <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#8CA2B5)" }}>👥 {t("jobNoCrewYet")}</p>}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                   {(job.status === "Confirmed" || job.status === "Pencil") && <button style={{ ...S.btn(job.status === "Confirmed" ? "success" : "ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => openAssign(job)}><Icon d={icons.gear} size={13} /> {t("jobAssignGear")}</button>}
@@ -3494,6 +3511,10 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
           employees={employees}
           lineGroupId={lineGroupId}
           lineNotifyMuted={lineNotifyMuted}
+          equipment={equipment}
+          checkouts={checkouts}
+          equipmentRequests={equipmentRequests}
+          reports={reports}
           onClose={() => setDashJobModal(null)}
         />
       )}
@@ -3528,7 +3549,7 @@ function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, setProductionCompanies, companyName, setLang, onLogout, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
+function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, setProductionCompanies, companyName, setLang, onLogout, employees, setEmployees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, offlinePendingCount = 0, putProfile = api.putProfile, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | gear | invoice
@@ -3569,6 +3590,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [invSort, setInvSort] = useState("date"); // date | amount
   const [invDocType, setInvDocType] = useState("all"); // all | invoice | quotation | receipt
   const [invSending, setInvSending] = useState(null); // invoice id currently being sent
+  const [invShowAllJobs, setInvShowAllJobs] = useState(false); // P1-10: invoice tab lists my jobs unless toggled
   const [revPeriod, setRevPeriod] = useState("all"); // all | year | custom
   const [revYear, setRevYear] = useState(new Date().getFullYear().toString());
   const [showAdminReqModal, setShowAdminReqModal] = useState(null); // null | "production-house" | "equipment"
@@ -3603,6 +3625,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const earlyReturnApproved = (j) => (adminRequests || []).some(r => r.type === "early-return" && r.status === "approved" && r.jobId === j.id && r.employeeId === employee.id && r.requestedDate === todayStr);
   const inJobWindow = (j) => { const p = effPickupDate(j), r = effReturnDate(j); return p && r && todayStr >= p && todayStr <= r; };
   const availableJobs = jobs.filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0 && (inJobWindow(j) || earlyPickupApproved(j)));
+  // Roster (P1-10): "mine" = I am on the crew, or the job has no roster yet (open);
+  // "other" = staffed with someone else. Other jobs stay reachable but collapsed.
+  const isOtherJob = (j) => jobVisibility(j, employee.id) === "other";
+  const myEntry = (j) => myRosterEntry(j, employee.id);
+  const [showOthers, setShowOthers] = useState({}); // { [statKey]: true }
   const myReports = [...(reports || [])].sort((a, b) => b.ts - a.ts);
 
   // ── Approved gear requests behave like a job in the checkout flow ──────────
@@ -3685,10 +3712,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
       if (cleanInfo.invoicePrefix !== profileInfo.invoicePrefix) setProfileInfo(p => ({ ...p, invoicePrefix: cleanInfo.invoicePrefix }));
       const consent = { ...docConsent };
       if (!idCard) delete consent.idCard; if (!signature) delete consent.signature; if (!promptPayQR) delete consent.promptPayQR;
-      const res = await api.putProfile(employee.id, { photo: profilePhoto, ...cleanInfo, idCard, promptPayQR, signature, consent, positions: cleanPositions });
+      const res = await putProfile(employee.id, { photo: profilePhoto, ...cleanInfo, idCard, promptPayQR, signature, consent, positions: cleanPositions });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
-      setProfileSaveStatus("saved");
-      setTimeout(() => setProfileSaveStatus(null), 3000);
+      setProfileSaveStatus(res.queued ? "queued" : "saved");
+      setTimeout(() => setProfileSaveStatus(null), res.queued ? 5000 : 3000);
     } catch {
       setProfileSaveStatus("error");
       setTimeout(() => setProfileSaveStatus(null), 3500);
@@ -4124,7 +4151,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", borderBottom: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13 }}>⚠️</span>
           <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
-            <strong>Offline</strong> — cached data only. Checkouts will not save until connection returns.
+            <strong>{t("offlineTitle")}</strong> {t("offlineCrewBody")} {(offlinePendingCount || 0) > 0 ? t("offlinePendingN").replace("{n}", offlinePendingCount) : t("offlineClean")}
           </p>
         </div>
       )}
@@ -4211,7 +4238,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Gear currently out — jobs + my approved gear requests */}
             {(() => {
               const myReqJobs = myRequests.filter(r => r.status === "approved").map(reqAsJob);
-              const outJobs = [...jobs, ...myReqJobs].filter(j => getJobCheckoutState(j).outCount > 0);
+              const myEvents = (j) => (checkouts || []).some(c => c && c.employeeId === employee.id && evtMatchesJob(c, j));
+              const outJobs = [...jobs, ...myReqJobs].filter(j => getJobCheckoutState(j).outCount > 0 && (!isOtherJob(j) || myEvents(j)));
               if (outJobs.length === 0) return null;
               return (
                 <div style={{ ...S.card, background: "rgba(var(--accent-rgb,37,99,235),0.06)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)" }} data-testid="gear-out-card">
@@ -4294,7 +4322,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Early pickup — jobs whose pickup day is tomorrow can be requested 1 day ahead */}
             {(() => {
               const tomorrow = addDaysStr(todayStr, 1);
-              const upcoming = jobs.filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0 && effPickupDate(j) === tomorrow && !earlyPickupApproved(j));
+              const upcoming = jobs.filter(j => j.status === "Confirmed" && (j.assignedEquipment || []).length > 0 && effPickupDate(j) === tomorrow && !earlyPickupApproved(j) && !isOtherJob(j));
               if (upcoming.length === 0) return null;
               return (
                 <div style={{ ...S.card, background: "rgba(37,99,235,0.05)", border: "1px solid rgba(37,99,235,0.2)" }}>
@@ -4321,12 +4349,12 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               );
             })()}
 
-            {/* Stats — clickable, expand one at a time */}
+            {/* Stats — clickable, expand one at a time. Counts are MY jobs (roster or open). */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
               {[
-                { key: "today", label: t("tabToday"), value: availableJobs.length, color: "var(--accent,#2563EB)" },
-                { key: "confirmed", label: t("statusConfirmed"), value: confirmedJobs.length, color: "#2F855A" },
-                { key: "pencil", label: t("statusPencil"), value: pencilJobs.length, color: "var(--accent,#2563EB)" },
+                { key: "today", label: t("tabToday"), value: splitJobsForEmployee(availableJobs, employee.id).mine.length, color: "var(--accent,#2563EB)" },
+                { key: "confirmed", label: t("statusConfirmed"), value: splitJobsForEmployee(confirmedJobs, employee.id).mine.length, color: "#2F855A" },
+                { key: "pencil", label: t("statusPencil"), value: splitJobsForEmployee(pencilJobs, employee.id).mine.length, color: "var(--accent,#2563EB)" },
               ].map(stat => (
                 <div key={stat.key} onClick={() => setExpandedStat(expandedStat === stat.key ? null : stat.key)} style={{ ...S.card, textAlign: "center", padding: "12px 6px", cursor: "pointer", border: expandedStat === stat.key ? `1px solid ${stat.color}40` : undefined, transition: "border-color .15s" }}>
                   <p style={{ margin: 0, fontSize: 24, fontWeight: 800, color: stat.color, lineHeight: 1 }}>{stat.value}</p>
@@ -4336,15 +4364,19 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               ))}
             </div>
 
-            {/* Expanded stat job list */}
+            {/* Expanded stat job list: my jobs first, other crews' jobs collapsed (P1-10) */}
             {expandedStat && (() => {
-              const statJobs = statJobMap[expandedStat] || [];
-              if (statJobs.length === 0) return <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)", textAlign: "center" }}>No jobs.</p>;
-              return statJobs.map(job => {
+              const { mine, others } = splitJobsForEmployee(statJobMap[expandedStat] || [], employee.id);
+              const othersOpen = !!showOthers[expandedStat];
+              if (mine.length === 0 && others.length === 0) return <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)", textAlign: "center" }}>{t("crewNoJobs")}</p>;
+              const list = othersOpen ? [...mine, ...others] : mine;
+              const cards = list.map(job => {
                 const { allPicked, allReturned } = getJobCheckoutState(job);
                 const isToday = expandedStat === "today";
+                const other = isOtherJob(job);
+                const me = myEntry(job);
                 return (
-                  <div key={job.id} style={{ ...S.card, cursor: "pointer" }} onClick={() => isToday ? selectJob(job) : setEmpDetailJob(job)}>
+                  <div key={job.id} data-testid={other ? "other-job-card" : "my-job-card"} style={{ ...S.card, cursor: "pointer", opacity: other ? 0.75 : 1 }} onClick={() => isToday ? selectJob(job) : setEmpDetailJob(job)}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between" }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
@@ -4355,16 +4387,35 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                             return <span style={S.badge("amber")}>{t("onShoot")}</span>;
                           })() : <span style={S.badge("blue")}>{t("readyPick")}</span>) : <span style={S.badge(JOB_STATUS_BADGE[job.status] || "gray")}>{job.status}</span>}
                           <span style={S.badge("gray")}>{job.shootTime}</span>
+                          {other && <span style={S.badge("gray")}>{t("crewOtherJobBadge")}</span>}
+                          {me && me.role && <span style={S.badge("blue")}>{me.role}</span>}
                         </div>
                         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{job.name}</h3>
                         <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}</p>
                         <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
+                        {me && (me.pickupTime || me.callTime) && (
+                          <p style={{ margin: "4px 0 0", fontSize: 12, fontWeight: 600, color: "var(--accent,#2563EB)" }} data-testid="my-times">
+                            {me.pickupTime ? `${t("crewPickupAt")} ${fmtClock(me.pickupTime)}` : ""}{me.pickupTime && me.callTime ? " · " : ""}{me.callTime ? `${t("crewCallAt")} ${fmtClock(me.callTime)}` : ""}
+                          </p>
+                        )}
+                        {other && <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#8CA2B5)" }}>👥 {crewNames(job, employees || []).join(", ")}</p>}
                       </div>
                       <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="var(--text-muted,#5F7A91)" strokeWidth={2} strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
                     </div>
                   </div>
                 );
               });
+              return (
+                <>
+                  {mine.length === 0 && <p style={{ fontSize: 13, color: "var(--text-muted,#7B8FA3)", textAlign: "center", margin: 0 }}>{t("crewNoMyJobs")}</p>}
+                  {cards}
+                  {others.length > 0 && (
+                    <button data-testid="toggle-other-jobs" style={{ ...S.btn("ghost"), width: "100%", justifyContent: "center", fontSize: 12 }} onClick={() => setShowOthers(p => ({ ...p, [expandedStat]: !othersOpen }))}>
+                      {othersOpen ? t("crewHideOtherJobs") : t("crewShowOtherJobs").replace("{n}", others.length)}
+                    </button>
+                  )}
+                </>
+              );
             })()}
 
             {/* Job detail modal for Confirmed/Pencil jobs */}
@@ -5170,11 +5221,11 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             {/* Save Profile: sticks ABOVE the 70px bottom nav (was bottom:16 = hidden behind it until fully scrolled) */}
             <div style={{ position: "sticky", bottom: 88, zIndex: 10 }}>
               <button
-                style={{ ...S.btn(profileSaveStatus === "saved" ? "success" : profileSaveStatus === "error" ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, opacity: profileSaveStatus === "saving" ? 0.75 : 1, boxShadow: "0 4px 24px rgba(22,50,74,0.17)" }}
+                style={{ ...S.btn(profileSaveStatus === "saved" || profileSaveStatus === "queued" ? "success" : profileSaveStatus === "error" ? "danger" : "primary"), width: "100%", justifyContent: "center", padding: "15px", fontSize: 15, fontWeight: 700, opacity: profileSaveStatus === "saving" ? 0.75 : 1, boxShadow: "0 4px 24px rgba(22,50,74,0.17)" }}
                 disabled={profileSaveStatus === "saving"}
                 onClick={saveProfile}
               >
-                {profileSaveStatus === "saving" ? t("profileSaving") : profileSaveStatus === "saved" ? t("profileSaved") : profileSaveStatus === "error" ? t("profileSaveFail") : t("profileSaveBtn")}
+                {profileSaveStatus === "saving" ? t("profileSaving") : profileSaveStatus === "saved" ? t("profileSaved") : profileSaveStatus === "queued" ? t("profileSaveQueued") : profileSaveStatus === "error" ? t("profileSaveFail") : t("profileSaveBtn")}
               </button>
             </div>
 
@@ -5231,7 +5282,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
 
         {/* INVOICE TAB */}
         {tab === "invoice" && (() => {
-          const confirmedJobs = jobs.filter(j => j.status === "Confirmed").sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1);
+          const allConfirmed = jobs.filter(j => j.status === "Confirmed").sort((a, b) => (b.dates[0] || "") > (a.dates[0] || "") ? 1 : -1);
+          // Only jobs I am on (or unstaffed ones) are offered for invoicing; "show all" is one tap away (P1-10).
+          const { mine: myConfirmed, others: otherConfirmed } = splitJobsForEmployee(allConfirmed, employee.id);
+          const confirmedJobs = invShowAllJobs ? allConfirmed : myConfirmed;
           const allMyInvoices = invoices.filter(inv => inv.employeeId === employee.id && !inv._deleted);
           // Revenue = invoices only: a quotation is not income and a receipt repeats its invoice's amount.
           const revenueDocs = allMyInvoices.filter(inv => inv.status !== "Void" && (inv.docType === "invoice" || !inv.docType));
@@ -5406,17 +5460,24 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </div>
 
               {/* Confirmed jobs to invoice */}
-              <div style={S.card}>
-                <p style={S.sectionTitle}>{t("confirmJobs")}</p>
+              <div style={S.card} data-testid="invoice-jobs-card">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                  <p style={{ ...S.sectionTitle, margin: 0 }}>{invShowAllJobs ? t("confirmJobs") : t("crewMyJobsToInvoice")}</p>
+                  {otherConfirmed.length > 0 && (
+                    <button data-testid="invoice-show-all" style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 12, color: "var(--accent,#2563EB)", fontWeight: 600, padding: 0 }} onClick={() => setInvShowAllJobs(v => !v)}>
+                      {invShowAllJobs ? t("crewShowMyJobsOnly") : t("crewShowAllJobs").replace("{n}", otherConfirmed.length)}
+                    </button>
+                  )}
+                </div>
                 {confirmedJobs.length === 0
-                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>No confirmed jobs.</p>
+                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: "8px 0 0" }}>{t("crewNoJobsToInvoice")}</p>
                   : confirmedJobs.map(job => {
                     // Any live document of mine for this job, regardless of the list filter (P2-4).
                     const hasInvoice = allMyInvoices.some(inv => inv.jobId === job.id);
                     return (
                       <div key={job.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
                         <div style={{ flex: 1 }}>
-                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{job.name}</p>
+                          <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{job.name}{isOtherJob(job) && <span style={{ ...S.badge("gray"), marginLeft: 6 }}>{t("crewOtherJobBadge")}</span>}</p>
                           <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {(job.dates || []).slice(0, 2).map(d => new Date(d + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" })).join(", ")}</p>
                         </div>
                         {hasInvoice
@@ -9163,8 +9224,10 @@ export default function App() {
   // Holds the last savePayload that failed — drained by the online-retry effect.
   const pendingSaveRef = useRef(null);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
-  const [themeStyle, setThemeStyle] = useState(() => { try { return localStorage.getItem("psr_theme_style2") || "flat"; } catch { return "flat"; } });
-  const [themePalette, setThemePalette] = useState(() => { try { return localStorage.getItem("psr_theme_palette2") || "white-blue"; } catch { return "white-blue"; } });
+  const [theme, setTheme] = useState(readCachedTheme);
+  const themeStyle = theme.style, themePalette = theme.palette;
+  const setThemeStyle = (style) => setTheme(t => normalizeTheme({ ...t, style }));
+  const setThemePalette = (palette) => setTheme(t => normalizeTheme({ ...t, palette }));
   const [navOrder, setNavOrder] = useState(null);
   const [invoicePresets, setInvoicePresets] = useState([]);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -9397,7 +9460,7 @@ export default function App() {
     let el = document.getElementById(id);
     if (!el) { el = document.createElement("style"); el.id = id; document.head.appendChild(el); }
     el.textContent = buildThemeCss(themeStyle, themePalette);
-    try { localStorage.setItem("psr_theme_style2", themeStyle); localStorage.setItem("psr_theme_palette2", themePalette); } catch {}
+    try { localStorage.setItem("psr_theme", JSON.stringify({ style: themeStyle, palette: themePalette })); } catch {}
   }, [themeStyle, themePalette]);
 
   // Stable data-apply function — used by both the initial load and the offline reconnect loop.
@@ -9432,6 +9495,7 @@ export default function App() {
     }
     if (d.invoicePresets != null) { setInvoicePresets(d.invoicePresets); kl.add("invoicePresets"); }
     if (d.chatEnabled != null) { setChatEnabled(d.chatEnabled); kl.add("chatEnabled"); }
+    if (d.theme && typeof d.theme === "object") { setTheme(d.theme); kl.add("theme"); }
     // Mark every applied field as already-persisted (same reference now lives in
     // state), so the debounced save effect skips re-uploading freshly loaded or
     // remotely-synced data. Only fields actually present are recorded.
@@ -9507,85 +9571,97 @@ export default function App() {
   useEffect(() => {
     if (!loaded || !cloudSynced || snapTakenRef.current) return;
     snapTakenRef.current = true;
-    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
+    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme };
   }, [loaded, cloudSynced]); // intentionally omits data deps — captures post-load state once
 
-  // Phase 1 reconnect loop: when offlineMode is active, poll every 20s and on the
-  // browser's "online" event. On success, reload the page so KV data is applied cleanly.
+  // Everything the save rules look at, as one object. latestStateRef mirrors it
+  // every render so the offline reconnect (an effect with no data deps) can read
+  // the current edits instead of a stale closure.
+  const dataState = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme };
+  const latestStateRef = useRef(dataState);
+  latestStateRef.current = dataState;
+  const userRef = useRef(user);
+  userRef.current = user;
+  const saveRules = () => ({ lastSaved: lastSavedRef.current, kvLoaded: kvLoadedRef.current, snapshot: postLoadSnapRef.current, user });
+  // Fields edited while offline (shown in the banner; gates the reconnect reload).
+  const offlinePending = offlineMode ? dirtyFields(dataState, { lastSaved: lastSavedRef.current, kvLoaded: kvLoadedRef.current, snapshot: null, user }) : [];
+
+  // Profile PUTs made while offline wait here (P1-14) and drain on reconnect, so a
+  // crew member's bank details / positions typed on the road are not lost.
+  const profileQueueRef = useRef([]);
+  const [profileQueueSize, setProfileQueueSize] = useState(0);
+  const putProfileQueued = async (empId, profile) => {
+    if (!offlineMode) {
+      try {
+        const res = await api.putProfile(empId, profile);
+        if (res.ok) return res;
+        return res; // server error: caller shows it
+      } catch {
+        // network dropped mid-session: fall through to the queue
+      }
+    }
+    profileQueueRef.current = queueProfile(profileQueueRef.current, empId, profile);
+    setProfileQueueSize(profileQueueRef.current.length);
+    return { ok: true, queued: true };
+  };
+
+  // Offline reconnect (P1-14): poll every 20s and on the browser's "online" event.
+  // Once the server answers, first drain the queued profile saves, then PUT the
+  // dirty delta (edits made from the cached copy; a 409 rebases them onto whatever
+  // changed meanwhile), and only when nothing is pending reload the page so every
+  // view starts from KV. Nothing typed offline is discarded any more.
   useEffect(() => {
     if (!offlineMode) return;
+    let busy = false;
     const tryReconnect = async () => {
+      if (busy) return;
+      busy = true;
       try {
         const d = await api.getData();
-        if (d && typeof d === "object") {
-          writeCache(d);
-          window.location.reload();
+        if (!d || typeof d !== "object") return;
+        if (d._v && typeof d._v === "object") Object.assign(versionsRef.current, d._v);
+        // 1. queued profile saves
+        if (profileQueueRef.current.length) {
+          profileQueueRef.current = await drainProfileQueue(profileQueueRef.current, (id, prof) => api.putProfile(id, prof));
+          setProfileQueueSize(profileQueueRef.current.length);
+          if (profileQueueRef.current.length) return; // still failing: try again next tick
         }
-      } catch {}
+        // 2. the dirty delta (the cache never loaded photos, so nothing here can strip one)
+        const state = latestStateRef.current;
+        const { payload, sent } = buildSavePayload(state, { lastSaved: lastSavedRef.current, kvLoaded: kvLoadedRef.current, snapshot: null, user: userRef.current });
+        if (Object.keys(payload).length) {
+          const r = await putSynced(payload);
+          if (!r.ok) { if (r.status === 413) showToast("error", "syncTooBig", { field: r.field || "", mb: r.bytes ? (r.bytes / 1048576).toFixed(1) : "?" }); return; }
+          Object.assign(lastSavedRef.current, sent, r.sent || {});
+          showToast("info", "offlineSynced", { n: Object.keys(sent).length });
+        }
+        // 3. clean: start fresh from KV
+        const fresh = await api.getData();
+        writeCache(fresh);
+        window.location.reload();
+      } catch {
+        // still offline
+      } finally { busy = false; }
     };
     window.addEventListener("online", tryReconnect);
     const interval = setInterval(tryReconnect, 20000);
     return () => { window.removeEventListener("online", tryReconnect); clearInterval(interval); };
-  }, [offlineMode]);
+  }, [offlineMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Save to cloud whenever data changes (debounced 800ms).
-  // Triple guard: loaded + cloudSynced + field-level safety check.
-  // safeSave(key, val) returns true if the field should be included in the payload:
-  //   - it was loaded from KV (kvLoadedRef), OR
-  //   - it changed from the post-load snapshot (user modified it), OR
-  //   - it's a brand-new account (all KV keys were null → safe to write initial state)
+  // Save to cloud whenever data changes (debounced 1.5 s).
+  // Triple guard: loaded + cloudSynced + the per-field rules in
+  // src/logic/offline.js buildSavePayload (loaded-from-KV OR changed-vs-snapshot,
+  // AND reference !== lastSaved; employees send only their own invoices).
   useEffect(() => {
     if (!loaded || !cloudSynced) return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      const kl = kvLoadedRef.current;
-      const snap = postLoadSnapRef.current;
-      // kl.size === 0 means admin just initialized a fresh account (needsInit was shown
-      // and they clicked Initialize — initializeAccount() populated kl manually).
-      // The newAccount path no longer auto-triggers; initialization is always explicit.
-      const safeSave = (key, val) => kl.has(key) || (snap !== null && val !== snap[key]);
-      // Delta gate: only include a field whose reference actually changed since it
-      // was last saved or loaded. `sent` records what we persist so lastSavedRef can
-      // advance on success. This only NARROWS what safeSave already permits, so the
-      // loaded/cloudSynced + kvLoaded/snapshot data-safety guards are unchanged.
-      const ls = lastSavedRef.current;
-      const sent = {};
-      const changed = (key, val) => { const ok = safeSave(key, val) && ls[key] !== val; if (ok) sent[key] = val; return ok; };
-
-      const savePayload = {};
-      if (changed("equipment", equipment)) savePayload.equipment = equipment;
-      if (changed("jobs", jobs)) savePayload.jobs = jobs;
-      if (changed("checkouts", checkouts)) savePayload.checkouts = checkouts;
-      if (changed("employees", employees)) savePayload.employees = employees;
-      if (changed("reports", reports)) savePayload.reports = reports;
-      if (changed("productionCompanies", productionCompanies)) savePayload.productionCompanies = productionCompanies;
-      if (changed("invoices", invoices)) {
-        const isEmployee = user != null && user.role !== "admin";
-        // Employees only submit their own invoices so they can't overwrite admin's changes.
-        // Admin submits all invoices (including soft-deletes for auto-generated ones).
-        savePayload.invoices = isEmployee ? invoices.filter(inv => inv.employeeId === user.id) : invoices;
-        savePayload._invoiceEmployeeId = isEmployee ? user.id : "admin";
-      }
-      if (changed("companyName", companyName)) savePayload.companyName = companyName;
-      if (changed("equipmentRequests", equipmentRequests)) savePayload.equipmentRequests = equipmentRequests;
-      if (changed("adminRequests", adminRequests)) savePayload.adminRequests = adminRequests;
-      if (changed("adminPin", adminPin)) savePayload.adminPin = adminPin;
-      if (changed("timezone", timezone)) savePayload.timezone = timezone;
-      if (changed("timeFormat", timeFormat)) savePayload.timeFormat = timeFormat;
-      if (changed("kpiConfig", kpiConfig)) savePayload.kpiConfig = kpiConfig;
-      if (changed("punishments", punishments)) savePayload.punishments = punishments;
-      if (changed("kpiEvents", kpiEvents)) savePayload.kpiEvents = kpiEvents;
-      if (changed("photoVerification", photoVerification)) savePayload.photoVerification = photoVerification;
-      if (changed("navOrder", navOrder)) savePayload.navOrder = navOrder;
-      if (changed("verificationConfig", verificationConfig)) savePayload.verificationConfig = verificationConfig;
-      if (changed("invoicePresets", invoicePresets)) savePayload.invoicePresets = invoicePresets;
-      if (changed("chatEnabled", chatEnabled)) savePayload.chatEnabled = chatEnabled;
-      // lineGroupId: null means "don't touch KV"; only save if truthy or user cleared it
-      if (lineGroupId !== null && changed("lineGroupId", lineGroupId)) savePayload.lineGroupId = lineGroupId;
-
+      // kvLoaded.size === 0 means admin just initialized a fresh account (needsInit was
+      // shown and they clicked Initialize — initializeAccount() populated it manually).
+      const { payload: savePayload, sent } = buildSavePayload(dataState, saveRules());
       if (Object.keys(savePayload).length === 0) return;
       // Phase 1: build a full-state snapshot for the cache (saved on every success)
-      const fullSnapshot = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
+      const fullSnapshot = dataState;
       const onSuccess = (r) => {
         setSaveErr(false);
         pendingSaveRef.current = null;
@@ -9626,7 +9702,7 @@ export default function App() {
             .then(onSuccess)
             .catch(onFail));
     }, 1500);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, loaded, cloudSynced]);
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme, loaded, cloudSynced]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase 2: when a save has failed, retry automatically when the browser comes back online
   // or every 30 seconds. This drains without user action and clears the ⚠ SYNC indicator.
@@ -9646,7 +9722,7 @@ export default function App() {
   }, [saveErr]);
 
   // Setters the conflict path needs to drop a merged field back into state.
-  const FIELD_SETTERS = { equipment: setEquipment, jobs: setJobs, employees: setEmployees, reports: setReports, productionCompanies: setProductionCompanies, companyName: setCompanyName, adminPin: setAdminPin, timezone: setTimezone, timeFormat: setTimeFormat, kpiConfig: setKpiConfig, punishments: setPunishments, kpiEvents: setKpiEvents, photoVerification: setPhotoVerification, navOrder: setNavOrder, verificationConfig: setVerificationConfig, invoicePresets: setInvoicePresets, chatEnabled: setChatEnabled };
+  const FIELD_SETTERS = { equipment: setEquipment, jobs: setJobs, employees: setEmployees, reports: setReports, productionCompanies: setProductionCompanies, companyName: setCompanyName, adminPin: setAdminPin, timezone: setTimezone, timeFormat: setTimeFormat, kpiConfig: setKpiConfig, punishments: setPunishments, kpiEvents: setKpiEvents, photoVerification: setPhotoVerification, navOrder: setNavOrder, verificationConfig: setVerificationConfig, invoicePresets: setInvoicePresets, chatEnabled: setChatEnabled, theme: setTheme };
 
   // PUT with optimistic versions (P1-13). Sends `_v` for the whole-value fields in
   // the payload; on 409 (another device wrote one of them first) it re-GETs, keeps
@@ -9695,7 +9771,7 @@ export default function App() {
   const saveSettingsNow = async () => {
     if (!loaded || !cloudSynced) return { ok: false, error: "Still syncing with the cloud — wait a moment, then try again." };
     const ls = lastSavedRef.current;
-    const state = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, chatEnabled };
+    const state = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, chatEnabled, theme };
     const payload = {}, sent = {};
     for (const [k, v] of Object.entries(state)) if (ls[k] !== v) { payload[k] = v; sent[k] = v; }
     if (lineGroupId !== null && ls.lineGroupId !== lineGroupId) { payload.lineGroupId = lineGroupId; sent.lineGroupId = lineGroupId; }
@@ -9725,7 +9801,7 @@ export default function App() {
     const payload = {
       equipment, jobs, checkouts, employees, reports, productionCompanies, invoices,
       companyName, equipmentRequests, adminRequests, adminPin,
-      timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets,
+      timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, verificationConfig, invoicePresets, theme,
     };
     try {
       const res = await api.putData(payload);
@@ -9968,7 +10044,7 @@ export default function App() {
       ) : !user ? (
         <Login onLogin={setUser} employees={employees} companyName={companyName} adminPin={adminPin} adminRequests={adminRequests} setAdminRequests={setAdminRequests} />
       ) : user.role === "employee" ? (
-        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
+        <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={() => setUser(null)} employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} offlinePendingCount={offlinePending.length + profileQueueSize} putProfile={putProfileQueued} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
       ) : (
         <div id="admin-layout" style={S.app}>
           {isMobile ? (
@@ -10001,7 +10077,7 @@ export default function App() {
             <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", borderBottom: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 13 }}>⚠️</span>
               <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
-                <strong>Offline</strong> — showing cached data. Changes will not be saved until connection is restored. Reconnecting automatically…
+                <strong>{_tRoot("offlineTitle")}</strong> {_tRoot("offlineBody")} {offlinePending.length + profileQueueSize > 0 ? _tRoot("offlinePendingN").replace("{n}", offlinePending.length + profileQueueSize) : _tRoot("offlineClean")}
               </p>
             </div>
           )}
@@ -10010,7 +10086,7 @@ export default function App() {
               <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
                 <span style={{ fontSize: 13 }}>⚠️</span>
                 <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
-                  <strong>Offline</strong> — showing cached data. Changes will not be saved until connection is restored.
+                  <strong>{_tRoot("offlineTitle")}</strong> {_tRoot("offlineBody")} {offlinePending.length + profileQueueSize > 0 ? _tRoot("offlinePendingN").replace("{n}", offlinePending.length + profileQueueSize) : _tRoot("offlineClean")}
                 </p>
               </div>
             )}

@@ -14,6 +14,7 @@ export const FIELDS = [
   "invoices", "companyName", "equipmentRequests", "adminRequests", "adminPin",
   "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents",
   "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled",
+  "theme", // { style, palette } per tenant (P3-8)
 ];
 
 // Fields whose photos the client renders immediately on boot, so GET re-inlines
