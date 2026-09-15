@@ -14,3 +14,5 @@ tests/.walk-shots/
 tests/.walk-shots/
 tests/.checkout-shots/
 tests/.auth-shots/
+tests/.sticky-shots/
+tests/.walk-crew-shots/
