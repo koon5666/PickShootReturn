@@ -64,3 +64,67 @@ describe("mergeById (equipmentRequests)", () => {
     expect(mergeById([{ id: "r1" }], undefined)).toEqual([{ id: "r1" }]);
   });
 });
+
+// ── P0-5 tombstones ──────────────────────────────────────────────────────────
+import { mergeInvoices, tombstoneOf, withoutTombstones, isTombstone } from "./merge.js";
+
+describe("tombstones (P0-5) are honoured by every merge", () => {
+  const dead = { id: "r1", employeeName: "Nong", _deleted: true, deletedAt: "2026-09-16T00:00:00Z" };
+  it("mergeById: a KV tombstone beats a stale live copy; an incoming tombstone beats a live KV copy", () => {
+    expect(mergeById([{ id: "r1", status: "pending" }], [dead])).toEqual([dead]);
+    const out = mergeById([{ id: "r1", status: "pending", _deleted: true }], [{ id: "r1", status: "pending" }]);
+    expect(isTombstone(out[0])).toBe(true); expect(out[0].deletedAt).toBeTruthy();
+  });
+  it("mergeById: a tombstone that is KV-only survives a re-save that omits it", () => {
+    expect(mergeById([{ id: "r2" }], [dead])).toEqual([{ id: "r2" }, dead]);
+  });
+  it("mergePhotoArray: same rules, and the tombstone carries no photo", () => {
+    const kv = [{ id: "c1", photo: PHOTO }];
+    const out = mergePhotoArray([{ id: "c1", photo: PHOTO, _deleted: true }], kv);
+    expect(out[0]._deleted).toBe(true); expect("photo" in out[0]).toBe(false);
+    expect(mergePhotoArray([{ id: "c1", photo: null, hasPhoto: true }], out)).toEqual(out);
+  });
+  it("mergePhotoArray keeps the externalized marker (+ signature) when the incoming copy is lean", () => {
+    const kv = [{ id: "c1", photo: null, hasPhoto: true, photoSig: "x:y", qty: 1 }];
+    expect(mergePhotoArray([{ id: "c1", photo: null, hasPhoto: true, qty: 2 }], kv)).toEqual([{ id: "c1", photo: null, hasPhoto: true, photoSig: "x:y", qty: 2 }]);
+    // a new capture replaces it
+    expect(mergePhotoArray([{ id: "c1", photo: PHOTO2, qty: 2 }], kv)).toEqual([{ id: "c1", photo: PHOTO2, qty: 2 }]);
+  });
+  it("mergeInvoices: admin append-merge, employee ownership, write-once fields, tombstones", () => {
+    const kv = [
+      { id: "i1", employeeId: "e1", paidDate: "2026-01-01", status: "Paid" },
+      { id: "i2", employeeId: "e2" },
+      { id: "i3", employeeId: "e1", _deleted: true, deletedAt: "x" },
+    ];
+    // employee e1 re-saves a stale copy of i1 without paidDate and a live i3
+    const e1 = mergeInvoices([{ id: "i1", employeeId: "e1", status: "Pending" }, { id: "i3", employeeId: "e1" }], kv, "e1");
+    expect(e1.find(i => i.id === "i1").paidDate).toBe("2026-01-01");
+    expect(e1.find(i => i.id === "i3")._deleted).toBe(true);
+    expect(e1.find(i => i.id === "i2")).toBe(kv[1]);
+    // admin: KV-only kept, incoming wins for shared ids
+    const adm = mergeInvoices([{ id: "i2", employeeId: "e2", status: "Paid" }], kv, "admin");
+    expect(adm.map(i => i.id)).toEqual(["i2", "i1", "i3"]);
+    expect(adm[0].status).toBe("Paid"); expect(adm[0].paidDate).toBe(null);
+  });
+  it("withoutTombstones strips them for the client; tombstoneOf keeps identity, drops photos", () => {
+    expect(withoutTombstones([{ id: 1 }, dead, null])).toEqual([{ id: 1 }, null]);
+    expect(tombstoneOf({ id: "c", eqName: "FX6", photo: PHOTO, photos: [PHOTO] }, "T")).toEqual({ id: "c", eqName: "FX6", _deleted: true, deletedAt: "T" });
+  });
+});
+
+describe("clear-history watermark (clearedAt)", () => {
+  it("drops records a stale device still holds from before the clear, keeps new captures", () => {
+    const clearedAt = 1_000_000;
+    const kv = [{ id: "keep", ts: clearedAt + 5, photo: null }];
+    const incoming = [
+      { id: "old1", ts: clearedAt - 10, photo: null },          // cleared, resurrect attempt
+      { id: "keep", ts: clearedAt + 5, photo: null },           // already in KV
+      { id: "new1", ts: clearedAt + 50, photo: PHOTO },         // new capture after the clear
+      { id: "nots", photo: null },                              // no ts: cannot judge, kept
+    ];
+    const out = mergePhotoArray(incoming, kv, { clearedAt });
+    expect(out.map(e => e.id)).toEqual(["keep", "new1", "nots"]);
+    // without a watermark nothing is dropped (old behaviour)
+    expect(mergePhotoArray(incoming, kv).map(e => e.id)).toEqual(["old1", "keep", "new1", "nots"]);
+  });
+});

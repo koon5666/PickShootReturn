@@ -1,62 +1,51 @@
-// Manual server-side snapshot backup (admin "Create Backup"). Same per-field
-// storage as backup_auto so the whole dataset (photos + profiles) is captured
-// without exceeding the 25 MiB per-key KV limit. GET reassembles into one JSON.
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
-const FIELDS = [
-  "equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies",
-  "invoices", "companyName", "equipmentRequests", "adminRequests", "adminPin",
-  "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents",
-  "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled",
-];
-const PREFIX = "bak_man";
-const LEGACY = "backup_manual";
-
-async function snapshot(env) {
-  const raws = await Promise.all(FIELDS.map(k => env.KV.get(k)));
-  const ops = [];
-  FIELDS.forEach((k, i) => ops.push(env.KV.put(`${PREFIX}:f:${k}`, raws[i] ?? "null")));
-  const list = await env.KV.list({ prefix: "profile_" });
-  const profRaws = await Promise.all(list.keys.map(x => env.KV.get(x.name)));
-  const profiles = {};
-  list.keys.forEach((x, i) => { try { profiles[x.name] = profRaws[i] ? JSON.parse(profRaws[i]) : null; } catch { profiles[x.name] = null; } });
-  ops.push(env.KV.put(`${PREFIX}:profiles`, JSON.stringify(profiles)));
-  const savedAt = Date.now();
-  ops.push(env.KV.put(`${PREFIX}:meta`, JSON.stringify({ savedAt, fields: FIELDS, profileKeys: list.keys.map(k => k.name) })));
-  await Promise.all(ops);
-  return savedAt;
-}
-
-async function reassemble(env) {
-  const meta = await env.KV.get(`${PREFIX}:meta`, "json");
-  if (!meta) return null;
-  const raws = await Promise.all(meta.fields.map(k => env.KV.get(`${PREFIX}:f:${k}`)));
-  const out = { savedAt: meta.savedAt };
-  meta.fields.forEach((k, i) => { try { out[k] = raws[i] ? JSON.parse(raws[i]) : null; } catch { out[k] = null; } });
-  out._profiles = (await env.KV.get(`${PREFIX}:profiles`, "json")) || {};
-  return out;
-}
+// Backups (P2-7): dated versions with list + pick, server-side restore.
+//   GET  /api/backup?list=1      -> { backups: [meta...] } newest first (manual/auto/safety + legacy)
+//   GET  /api/backup?id=<id>     -> the whole dataset of that version (photos inline, _profiles)
+//   GET  /api/backup             -> latest manual version (compat with the old single slot)
+//   PUT  /api/backup { label? }  -> create a manual version (snapshots full KV server-side)
+//   POST /api/backup { id, adminPin } -> restore that version (safety snapshot first)
+// Storage + rules: functions/_lib/backup.js.
+import { createBackup, listBackups, getBackup, restoreBackup } from "../_lib/backup.js";
+import { requireAdmin, readJson, CORS_ANY as CORS } from "../_lib/auth.js";
 
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-export async function onRequestGet({ env }) {
-  const snap = await reassemble(env);
-  if (snap) return Response.json(snap, { headers: CORS });
-  const legacy = await env.KV.get(LEGACY); // pre-redesign single-blob backup
-  if (legacy) return new Response(legacy, { headers: { ...CORS, "Content-Type": "application/json" } });
-  return new Response(null, { status: 404, headers: CORS });
+export async function onRequestGet({ env, request }) {
+  const url = new URL(request.url);
+  if (url.searchParams.get("list") === "1") {
+    return Response.json({ backups: await listBackups(env.KV) }, { headers: CORS });
+  }
+  let id = url.searchParams.get("id");
+  if (!id) {
+    const latest = (await listBackups(env.KV)).find(b => b.kind === "manual");
+    if (!latest) return new Response(null, { status: 404, headers: CORS });
+    id = latest.id;
+  }
+  const snap = await getBackup(env.KV, id);
+  if (!snap) return new Response(null, { status: 404, headers: CORS });
+  return Response.json(snap, { headers: CORS });
 }
 
-export async function onRequestPut({ env }) {
+export async function onRequestPut({ env, request }) {
   try {
-    const savedAt = await snapshot(env);
-    return Response.json({ ok: true, savedAt }, { headers: CORS });
+    const body = await readJson(request);
+    const meta = await createBackup(env.KV, { kind: "manual", label: body.label || "" });
+    return Response.json({ ok: true, savedAt: meta.savedAt, id: meta.id, backup: meta }, { headers: CORS });
+  } catch (err) {
+    return Response.json({ ok: false, error: String(err) }, { status: 500, headers: CORS });
+  }
+}
+
+export async function onRequestPost({ env, request }) {
+  const body = await readJson(request);
+  const auth = await requireAdmin(env, body);
+  if (!auth.ok) return auth.response;
+  if (!body.id) return Response.json({ ok: false, error: "id required" }, { status: 400, headers: CORS });
+  try {
+    const res = await restoreBackup(env.KV, String(body.id));
+    return Response.json(res, { status: res.ok ? 200 : 404, headers: CORS });
   } catch (err) {
     return Response.json({ ok: false, error: String(err) }, { status: 500, headers: CORS });
   }

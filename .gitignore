@@ -7,3 +7,6 @@ tests/.smoke-shots/
 .wrangler-local/
 .dev.vars
 .DS_Store
+.wrangler-prod/
+.wrangler-*/
+node_modules

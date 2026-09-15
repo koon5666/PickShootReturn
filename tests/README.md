@@ -52,9 +52,33 @@ Fails on any `pageerror`, any console error outside the local allowlist (`ws://â
 or `/api/chat` 503, `/api/profile/<id>` 404), or any HTTP >= 400 elsewhere. Screenshots:
 `tests/.smoke-shots/` (gitignored). Needs the DEFAULT seed.
 
+`node tests/seed.mjs` pushes the prod copy through `PUT /api/data`, which now externalizes
+the photos immediately; use section 3b when you need the inline (pre-migration) shape.
+
 puppeteer-core is imported from the shared scratchpad checkout
 (`â€¦/scratchpad/puptest/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js`);
 override with `PUPPETEER_CORE=/path/to/puppeteer-core.js`, Chrome with `CHROME_PATH`.
+
+## 3b. Photo migration proof on the prod copy (backend-data track)
+
+The server now stores every photo in its own KV key (`photo:<field>:<id>`,
+`functions/_lib/photos.js`); `PUT /api/data` externalizes on the way in, so the only way
+to reproduce the real pre-migration shape locally is to load the raw dump straight into KV:
+
+```sh
+node tests/prod-copy-kv.mjs ./.wrangler-prod                 # wrangler kv bulk put --local (photos inline)
+node tests/local-server.mjs $PORT ./.wrangler-prod --no-build
+node tests/migrate-proof.mjs $PORT                           # migrates in batches, verifies 98/98 photos + backup/restore
+```
+
+Or drive it from the UI: admin > Settings > Photo storage > "Move photos to separate storage".
+`GET /api/migrate-photos` shows progress without writing.
+
+API helpers in this area (all local): `POST /api/tombstone {field,id,adminPin}`,
+`POST /api/history-clear {adminPin}`, `GET /api/backup?list=1`, `GET /api/backup?id=`,
+`PUT /api/backup {label?}`, `POST /api/backup {id,adminPin}` (restore, safety copy first).
+`PUT /api/data` accepts `_v` (per-field versions from GET) and answers 409 on a stale
+whole-value field, 413 on a value over 20 MiB.
 
 ## 4. Unit tests and i18n
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, createContext, useContext } f
 import jsQR from "jsqr";
 import { LANG } from "./i18n/index.js";
 import { hoursWorked, DEFAULT_OT_TIERS, calcOtAmount, calcVatBreakdown, calcTotal } from "./logic/money.js";
+import { versionsFor, rebasePayload } from "./logic/sync.js";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const JOB_STATUSES = ["Pencil", "Confirmed", "Cancelled", "Declined"];
@@ -19,9 +20,20 @@ const api = {
   notify: (body) => fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {}),
   shareInvoice: (html) => fetch("/api/invoice-share", { method: "POST", headers: { "Content-Type": "text/html" }, body: html }).then(r => r.json()),
   getBackup: () => fetch("/api/backup").then(r => r.ok ? r.json() : null),
-  putBackup: (body) => fetch("/api/backup", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  putBackup: (body) => fetch("/api/backup", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }),
   getBackupAuto: () => fetch("/api/backup_auto").then(r => r.ok ? r.json() : null),
-  putBackupAuto: (body) => fetch("/api/backup_auto", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  putBackupAuto: (body) => fetch("/api/backup_auto", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }),
+  // Dated backup versions (P2-7): list, download one, restore one server-side.
+  listBackups: () => fetch("/api/backup?list=1").then(r => r.ok ? r.json() : { backups: [] }).then(d => d.backups || []).catch(() => []),
+  getBackupById: (id) => fetch(`/api/backup?id=${encodeURIComponent(id)}`).then(r => r.ok ? r.json() : null),
+  restoreBackup: (id, adminPin) => fetch("/api/backup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, adminPin }) }).then(r => r.json().then(j => ({ status: r.status, ...j }))),
+  // Server-side deletes that stick (P0-5): a tombstone for one record, or the
+  // whole pickup/return history (takes a safety backup first).
+  deleteRecord: (field, id, adminPin) => fetch("/api/tombstone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ field, id, adminPin }) }).then(r => r.json().then(j => ({ status: r.status, ...j }))),
+  clearHistory: (adminPin) => fetch("/api/history-clear", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminPin }) }).then(r => r.json().then(j => ({ status: r.status, ...j }))),
+  // Photo storage migration (P0-1): progress + one batch.
+  migrateStatus: () => fetch("/api/migrate-photos").then(r => r.ok ? r.json() : null).catch(() => null),
+  migratePhotos: (adminPin, limit = 20) => fetch("/api/migrate-photos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminPin, limit }) }).then(r => r.json().then(j => ({ status: r.status, ...j }))),
   // Lazy per-entry verification photos (boot payload ships them stripped). Scoped
   // server-side to checkouts + adminRequests. Returns { [id]: dataUrl }.
   getPhotos: (field, ids) => fetch(`/api/photo?field=${encodeURIComponent(field)}&ids=${ids.map(encodeURIComponent).join(",")}`)
@@ -2509,7 +2521,7 @@ function DashboardCalendar({ jobs, equipment, onEdit }) {
 }
 
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
-function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, lineNotifyMuted }) {
+function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, lineNotifyMuted, deleteRecord }) {
   const t = useT();
   const todayStr = today();
   const todayJobs = jobs.filter(j => j.dates.includes(todayStr));
@@ -2564,9 +2576,12 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
     setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: Date.now() } : r));
     setDashReqModal(null);
   };
-  const deleteRequest = (req) => {
+  const deleteRequest = async (req) => {
     const hasEvents = checkouts.some(c => c.requestId === req.id);
     if (!window.confirm(`Delete this gear request from ${req.employeeName}?${hasEvents ? " Its checkout history will be kept." : ""}`)) return;
+    // Server first (tombstone), then local: a delete that only lived in React
+    // state used to come back from KV on the next merge.
+    if (deleteRecord && !(await deleteRecord("equipmentRequests", req.id))) return;
     setEquipmentRequests(p => p.filter(r => r.id !== req.id));
     setDashReqModal(null);
   };
@@ -5277,7 +5292,7 @@ function Login({ onLogin, employees, companyName, adminPin, adminRequests, setAd
 }
 
 // ─── TEAM PAGE ────────────────────────────────────────────────────────────────
-function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, kpiConfig, setKpiConfig, kpiEvents, setKpiEvents, punishments, setPunishments }) {
+function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequests, checkouts, setCheckouts, equipment, kpiConfig, setKpiConfig, kpiEvents, setKpiEvents, punishments, setPunishments, deleteRecord }) {
   const t = useT();
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
@@ -5308,9 +5323,10 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
   };
 
   const denyRequest = (id) => setEquipmentRequests(p => p.map(r => r.id === id ? { ...r, status: "denied", resolvedAt: Date.now() } : r));
-  const deleteRequest = (req) => {
+  const deleteRequest = async (req) => {
     const hasEvents = checkouts.some(c => c.requestId === req.id);
     if (!window.confirm(`Delete this gear request from ${req.employeeName}?${hasEvents ? " Its checkout history will be kept." : ""}`)) return;
+    if (deleteRecord && !(await deleteRecord("equipmentRequests", req.id))) return; // server tombstone first
     setEquipmentRequests(p => p.filter(r => r.id !== req.id));
   };
   const openAdd = () => { setForm({ name: "", pin: "" }); setEditTarget(null); setFormErr(""); setModal("add"); };
@@ -5585,7 +5601,7 @@ function TeamPage({ employees, setEmployees, equipmentRequests, setEquipmentRequ
 }
 
 // ─── SETTINGS PANEL ───────────────────────────────────────────────────────────
-function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, timezone, setTimezone, timeFormat, setTimeFormat, saveSettingsNow, verificationConfig, setVerificationConfig, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, navOrder, setNavOrder, checkoutsCount, setCheckouts, invoicePresets, setInvoicePresets, chatEnabled, setChatEnabled, onClose }) {
+function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, clearHistory, migratePhotos, timezone, setTimezone, timeFormat, setTimeFormat, saveSettingsNow, verificationConfig, setVerificationConfig, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, navOrder, setNavOrder, checkoutsCount, setCheckouts, invoicePresets, setInvoicePresets, chatEnabled, setChatEnabled, onClose }) {
   useEffect(() => { document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, []);
   const t = useT();
   const [apForm, setApForm] = useState({ newPin: "", confirmPin: "" });
@@ -5597,6 +5613,24 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
 
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearDone, setClearDone] = useState(false);
+  const [clearState, setClearState] = useState(null); // null | "working" | { error }
+
+  // Backup versions (P2-7): list from the server, pick one to restore/download.
+  const [backups, setBackups] = useState(null);      // null = loading
+  const [restoreTarget, setRestoreTarget] = useState(null); // backup id awaiting confirm
+  const refreshBackups = () => api.listBackups().then(setBackups).catch(() => setBackups([]));
+  useEffect(() => { refreshBackups(); }, []);
+  // Photo storage (P0-1): how many photos still sit inline in the field arrays.
+  const [photoStatus, setPhotoStatus] = useState(null); // null | { inline, bytes, fields }
+  const [migrateState, setMigrateState] = useState(null); // null | { moved, remaining } | { error } | "done"
+  const refreshPhotoStatus = () => api.migrateStatus().then(d => {
+    if (!d || !d.fields) { setPhotoStatus(null); return; }
+    const inline = Object.values(d.fields).reduce((n, f) => n + f.inline, 0);
+    const bytes = Object.values(d.fields).reduce((n, f) => n + f.bytes, 0);
+    setPhotoStatus({ inline, bytes, fields: d.fields });
+  });
+  useEffect(() => { refreshPhotoStatus(); }, []);
+  const kindLabel = (k) => k === "auto" ? t("backupKindAuto") : k === "safety" ? t("backupKindSafety") : t("backupKindManual");
 
 
   return (
@@ -5774,16 +5808,26 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
           </div>
           <div style={{ flexShrink: 0 }}>
             {clearDone ? (
-              <span style={{ fontSize: 13, color: "#2F855A", fontWeight: 600 }}>{t("settingsClearHistoryDone")}</span>
+              <span style={{ fontSize: 13, color: "#2F855A", fontWeight: 600 }}>{t("settingsClearHistoryDone")} {t("settingsClearHistorySafety")}</span>
             ) : confirmClear ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
                 <p style={{ margin: 0, fontSize: 12, color: "#C53030", maxWidth: 240, textAlign: "right", lineHeight: 1.5 }}>{t("settingsClearHistoryConfirm")}</p>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "6px 12px" }} onClick={() => setConfirmClear(false)}>Cancel</button>
-                  <button style={{ ...S.btn("danger"), fontSize: 12, padding: "6px 12px" }} onClick={() => { setCheckouts([]); setConfirmClear(false); setClearDone(true); setTimeout(() => setClearDone(false), 4000); }}>
-                    {t("settingsClearHistoryYes")}
+                  <button style={{ ...S.btn("danger"), fontSize: 12, padding: "6px 12px", opacity: clearState === "working" ? 0.6 : 1 }} disabled={clearState === "working"} onClick={async () => {
+                    // Server-side: safety backup first, then KV checkouts = [] (P0-5).
+                    setClearState("working");
+                    try {
+                      await clearHistory();
+                      setClearState(null); setConfirmClear(false); setClearDone(true);
+                      refreshBackups();
+                      setTimeout(() => setClearDone(false), 4000);
+                    } catch (e) { setClearState({ error: (e && e.message) || t("settingsClearHistoryFailed") }); }
+                  }}>
+                    {clearState === "working" ? t("settingsClearHistoryWorking") : t("settingsClearHistoryYes")}
                   </button>
                 </div>
+                {clearState && clearState.error && <p style={{ margin: 0, fontSize: 12, color: "#C53030", maxWidth: 240, textAlign: "right" }}>{clearState.error}</p>}
               </div>
             ) : (
               <button style={{ ...S.btn("danger"), fontSize: 12, padding: "7px 14px" }} onClick={() => setConfirmClear(true)} disabled={checkoutsCount === 0}>
@@ -5938,7 +5982,7 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
       <div style={S.card}>
         <p style={S.sectionTitle}>{t("settingsBackup")}</p>
         <div style={S.col}>
-          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.6 }}>{t("settingsBackupDesc")}</p>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.6 }}>{t("settingsBackupDesc2")}</p>
           {lastBackupAt && (
             <p style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", margin: 0 }}>
               {t("settingsLastBackup")}: <strong style={{ color: "var(--text,#16324A)" }}>{new Date(lastBackupAt).toLocaleString()}</strong>
@@ -5946,80 +5990,116 @@ function SettingsPage({ companyName, setCompanyName, adminPin, setAdminPin, line
           )}
           {backupStatus === "saved" && <p style={{ fontSize: 12, color: "#2F855A", margin: 0 }}>{t("settingsBackupSaved")}</p>}
           {backupStatus === "error" && <p style={{ fontSize: 12, color: "#C53030", margin: 0 }}>{t("settingsBackupError")}</p>}
-          {backupStatus === "restored" && <p style={{ fontSize: 12, color: "#2F855A", margin: 0 }}>{t("settingsBackupRestored")}</p>}
-          {backupStatus === "no-backup" && <p style={{ fontSize: 12, color: "#C53030", margin: 0 }}>{t("settingsBackupNoBackup")}</p>}
-          <div style={S.row}>
-            <button
-              style={{ ...S.btn("primary"), flex: 1, justifyContent: "center", opacity: backupStatus === "saving" ? 0.7 : 1 }}
-              disabled={backupStatus === "saving" || backupStatus === "restoring"}
-              onClick={async () => {
-                setBackupStatus("saving");
-                try {
-                  const res = await createBackup();
-                  if (!res?.ok) throw new Error();
-                  const ts = new Date().toISOString();
-                  setLastBackupAt(ts);
-                  setBackupStatus("saved");
-                } catch { setBackupStatus("error"); }
-                setTimeout(() => setBackupStatus(null), 4000);
-              }}>
-              {backupStatus === "saving" ? t("settingsSavingBackup") : t("settingsCreateBackup")}
-            </button>
-            <button
-              style={{ ...S.btn("ghost"), flex: 1, justifyContent: "center" }}
-              disabled={backupStatus === "saving" || backupStatus === "restoring"}
-              onClick={async () => {
-                const d = await api.getBackup();
-                if (!d) return;
-                const url = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: "application/json" }));
-                const a = document.createElement("a");
-                a.href = url; a.download = `psr_backup_${(d.savedAt || new Date().toISOString()).slice(0,10)}.json`;
-                a.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
-              }}>
-              {t("settingsDownloadJson")}
-            </button>
-          </div>
-          {backupStatus === "confirm-restore" ? (
-            <div style={{ background: "rgba(248,113,113,0.1)", border: "1px solid #C53030", borderRadius: 8, padding: "12px 14px" }}>
-              <p style={{ fontSize: 13, color: "#C53030", margin: "0 0 10px 0", fontWeight: 600 }}>{t("settingsRestoreConfirmMsg")}</p>
-              <div style={S.row}>
-                <button style={{ ...S.btn("danger"), flex: 1, justifyContent: "center" }} onClick={async () => {
-                  setBackupStatus("restoring");
-                  try {
-                    const savedAt = await restoreBackup();
-                    if (!savedAt) { setBackupStatus("no-backup"); setTimeout(() => setBackupStatus(null), 4000); return; }
-                    setBackupStatus("restored");
-                  } catch { setBackupStatus("error"); }
-                  setTimeout(() => setBackupStatus(null), 4000);
-                }}>
-                  {backupStatus === "restoring" ? t("settingsRestoring") : t("settingsYesRestore")}
-                </button>
-                <button style={{ ...S.btn("ghost"), flex: 1, justifyContent: "center" }} onClick={() => setBackupStatus(null)}>{t("cancel")}</button>
+          {backupStatus === "restored" && <p style={{ fontSize: 12, color: "#2F855A", margin: 0 }}>{t("settingsBackupRestored")} {t("settingsReloading")}</p>}
+          {backupStatus && backupStatus.error && <p style={{ fontSize: 12, color: "#C53030", margin: 0 }}>{t("settingsRestoreFailed")}: {backupStatus.error}</p>}
+          <button
+            style={{ ...S.btn("primary"), justifyContent: "center", opacity: backupStatus === "saving" ? 0.7 : 1 }}
+            disabled={backupStatus === "saving" || backupStatus === "restoring"}
+            onClick={async () => {
+              setBackupStatus("saving");
+              try {
+                const res = await createBackup();
+                if (!res?.ok) throw new Error();
+                const ts = new Date().toISOString();
+                setLastBackupAt(ts);
+                setBackupStatus("saved");
+                refreshBackups();
+              } catch { setBackupStatus("error"); }
+              setTimeout(() => setBackupStatus(s => (s === "saved" || s === "error") ? null : s), 4000);
+            }}>
+            {backupStatus === "saving" ? t("settingsSavingBackup") : t("settingsCreateBackup")}
+          </button>
+
+          {/* Version list: newest first, manual / auto / safety, pick one to restore or download */}
+          <div id="backup-list" style={{ border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ padding: "8px 12px", background: "var(--surface2,#EAF0F7)", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", color: "var(--text-muted,#5F7A91)", textTransform: "uppercase" }}>{t("backupVersions")}</div>
+            {backups === null && <p style={{ margin: 0, padding: "12px", fontSize: 12, color: "var(--text-muted,#7B8FA3)" }}>{t("backupLoading")}</p>}
+            {backups && backups.length === 0 && <p style={{ margin: 0, padding: "12px", fontSize: 12, color: "var(--text-muted,#7B8FA3)" }}>{t("backupNone")}</p>}
+            {backups && backups.map(b => (
+              <div key={b.id} style={{ padding: "10px 12px", borderTop: "1px solid var(--border-color,#D8E1EC)", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={S.badge(b.kind === "auto" ? "blue" : b.kind === "safety" ? "amber" : "green")}>{kindLabel(b.kind)}</span>
+                  <strong style={{ fontSize: 13, color: "var(--text,#16324A)" }}>{new Date(b.savedAt).toLocaleString()}</strong>
+                  {b.label && <span style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>{b.label}</span>}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>
+                  {t("backupCounts").replace("{jobs}", b.counts?.jobs ?? "?").replace("{gear}", b.counts?.equipment ?? "?").replace("{checkouts}", b.counts?.checkouts ?? "?").replace("{photos}", b.photoCount ?? "?")}
+                </div>
+                {restoreTarget === b.id ? (
+                  <div style={{ background: "rgba(197,48,48,0.06)", border: "1px solid #C53030", borderRadius: 8, padding: "10px 12px" }}>
+                    <p style={{ fontSize: 12, color: "#C53030", margin: "0 0 8px 0", fontWeight: 600 }}>{t("settingsRestoreConfirmMsg")} {t("backupRestoreSafetyNote")}</p>
+                    <div style={S.row}>
+                      <button style={{ ...S.btn("danger"), flex: 1, justifyContent: "center", fontSize: 12 }} disabled={backupStatus === "restoring"} onClick={async () => {
+                        setBackupStatus("restoring");
+                        try {
+                          const savedAt = await restoreBackup(b.id);
+                          if (!savedAt) { setBackupStatus("no-backup"); setTimeout(() => setBackupStatus(null), 4000); return; }
+                          setBackupStatus("restored");
+                          setRestoreTarget(null);
+                          setTimeout(() => window.location.reload(), 1500);
+                        } catch (e) { setBackupStatus({ error: (e && e.message) || "" }); setTimeout(() => setBackupStatus(null), 6000); }
+                      }}>
+                        {backupStatus === "restoring" ? t("settingsRestoring") : t("settingsYesRestore")}
+                      </button>
+                      <button style={{ ...S.btn("ghost"), flex: 1, justifyContent: "center", fontSize: 12 }} onClick={() => setRestoreTarget(null)}>{t("cancel")}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "5px 10px", borderColor: "#C53030", color: "#C53030" }} disabled={backupStatus === "saving" || backupStatus === "restoring"} onClick={() => setRestoreTarget(b.id)}>
+                      {t("backupRestoreThis")}
+                    </button>
+                    <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "5px 10px" }} onClick={async () => {
+                      const d = await api.getBackupById(b.id);
+                      if (!d) return;
+                      const url = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: "application/json" }));
+                      const a = document.createElement("a");
+                      a.href = url; a.download = `psr_backup_${new Date(b.savedAt).toISOString().replace(/[:.]/g, "-").slice(0, 19)}.json`;
+                      a.click(); setTimeout(() => URL.revokeObjectURL(url), 10000);
+                    }}>
+                      {t("settingsDownloadJson")}
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
-          ) : (
-            <button
-              style={{ ...S.btn("ghost"), justifyContent: "center", borderColor: "#C53030", color: "#C53030", opacity: backupStatus === "saving" || backupStatus === "restoring" ? 0.5 : 1 }}
-              disabled={backupStatus === "saving" || backupStatus === "restoring"}
-              onClick={() => setBackupStatus("confirm-restore")}>
-              {t("settingsRestoreFromBackup")}
-            </button>
+            ))}
+          </div>
+          <p style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)", margin: 0, lineHeight: 1.5 }}>{t("backupRetentionNote")}</p>
+        </div>
+      </div>
+
+      {/* Photo storage (P0-1): move inline base64 photos into their own keys */}
+      <div id="photo-storage" style={{ ...S.card, marginTop: 20 }}>
+        <p style={S.sectionTitle}>{t("photoStorageTitle")}</p>
+        <div style={S.col}>
+          <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.6 }}>{t("photoStorageDesc")}</p>
+          {photoStatus === null && <p style={{ fontSize: 12, color: "var(--text-muted,#7B8FA3)", margin: 0 }}>{t("backupLoading")}</p>}
+          {photoStatus && photoStatus.inline === 0 && migrateState !== "done" && (
+            <p style={{ fontSize: 12, color: "#2F855A", margin: 0, fontWeight: 600 }}>{t("photoStorageAllMoved")}</p>
           )}
-          {backupStatus !== "confirm-restore" && (
+          {photoStatus && photoStatus.inline > 0 && (
+            <p style={{ fontSize: 12, color: "#B7791F", margin: 0, fontWeight: 600 }}>
+              {t("photoStoragePending").replace("{n}", photoStatus.inline).replace("{mb}", (photoStatus.bytes / 1048576).toFixed(1))}
+            </p>
+          )}
+          {migrateState && migrateState.remaining !== undefined && (
+            <p style={{ fontSize: 12, color: "var(--text,#16324A)", margin: 0 }}>{t("photoStorageProgress").replace("{moved}", migrateState.moved).replace("{left}", migrateState.remaining)}</p>
+          )}
+          {migrateState === "done" && <p style={{ fontSize: 12, color: "#2F855A", margin: 0, fontWeight: 600 }}>{t("photoStorageDone")}</p>}
+          {migrateState && migrateState.error && <p style={{ fontSize: 12, color: "#C53030", margin: 0 }}>{migrateState.error}</p>}
+          {photoStatus && photoStatus.inline > 0 && (
             <button
-              style={{ ...S.btn("ghost"), justifyContent: "center", fontSize: 12, opacity: backupStatus === "saving" || backupStatus === "restoring" ? 0.5 : 1 }}
-              disabled={backupStatus === "saving" || backupStatus === "restoring"}
+              style={{ ...S.btn("primary"), alignSelf: "flex-start", opacity: migrateState && migrateState.remaining !== undefined ? 0.7 : 1 }}
+              disabled={!!(migrateState && migrateState.remaining !== undefined)}
               onClick={async () => {
-                if (!window.confirm(t("settingsRestoreConfirmMsg"))) return;
-                setBackupStatus("restoring");
+                setMigrateState({ moved: 0, remaining: photoStatus.inline });
                 try {
-                  const savedAt = await restoreBackup("auto");
-                  if (!savedAt) { setBackupStatus("no-backup"); setTimeout(() => setBackupStatus(null), 4000); return; }
-                  setBackupStatus("restored");
-                } catch { setBackupStatus("error"); }
-                setTimeout(() => setBackupStatus(null), 4000);
+                  await migratePhotos((moved, remaining) => setMigrateState({ moved, remaining }));
+                  setMigrateState("done");
+                  refreshPhotoStatus();
+                } catch (e) { setMigrateState({ error: (e && e.message) || t("photoStorageFailed") }); }
               }}>
-              {t("settingsRestoreFromAuto")}
+              {t("photoStorageRun")}
             </button>
           )}
         </div>
@@ -8191,6 +8271,19 @@ export default function App() {
   // echo). Purely a narrowing filter on top of the existing loaded/cloudSynced +
   // kvLoaded/snapshot guards; it can never cause a write, only skip a redundant one.
   const lastSavedRef = useRef({});
+  // versionsRef: per-field version the server handed us on the last GET / PUT
+  // (P1-13). Every PUT sends them back; a 409 means another device wrote the
+  // field first and putSynced() re-GETs, re-applies our delta and retries once.
+  const versionsRef = useRef({});
+  // Small bottom toast for sync outcomes (merged after a conflict, save too big,
+  // delete failed). { key, vars } is resolved through the dictionary at render.
+  const [syncToast, setSyncToast] = useState(null);
+  const toastTimer = useRef(null);
+  const showToast = (kind, key, vars) => {
+    setSyncToast({ kind, key, vars: vars || {} });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setSyncToast(null), kind === "error" ? 9000 : 5000);
+  };
 
   // ── Session presence (Durable Objects WebSocket) ──────────────────────────
   const [concurrentSessions, setConcurrentSessions] = useState([]);
@@ -8421,6 +8514,7 @@ export default function App() {
     // remotely-synced data. Only fields actually present are recorded.
     const ls = lastSavedRef.current;
     for (const f of DATA_FIELDS) if (d[f] !== undefined && d[f] !== null) ls[f] = d[f];
+    if (d._v && typeof d._v === "object") Object.assign(versionsRef.current, d._v);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Animate load progress bar — ramps to ~88% while fetching, snaps to 100 on completion.
@@ -8569,35 +8663,45 @@ export default function App() {
       if (Object.keys(savePayload).length === 0) return;
       // Phase 1: build a full-state snapshot for the cache (saved on every success)
       const fullSnapshot = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled };
-      const onSuccess = () => {
+      const onSuccess = (r) => {
         setSaveErr(false);
         pendingSaveRef.current = null;
         // Advance the per-field last-saved references so these fields aren't re-sent
-        // until they change again (this is what makes saves incremental).
-        Object.assign(lastSavedRef.current, sent);
+        // until they change again (this is what makes saves incremental). After a
+        // 409 rebase the persisted values are the merged ones (r.sent).
+        Object.assign(lastSavedRef.current, sent, (r && r.sent) || {});
         writeCache(fullSnapshot);
         // Broadcast the saved snapshot to other tabs/devices unless we're within
         // the 5s cooldown from an incoming sync (prevents echo loops).
         if (Date.now() - lastExternalSyncRef.current >= 5000) {
-          broadcastChannelRef.current?.postMessage({ type: "data_saved", snapshot: fullSnapshot, sourceDeviceId: getDeviceId() });
+          broadcastChannelRef.current?.postMessage({ type: "data_saved", snapshot: { ...fullSnapshot, _v: { ...versionsRef.current } }, sourceDeviceId: getDeviceId() });
           if (wsRef.current?.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({ type: "data_saved" }));
           }
         }
       };
-      const onFail = () => {
+      const onFail = (err) => {
         setSaveErr(true);
+        if (err && err.status === 413) {
+          // The value can never fit: do not queue it for the blind retry loop, tell the user.
+          pendingSaveRef.current = null;
+          showToast("error", "syncTooBig", { field: err.field || "", mb: err.bytes ? (err.bytes / 1048576).toFixed(1) : "?" });
+          return;
+        }
+        if (err && err.conflict) showToast("error", "syncConflictFailed");
         // Phase 2: remember the failed payload so the retry effect can drain it
         pendingSaveRef.current = savePayload;
       };
       // Retry once after 3s before showing the error — absorbs transient network blips
-      // and Cloudflare Worker cold starts without alarming the user.
-      const tryPut = () => api.putData(savePayload).then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); });
+      // and Cloudflare Worker cold starts without alarming the user. 409 is handled
+      // inside putSynced (re-GET, rebase, retry); 413 is final.
+      const tryPut = () => putSynced(savePayload).then(r => { if (!r.ok) throw r; return r; });
       tryPut()
         .then(onSuccess)
-        .catch(() => new Promise(r => setTimeout(r, 3000)).then(tryPut)
-          .then(onSuccess)
-          .catch(onFail));
+        .catch((e1) => (e1 && (e1.status === 413 || e1.conflict)) ? onFail(e1)
+          : new Promise(r => setTimeout(r, 3000)).then(tryPut)
+            .then(onSuccess)
+            .catch(onFail));
     }, 1500);
   }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, adminPin, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, loaded, cloudSynced]);
 
@@ -8608,8 +8712,8 @@ export default function App() {
     const retryPending = () => {
       const payload = pendingSaveRef.current;
       if (!payload || !navigator.onLine) return;
-      api.putData(payload)
-        .then(res => { if (!res.ok) throw new Error(); })
+      putSynced(payload)
+        .then(r => { if (!r.ok) throw r; Object.assign(lastSavedRef.current, r.sent || {}); })
         .then(() => { setSaveErr(false); pendingSaveRef.current = null; })
         .catch(() => {}); // will retry on next event or interval
     };
@@ -8617,6 +8721,49 @@ export default function App() {
     const interval = setInterval(retryPending, 30000);
     return () => { window.removeEventListener("online", retryPending); clearInterval(interval); };
   }, [saveErr]);
+
+  // Setters the conflict path needs to drop a merged field back into state.
+  const FIELD_SETTERS = { equipment: setEquipment, jobs: setJobs, employees: setEmployees, reports: setReports, productionCompanies: setProductionCompanies, companyName: setCompanyName, adminPin: setAdminPin, timezone: setTimezone, timeFormat: setTimeFormat, kpiConfig: setKpiConfig, punishments: setPunishments, kpiEvents: setKpiEvents, photoVerification: setPhotoVerification, navOrder: setNavOrder, verificationConfig: setVerificationConfig, invoicePresets: setInvoicePresets, chatEnabled: setChatEnabled };
+
+  // PUT with optimistic versions (P1-13). Sends `_v` for the whole-value fields in
+  // the payload; on 409 (another device wrote one of them first) it re-GETs, keeps
+  // everything the server has, re-applies only what THIS client changed on top
+  // (src/logic/sync.js rebase), drops the merged fields into state and retries
+  // ONCE. Resolves { ok, sent } (sent = values actually persisted) or
+  // { ok:false, status, error, conflict?, field?, bytes? }. Never throws on HTTP
+  // errors; network errors reject like before.
+  const putSynced = async (payload) => {
+    const body = { ...payload, _v: versionsFor(payload, versionsRef.current) };
+    let res = await api.putData(body);
+    let sent = null;
+    if (res.status === 409) {
+      const info = await res.json().catch(() => ({}));
+      const conflicts = (Array.isArray(info.conflicts) && info.conflicts.length) ? info.conflicts : Object.keys(body._v);
+      const fresh = await api.getData();
+      const { payload: retry, merged } = rebasePayload(body, lastSavedRef.current, fresh, conflicts);
+      // Adopt the server's copy of every field we were NOT saving (a normal
+      // remote sync), then our merged copy of the conflicting ones.
+      const others = { ...fresh };
+      for (const f of Object.keys(payload)) delete others[f];
+      lastExternalSyncRef.current = Date.now();
+      applyData(others);
+      for (const f of conflicts) {
+        if (merged[f] === undefined) continue;
+        if (FIELD_SETTERS[f]) FIELD_SETTERS[f](merged[f]);
+        lastSavedRef.current[f] = fresh[f]; // base for the next delta until the retry lands
+      }
+      res = await api.putData(retry);
+      if (res.status === 409) return { ok: false, status: 409, conflict: true, error: "stale" };
+      if (res.ok) { sent = { ...payload, ...merged }; delete sent._v; delete sent._invoiceEmployeeId; showToast("info", "syncMerged"); }
+    }
+    if (!res.ok) {
+      const info = await res.json().catch(() => ({}));
+      return { ok: false, status: res.status, error: info.error || `HTTP ${res.status}`, field: info.field, bytes: info.bytes };
+    }
+    const j = await res.json().catch(() => ({}));
+    if (j && j._v) Object.assign(versionsRef.current, j._v);
+    return { ok: true, sent: sent || undefined };
+  };
 
   // Immediate, awaitable save for the "Save" buttons (Settings + checkout completion).
   // Sends only fields changed since the last save/load — so a checkout on a phone no
@@ -8631,9 +8778,14 @@ export default function App() {
     if (lineGroupId !== null && ls.lineGroupId !== lineGroupId) { payload.lineGroupId = lineGroupId; sent.lineGroupId = lineGroupId; }
     if (Object.keys(payload).length === 0) return { ok: true }; // nothing changed since last save
     try {
-      const res = await api.putData(payload);
-      if (!res.ok) { setSaveErr(true); return { ok: false, error: `Server error ${res.status} — changes not saved.` }; }
-      Object.assign(ls, sent);
+      const res = await putSynced(payload);
+      if (!res.ok) {
+        setSaveErr(true);
+        if (res.status === 413) return { ok: false, error: _tRoot("syncTooBig").replace("{field}", res.field || "").replace("{mb}", res.bytes ? (res.bytes / 1048576).toFixed(1) : "?") };
+        if (res.conflict) return { ok: false, error: _tRoot("syncConflictFailed") };
+        return { ok: false, error: `Server error ${res.status} — changes not saved.` };
+      }
+      Object.assign(ls, sent, res.sent || {});
       setSaveErr(false);
       return { ok: true };
     } catch (e) {
@@ -8733,47 +8885,79 @@ export default function App() {
     setAdminRequests(p => p.map(r => r.id === req.id ? { ...r, status: "rejected", resolvedAt: new Date().toISOString() } : r));
   };
 
-  const createBackup = async () => {
-    // Server snapshots full KV (photos + all profiles) per-field, so nothing is
-    // uploaded from the client and no single key nears the 25 MiB limit.
-    const res = await api.putBackup();
+  // Tell other tabs / devices to re-GET after a server-side change that did not
+  // go through the save effect (restore, clear history, tombstone).
+  const notifyOthers = () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: "data_saved" }));
+  };
+
+  const createBackup = async (label) => {
+    // Server snapshots full KV (photos + all profiles) into a new dated version,
+    // so nothing is uploaded from the client and no single key nears the 25 MiB limit.
+    const res = await api.putBackup(label ? { label } : {});
     if (res?.ok) { try { localStorage.setItem("psr_last_backup", new Date().toISOString()); } catch {} }
     return res;
   };
 
-  const restoreBackup = async (which = "manual") => {
-    const d = which === "auto" ? await api.getBackupAuto() : await api.getBackup();
-    if (!d) return null;
-    // Restore per-employee profiles (photos, ID cards, PromptPay, signatures) too.
-    if (d._profiles && typeof d._profiles === "object") {
-      await Promise.all(Object.entries(d._profiles).map(([key, prof]) =>
-        prof ? api.putProfile(key.replace(/^profile_/, ""), prof).catch(() => {}) : null
-      ).filter(Boolean));
+  // Server-side restore (P2-7): the server takes a safety snapshot of the live
+  // data, then writes every field / photo / profile of the chosen version with
+  // fresh versions. Nothing goes through React state or the debounced save (a
+  // stale device can no longer re-save over the restore: it gets a 409 and
+  // re-syncs). The page reloads afterwards so every view starts from KV.
+  const restoreBackup = async (id) => {
+    if (!id) return null;
+    const r = await api.restoreBackup(id, adminPin);
+    if (r.status === 403) throw new Error(_tRoot("adminPinRejected"));
+    if (!r.ok) throw new Error(r.error || `HTTP ${r.status}`);
+    notifyOthers();
+    return r.savedAt || Date.now();
+  };
+
+  // Server-side "Clear pickup/return history" (P0-5): safety backup first, then
+  // KV checkouts = [] and every checkout photo key removed. Local state adopts
+  // the empty list as already-saved so the save effect does not re-send.
+  const clearHistory = async () => {
+    const r = await api.clearHistory(adminPin);
+    if (r.status === 403) throw new Error(_tRoot("adminPinRejected"));
+    if (!r.ok) throw new Error(r.error || `HTTP ${r.status}`);
+    const empty = [];
+    setCheckouts(empty);
+    lastSavedRef.current.checkouts = empty;
+    if (r._v) Object.assign(versionsRef.current, r._v);
+    notifyOthers();
+    return r;
+  };
+
+  // Server-side delete for id-merged arrays (P0-5): writes a tombstone so the
+  // merge can never bring the record back from a stale device. Returns true when
+  // the caller may drop it from local state.
+  const deleteRecord = async (field, id) => {
+    try {
+      const r = await api.deleteRecord(field, id, adminPin);
+      if (!r.ok) throw new Error(r.error || `HTTP ${r.status}`);
+      if (r._v) Object.assign(versionsRef.current, r._v);
+      notifyOthers();
+      return true;
+    } catch (e) {
+      showToast("error", "deleteFailed");
+      return false;
     }
-    if (d.equipment) setEquipment(d.equipment);
-    if (d.jobs) setJobs(d.jobs);
-    if (d.checkouts) setCheckouts(d.checkouts);
-    if (d.employees) setEmployees(d.employees);
-    if (d.reports) setReports(d.reports);
-    if (d.productionCompanies) setProductionCompanies(d.productionCompanies);
-    if (d.invoices) setInvoices(d.invoices);
-    if (d.companyName != null) setCompanyName(d.companyName);
-    if (d.equipmentRequests) setEquipmentRequests(d.equipmentRequests);
-    if (d.adminRequests) setAdminRequests(d.adminRequests);
-    if (d.adminPin) setAdminPin(d.adminPin);
-    if (d.lineGroupId !== undefined) setLineGroupId(d.lineGroupId);
-    if (d.timezone) setTimezone(d.timezone);
-    if (d.timeFormat) setTimeFormat(d.timeFormat);
-    if (d.kpiConfig) setKpiConfig(d.kpiConfig);
-    if (d.punishments) setPunishments(d.punishments);
-    if (d.kpiEvents) setKpiEvents(d.kpiEvents);
-    if (d.photoVerification != null) setPhotoVerification(d.photoVerification);
-    if (d.verificationConfig != null) setVerificationConfig(d.verificationConfig);
-    else if (d.photoVerification != null) setVerificationConfig({ mode: d.photoVerification ? "photo" : "none" });
-    if (d.invoicePresets != null) setInvoicePresets(d.invoicePresets);
-    if (d.navOrder) setNavOrder(d.navOrder);
-    if (d.chatEnabled != null) setChatEnabled(d.chatEnabled);
-    return d.savedAt;
+  };
+
+  // Photo storage migration (P0-1): drives POST /api/migrate-photos in batches
+  // until nothing is left inline. onProgress(moved, remaining) per batch.
+  const migratePhotos = async (onProgress) => {
+    let total = 0;
+    for (let i = 0; i < 200; i++) {
+      const r = await api.migratePhotos(adminPin, 20);
+      if (r.status === 403) throw new Error(_tRoot("adminPinRejected"));
+      if (!r.ok) throw new Error(r.error || `HTTP ${r.status}`);
+      total += r.moved || 0;
+      if (onProgress) onProgress(total, r.remaining || 0);
+      if (!r.remaining) break;
+      if (!r.moved) break; // nothing moves any more: stop rather than loop
+    }
+    return total;
   };
 
   return (
@@ -8875,15 +9059,15 @@ export default function App() {
                 </p>
               </div>
             )}
-            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} />}
+            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} deleteRecord={deleteRecord} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} initialTab={eqInitialTab} onConsumeInitialTab={() => setEqInitialTab(null)} />}
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} jobs={jobs} setJobs={setJobs} adminRequests={adminRequests} />}
-            {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} />}
+            {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} deleteRecord={deleteRecord} />}
             {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} />}
           </main>
           {isMobile && <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} navOrder={navOrder} />}
-          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} chatEnabled={chatEnabled} setChatEnabled={setChatEnabled} onClose={() => setSettingsPanelOpen(false)} />}
+          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} adminPin={adminPin} setAdminPin={setAdminPin} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} clearHistory={clearHistory} migratePhotos={migratePhotos} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} chatEnabled={chatEnabled} setChatEnabled={setChatEnabled} onClose={() => setSettingsPanelOpen(false)} />}
         </div>
       )}
       {/* Global chat window — visible across admin and employee views */}
@@ -8895,6 +9079,23 @@ export default function App() {
           onClose={() => setChatOpen(false)}
           isMobile={isMobile}
         />
+      )}
+
+      {syncToast && (
+        <div role="status" style={{
+          position: "fixed", bottom: isMobile ? (concurrentSessions.length > 0 && user ? 170 : 90) : (concurrentSessions.length > 0 && user ? 100 : 20),
+          left: "50%", transform: "translateX(-50%)", zIndex: 9999,
+          background: "var(--surface,#FFFFFF)", color: "var(--text,#16324A)",
+          border: `1px solid ${syncToast.kind === "error" ? "#C53030" : "var(--accent,#2563EB)"}`,
+          borderLeft: `4px solid ${syncToast.kind === "error" ? "#C53030" : "var(--accent,#2563EB)"}`,
+          borderRadius: 12, padding: "10px 14px", maxWidth: 420, width: "calc(100vw - 48px)",
+          display: "flex", alignItems: "center", gap: 10, boxShadow: "0 8px 32px rgba(22,50,74,0.17)", fontSize: 13, lineHeight: 1.4,
+        }}>
+          <span style={{ flex: 1 }}>{Object.entries(syncToast.vars).reduce((txt, [k, v]) => txt.replace(`{${k}}`, String(v)), _tRoot(syncToast.key))}</span>
+          <button onClick={() => setSyncToast(null)} style={{ background: "none", border: "none", color: "var(--text-muted,#4E6B84)", cursor: "pointer", padding: "4px 6px", borderRadius: 6, flexShrink: 0, lineHeight: 1 }}>
+            <Icon d={icons.x} size={14} />
+          </button>
+        </div>
       )}
 
       {concurrentSessions.length > 0 && user && (
