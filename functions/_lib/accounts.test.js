@@ -5,6 +5,7 @@ import {
   verifyOwnerPin, setOwnerPin, adoptPlainAdminPin, verifyEmployeePin, setEmployeePin, changeOwnPin,
   protectEmployees, addStaff, verifyStaffPin, setStaffPin, removeStaff, renameStaff, ensureCalendarToken, rotateCalendarToken,
   ownerSession, staffSession,
+  protectRequests,
 } from "./accounts.js";
 import { rateCheck, rateFail, rateClear, rateKey } from "./ratelimit.js";
 
@@ -157,5 +158,28 @@ describe("KV rate limit", () => {
     expect((await rateCheck(kv, key, t0 + 61_000)).blocked).toBe(false);
     await rateClear(kv, key);
     expect((await rateCheck(kv, key, t0 + 10)).blocked).toBe(false);
+  });
+});
+
+describe("protectRequests (admin PUT of adminRequests keeps the requested PIN hash)", () => {
+  it("re-attaches requestedPinHash from KV by id and never trusts an incoming one", async () => {
+    const h = await hashPin("5678");
+    const kv = [
+      { id: "ar1", type: "member-register", status: "pending", name: "Beam", requestedPinHash: h },
+      { id: "ar2", type: "member-register", status: "pending", name: "Old", requestedPin: "4321" },
+      { id: "ar3", type: "equipment", status: "pending", name: "Cable" },
+    ];
+    // the client loaded the stripped copies (GET) and saves them back, plus a tampered hash
+    const incoming = [
+      { id: "ar1", type: "member-register", status: "pending", name: "Beam", requestedPinHash: "v1$bogus" },
+      { id: "ar2", type: "member-register", status: "pending", name: "Old" },
+      { id: "ar3", type: "equipment", status: "approved", name: "Cable", requestedPinHash: "v1$injected" },
+      { id: "ar9", type: "member-register", status: "pending", name: "New", requestedPinHash: "v1$client" },
+    ];
+    const out = protectRequests(incoming, kv);
+    expect(out.find(r => r.id === "ar1").requestedPinHash).toBe(h);
+    expect(out.find(r => r.id === "ar2").requestedPin).toBe("4321");
+    expect(out.find(r => r.id === "ar3")).toEqual({ id: "ar3", type: "equipment", status: "approved", name: "Cable" });
+    expect(out.find(r => r.id === "ar9")).toEqual({ id: "ar9", type: "member-register", status: "pending", name: "New" });
   });
 });

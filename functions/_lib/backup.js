@@ -22,6 +22,16 @@ import { FIELDS, readField, prepareWrite, commitWrites } from "./store.js";
 import { PHOTO_FIELDS, externalize, photoKeysOf, loadPhotos, inlinePhotos, isDataUri } from "./photos.js";
 
 export const RETENTION = { manual: 5, auto: 5, safety: 3 };
+// Daily auto-backup: one per 20 h, judged SERVER-side from the newest auto
+// version, so every new device / cleared browser cannot mint another "Daily"
+// version and evict the real older ones (the client's localStorage gate is only
+// a hint).
+export const AUTO_MIN_GAP_MS = 20 * 3600 * 1000;
+export function autoBackupDue(list, now = Date.now(), gapMs = AUTO_MIN_GAP_MS) {
+  const latest = (list || []).filter(b => b && b.kind === "auto").sort((a, b) => b.savedAt - a.savedAt)[0];
+  if (!latest) return { due: true, latest: null };
+  return { due: now - latest.savedAt >= gapMs, latest };
+}
 const PREFIX = "bak:";
 const BLOB = "bakblob:";
 const LEGACY = { "legacy:bak_man": { prefix: "bak_man", kind: "manual" }, "legacy:bak_auto": { prefix: "bak_auto", kind: "auto" } };

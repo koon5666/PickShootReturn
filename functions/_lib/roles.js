@@ -48,11 +48,31 @@ export function restrictOwn(incoming, existing, ownerId, ownerKey) {
   return out;
 }
 
+// Fields a crew member may FILL IN on a record they do not own, when KV has
+// them empty (productionCompanies: a house auto-registered from a booking has no
+// billing address; the crew invoicing it needs one on the document). Existing
+// values are never overwritten, the name never changes.
+export const COMPANY_FILLABLE = ["address", "taxId", "branch"];
+const blank = (v) => v == null || String(v).trim() === "";
+export function fillEmpty(prev, inc, fields) {
+  if (!prev || !inc || !fields || !fields.length) return prev;
+  let out = prev;
+  for (const f of fields) {
+    if (blank(prev[f]) && !blank(inc[f])) { if (out === prev) out = { ...prev }; out[f] = String(inc[f]).trim(); }
+  }
+  return out;
+}
+
 // Whole-value field written by an employee (productionCompanies): apply the
 // ownership filter, then bring back every KV record the payload left out unless
-// it is the session's own (that one was deleted on purpose).
-export function mergeOwnedWhole(incoming, existing, ownerId, ownerKey) {
-  const kept = restrictOwn(incoming, existing, ownerId, ownerKey);
+// it is the session's own (that one was deleted on purpose). `fillable` lists
+// the empty fields of a foreign record the session may fill in (see fillEmpty).
+export function mergeOwnedWhole(incoming, existing, ownerId, ownerKey, { fillable = [] } = {}) {
+  let kept = restrictOwn(incoming, existing, ownerId, ownerKey);
+  if (fillable.length) {
+    const incById = new Map((incoming || []).filter(e => e && e.id != null).map(e => [e.id, e]));
+    kept = kept.map(e => (e && e.id != null && (e[ownerKey] ?? null) !== ownerId) ? fillEmpty(e, incById.get(e.id), fillable) : e);
+  }
   const ids = new Set(kept.filter(e => e && e.id != null).map(e => e.id));
   for (const e of existing || []) {
     if (!e || e.id == null || ids.has(e.id)) continue;

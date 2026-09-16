@@ -3,8 +3,8 @@ import { FIELDS, readAllFields, readField, inlineField, prepareWrite, commitWrit
 import { PHOTO_FIELDS } from "../_lib/photos.js";
 import { isStale, VERSIONED } from "../_lib/versions.js";
 import { requireSession, stripCredentials } from "../_lib/auth.js";
-import { protectEmployees, adoptPlainAdminPin } from "../_lib/accounts.js";
-import { forbiddenFields, restrictOwn, mergeOwnedWhole, ownInvoices, OWNER_KEY, SERVER_OWNED_FIELDS } from "../_lib/roles.js";
+import { protectEmployees, protectRequests, adoptPlainAdminPin } from "../_lib/accounts.js";
+import { forbiddenFields, restrictOwn, mergeOwnedWhole, ownInvoices, OWNER_KEY, SERVER_OWNED_FIELDS, COMPANY_FILLABLE } from "../_lib/roles.js";
 
 // Same-origin API: no Access-Control-Allow-* headers on purpose (P0-2).
 const CORS = {};
@@ -66,7 +66,12 @@ export async function onRequestGet(context) {
   const full = url.searchParams.get("full") === "1" && auth.session.role === "admin"; // escape hatch: full payload w/ photos (admin)
   const { values, versions } = await readAllFields(env.KV);
   const out = stripCredentials(values);
-  if (auth.session.role !== "admin") delete out.auditLog; // actor log is for the house only
+  if (auth.session.role !== "admin") {
+    delete out.auditLog; // actor log is for the house only
+    // A share link's revoke token is a secret of the invoice's owner: a crew
+    // session only sees the tokens of its own documents.
+    if (Array.isArray(out.invoices)) out.invoices = out.invoices.map(i => (i && i.share && i.share.token && i.employeeId !== auth.session.id) ? { ...i, share: { ...i.share, token: undefined } } : i);
+  }
   delete versions.adminPin; delete versions.adminPinHash;
   for (const f of ["checkouts", "adminRequests", "equipmentRequests"]) out[f] = withoutTombstones(out[f]);
   // Re-inline photos the client renders immediately.
@@ -126,7 +131,12 @@ export async function onRequestPut(context) {
 
     let value = body[k];
     const merged = (k === "invoices" || PHOTO_ARRAYS.has(k) || MERGE_ARRAYS.has(k)) && Array.isArray(value);
-    const ownedWhole = !isAdmin && k === "productionCompanies" && Array.isArray(value);
+    // Whole-value fields a crew session may write only inside its own records:
+    // productionCompanies (P2-9) and reports (a damage report belongs to the crew
+    // who filed it; a stale or hostile crew copy can neither rewrite nor drop
+    // another crew's report). Both merges are stale-safe, so a crew PUT of these
+    // is not version-checked (an admin write is).
+    const ownedWhole = !isAdmin && (k === "productionCompanies" || k === "reports") && Array.isArray(value);
     const needExisting = merged || ownedWhole || k === "employees" || PHOTO_FIELDS[k] || (VERSIONED.has(k) && sentV && (k in sentV));
     const cur = needExisting ? await readField(env.KV, k) : null;
     const existing = cur && Array.isArray(cur.value) ? cur.value : [];
@@ -138,12 +148,16 @@ export async function onRequestPut(context) {
         value = mergeInvoices(value, existing, owner);
       } else {
         if (!isAdmin) value = restrictOwn(value, existing, session.id, OWNER_KEY[k]);
+        if (k === "adminRequests") value = protectRequests(value, existing); // requested PIN hash comes from KV, never the client
         if (PHOTO_ARRAYS.has(k)) value = mergePhotoArray(value, existing, { clearedAt: cur.meta.clearedAt || 0 });
         else value = mergeById(value, existing);
       }
     } else if (ownedWhole) {
-      value = mergeOwnedWhole(value, existing, session.id, OWNER_KEY[k]);
-      if (VERSIONED.has(k) && sentV && (k in sentV)) { currentV[k] = cur.v; if (isStale(k, sentV, cur.v)) conflicts.push(k); }
+      // Crew never deletes a report (the UI only appends / the house resolves), so
+      // every KV report survives; a crew may drop only a production house it added.
+      value = k === "reports"
+        ? mergeById(restrictOwn(value, existing, session.id, OWNER_KEY[k]), existing)
+        : mergeOwnedWhole(value, existing, session.id, OWNER_KEY[k], { fillable: COMPANY_FILLABLE }); // crew may fill an EMPTY address / tax id / branch on a house-registered company
     } else if (k === "employees" && Array.isArray(value)) {
       value = await protectEmployees(value, existing);
       if (VERSIONED.has(k) && sentV && (k in sentV)) { currentV[k] = cur.v; if (isStale(k, sentV, cur.v)) conflicts.push(k); }

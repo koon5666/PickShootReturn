@@ -128,3 +128,15 @@ describe("clear-history watermark (clearedAt)", () => {
     expect(mergePhotoArray(incoming, kv).map(e => e.id)).toEqual(["old1", "keep", "new1", "nots"]);
   });
 });
+
+describe("mergeInvoices: paidDate is stale-safe, not frozen", () => {
+  it("a stale copy without paidDate keeps KV's date; an undone-then-repaid invoice takes the new date", () => {
+    const kv = [{ id: "i1", employeeId: "admin", status: "Paid", paidDate: "2026-09-10" }];
+    const stale = mergeInvoices([{ id: "i1", employeeId: "admin", status: "Paid" }], kv, "admin");
+    expect(stale[0].paidDate).toBe("2026-09-10");
+    const undone = mergeInvoices([{ id: "i1", employeeId: "admin", status: "Pending", paidVoid: { reason: "bounced", paidDate: "2026-09-10" } }], kv, "admin");
+    expect(undone[0].status).toBe("Pending");
+    const repaid = mergeInvoices([{ id: "i1", employeeId: "admin", status: "Paid", paidDate: "2026-09-16" }], undone, "admin");
+    expect(repaid[0].paidDate).toBe("2026-09-16");
+  });
+});

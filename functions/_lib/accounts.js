@@ -193,6 +193,24 @@ export async function protectEmployees(incoming, existing) {
   return out;
 }
 
+// PUT /api/data `adminRequests`: a pending member-register request carries the
+// requested PIN (hashed) that approve-member turns into the new account's
+// credential. GET strips it, so an admin save of the list must carry it forward
+// from KV by id, never from the client (an incoming value is never trusted).
+// Without this the first admin save after a sign-up dropped the credential and
+// the approved member could not log in.
+export function protectRequests(incoming, existing) {
+  const kv = new Map(list(existing).filter(r => r && r.id != null).map(r => [r.id, r]));
+  return list(incoming).map(r => {
+    if (!r || typeof r !== "object") return r;
+    const { requestedPin, requestedPinHash, ...rest } = r;
+    const prev = kv.get(r.id);
+    if (prev && isPinHash(prev.requestedPinHash)) return { ...rest, requestedPinHash: prev.requestedPinHash };
+    if (prev && typeof prev.requestedPin === "string" && prev.requestedPin) return { ...rest, requestedPin: prev.requestedPin };
+    return rest;
+  });
+}
+
 // ── calendar token (per-tenant, P0-2) ────────────────────────────────────────
 export function newToken(bytes = 24) {
   const a = crypto.getRandomValues(new Uint8Array(bytes));

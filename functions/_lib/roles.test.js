@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { forbiddenFields, restrictOwn, mergeOwnedWhole, ownInvoices, EMPLOYEE_PUT_FIELDS, SERVER_OWNED_FIELDS } from "./roles.js";
-import { mergePhotoArray, mergeInvoices } from "./merge.js";
+import { forbiddenFields, restrictOwn, mergeOwnedWhole, ownInvoices, EMPLOYEE_PUT_FIELDS, SERVER_OWNED_FIELDS, COMPANY_FILLABLE, fillEmpty } from "./roles.js";
+import { mergePhotoArray, mergeInvoices, mergeById } from "./merge.js";
 import { FIELDS } from "./store.js";
 
 const emp = { role: "employee", id: "e1", name: "Nong" };
@@ -107,5 +107,51 @@ describe("ownInvoices + mergeInvoices (crew invoices bound to the session)", () 
     expect(merged.find(i => i.id === "i2").status).toBe("Pending");
     expect(merged.find(i => i.id === "i3").status).toBe("Paid");
     expect(merged.filter(i => i.id === "i2").length).toBe(1);
+  });
+});
+
+describe("reports by crew (restrictOwn + mergeById, as data.js applies it): the report belongs to who filed it", () => {
+  const kv = [
+    { id: "r_nong", employeeId: "e1", eqId: "eq1", description: "scratched", status: "open", ts: 1 },
+    { id: "r_arthit", employeeId: "e2", eqId: "eq2", description: "cracked", status: "open", ts: 2 },
+    { id: "r_admin", employeeId: "admin", eqId: "eq3", description: "house note", status: "solved", ts: 3 },
+  ];
+  it("a crew PUT that rewrites another crew's report or omits it leaves that report intact", () => {
+    const tampered = [
+      { id: "r_arthit", employeeId: "e2", eqId: "eq2", description: "TAMPERED BY NONG", status: "discarded", ts: 2 },
+      { id: "r_admin", employeeId: "e1", eqId: "eq3", description: "stolen", status: "open", ts: 3 },
+      { id: "r_new", eqId: "eq1", description: "new from Nong", status: "open", ts: 4 },
+    ];
+    const out = mergeById(restrictOwn(tampered, kv, "e1", "employeeId"), kv);
+    expect(out.find(r => r.id === "r_arthit")).toEqual(kv[1]);
+    expect(out.find(r => r.id === "r_admin")).toEqual(kv[2]);
+    expect(out.find(r => r.id === "r_new")).toEqual({ ...tampered[2], employeeId: "e1" });
+    // r_nong was omitted (a stale phone): crew never deletes a report, so it stays
+    expect(out.map(r => r.id).sort()).toEqual(["r_admin", "r_arthit", "r_new", "r_nong"]);
+  });
+  it("an empty crew PUT (reports=[]) cannot wipe the field", () => {
+    const out = mergeById(restrictOwn([], kv, "e1", "employeeId"), kv);
+    expect(out.map(r => r.id).sort()).toEqual(["r_admin", "r_arthit", "r_nong"]);
+  });
+});
+
+describe("crew may fill in EMPTY billing fields of a house-registered company (never overwrite)", () => {
+  const kv = [
+    { id: "p1", name: "Bangkok Pictures", address: "" },                         // auto-registered from a booking, no address
+    { id: "p2", name: "Hub", address: "12 Sukhumvit", taxId: "0105", addedBy: "e2" },
+  ];
+  it("fills address / taxId / branch when KV has them blank; keeps name and any existing value", () => {
+    const incoming = [
+      { id: "p1", name: "RENAMED", address: " 99 Rama IV ", taxId: "0105551234567", branch: "HQ" },
+      { id: "p2", name: "Hub", address: "WRONG", taxId: "WRONG", branch: "00000", addedBy: "e2" },
+    ];
+    const out = mergeOwnedWhole(incoming, kv, "e1", "addedBy", { fillable: COMPANY_FILLABLE });
+    expect(out.find(c => c.id === "p1")).toEqual({ id: "p1", name: "Bangkok Pictures", address: "99 Rama IV", taxId: "0105551234567", branch: "HQ" });
+    expect(out.find(c => c.id === "p2")).toEqual({ id: "p2", name: "Hub", address: "12 Sukhumvit", taxId: "0105", branch: "00000", addedBy: "e2" });
+  });
+  it("fillEmpty returns the same object when nothing is fillable", () => {
+    const prev = { id: "x", address: "A" };
+    expect(fillEmpty(prev, { address: "B" }, ["address"])).toBe(prev);
+    expect(fillEmpty(prev, { address: "" }, ["address"])).toBe(prev);
   });
 });

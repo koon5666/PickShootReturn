@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { fakeKV } from "../../tests/fakekv.js";
-import { createBackup, listBackups, getBackup, restoreBackup, pruneBackups, RETENTION } from "./backup.js";
+import { createBackup, listBackups, getBackup, restoreBackup, pruneBackups, RETENTION, autoBackupDue, AUTO_MIN_GAP_MS } from "./backup.js";
 import { writeField, readField, getPhoto, readAllFields } from "./store.js";
 
 const P = (i) => "data:image/jpeg;base64," + "Z".repeat(40) + i;
@@ -101,5 +101,21 @@ describe("backup versions (P2-7)", () => {
     expect(kv.raw("checkouts").includes("base64")).toBe(false);
     expect((await readAllFields(kv)).values.jobs).toEqual([{ id: "old" }]);
     expect(await restoreBackup(kv, "nope")).toMatchObject({ ok: false });
+  });
+});
+
+describe("daily auto-backup gate is server-side (P2-7 follow-up)", () => {
+  it("is due with no auto version, not due within 20 h of the newest auto version, due after", () => {
+    const now = 1_800_000_000_000;
+    expect(autoBackupDue([], now).due).toBe(true);
+    const list = [
+      { id: "manual_x", kind: "manual", savedAt: now - 1000 },          // manual versions do not count
+      { id: "auto_old", kind: "auto", savedAt: now - 30 * 3600 * 1000 },
+      { id: "auto_new", kind: "auto", savedAt: now - 2 * 3600 * 1000 },
+    ];
+    const r = autoBackupDue(list, now);
+    expect(r.due).toBe(false);
+    expect(r.latest.id).toBe("auto_new");
+    expect(autoBackupDue(list, now + AUTO_MIN_GAP_MS).due).toBe(true);
   });
 });

@@ -7,7 +7,7 @@ import { requireSession, requireAdmin, readJson } from "../_lib/auth.js";
 import { appendAudit } from "../_lib/audit.js";
 import { readField } from "../_lib/store.js";
 
-const ACTIONS = new Set(["job.delete", "equipment.delete", "employee.delete", "company.delete", "invoice.delete", "report.delete", "request.delete", "kpi.deduct", "kpi.undo", "receive", "approve", "reject"]);
+const ACTIONS = new Set(["job.delete", "equipment.delete", "employee.delete", "company.delete", "invoice.delete", "report.delete", "request.delete", "kpi.deduct", "kpi.undo", "receive", "approve", "reject", "equipment.lost_remove", "equipment.lost_found"]);
 
 export async function onRequestPost(context) {
   const auth = await requireSession(context);
