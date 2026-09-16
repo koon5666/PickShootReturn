@@ -3,8 +3,9 @@ import { LANG } from "./i18n/index.js";
 import { versionsFor, rebasePayload, pendingSave, adoptRemote } from "./logic/sync.js";
 import { stillOutList, buildReceiveEvents } from "./logic/availability.js";
 import { ToastProvider } from "./components/toast.jsx";
-import { setFormatLang } from "./i18n/format.js";
+import { setFormatLang, formatDate } from "./i18n/format.js";
 import { buildSavePayload, dirtyFields, queueProfile, drainProfileQueue } from "./logic/offline.js";
+import { outcomeRecipients, earlyOutcomeMessage } from "./logic/requestPush.js";
 import { api, setActor, actorName, SESSION_KEY, PENDING_KEY, CACHE_KEY, DATA_FIELDS, readCachedTheme, normalizeTheme, writeCache, buildThemeCss, Icon, icons, APP_TZ, setTimePrefs, today, compressImage, S, orderNav, LangCtx, RolesCtx, useT, LangPill } from "./ui/shared.jsx";
 
 // ─── LAZY VIEW CHUNKS (P3-8) ──────────────────────────────────────────────────
@@ -1687,13 +1688,23 @@ export default function App() {
   };
 
   const isLineLinked = (empId) => (employees || []).some(e => e && e.id === empId && e.lineLinked); // P3-6: GET exposes only the flag
-  // Tell the crew member the outcome of a geo-gated return (P1-5): LINE push to the
-  // group when one is connected and to the requester's own LINE when linked
-  // (P3-6), plus the in-app status on their "Returns waiting for approval" card.
+  // Tell the crew member the outcome of an admin request.
+  //   geo-return (P1-5): LINE push to the group when one is connected and to the
+  //   requester's own LINE when linked (P3-6), both outcomes, plus the in-app
+  //   status on their "Returns waiting for approval" card.
+  //   early-pickup / early-return (2026-09-16): the group heard the request go
+  //   in (crew.jsx submitEarlyRequest), so it hears the approval; a rejection
+  //   reaches only the linked requester. Rule + wording: src/logic/requestPush.js.
   const notifyRequester = (req, outcome) => {
-    if (req.type !== "geo-return" || lineNotifyMuted) return;
-    if (!lineGroupId && !isLineLinked(req.employeeId)) return; // nobody to reach
+    if (lineNotifyMuted) return;
     const ok = outcome === "approved";
+    if (req.type === "early-pickup" || req.type === "early-return") {
+      const to = outcomeRecipients({ ok, lineGroupId, lineNotifyMuted, employees, employeeId: req.employeeId });
+      if (to) api.notify({ ...to, message: earlyOutcomeMessage(req, ok, { t: _tRoot, formatDate }) });
+      return;
+    }
+    if (req.type !== "geo-return") return;
+    if (!lineGroupId && !isLineLinked(req.employeeId)) return; // nobody to reach
     const dist = req.distance == null ? "" : req.distance < 1000 ? ` (${req.distance} m)` : ` (${(req.distance / 1000).toFixed(1)} km)`;
     // Group when connected, plus the requester's own LINE when linked (P3-6, resolved server-side).
     api.notify({ userIds: lineGroupId ? [lineGroupId] : [], employeeIds: req.employeeId ? [req.employeeId] : [], message: `${ok ? "✅" : "❌"} [${_tRoot(ok ? "notifyReturnApproved" : "notifyReturnRejected")}] ${req.employeeName}\n📦 ${req.eqName || req.name || req.eqId}${req.qty > 1 ? ` ×${req.qty}` : ""}\n🎬 ${req.jobName || ""}${dist}\n🔗 https://pickshootreturn.pages.dev` });

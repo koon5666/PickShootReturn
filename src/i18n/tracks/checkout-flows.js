@@ -56,6 +56,11 @@ export default {
     pendingCountLine: "{n} waiting for admin approval",
     notifyReturnApproved: "Return approved",
     notifyReturnRejected: "Return rejected",
+    // early pickup / early return outcome, LINE push to the group + requester (2026-09-16)
+    notifyEarlyPickupApproved: "Early pickup approved",
+    notifyEarlyPickupRejected: "Early pickup not approved",
+    notifyEarlyReturnApproved: "Early return approved",
+    notifyEarlyReturnRejected: "Early return not approved",
     // request type labels (crew Gear tab)
     reqTypeEquipment: "Equipment",
     reqTypeProductionHouse: "Production House",
@@ -153,6 +158,10 @@ export default {
     pendingCountLine: "{n} รายการรอแอดมินอนุมัติ",
     notifyReturnApproved: "อนุมัติการคืนแล้ว",
     notifyReturnRejected: "ไม่อนุมัติการคืน",
+    notifyEarlyPickupApproved: "อนุมัติรับของก่อนวันแล้ว",
+    notifyEarlyPickupRejected: "ไม่อนุมัติรับของก่อนวัน",
+    notifyEarlyReturnApproved: "อนุมัติคืนของก่อนวันแล้ว",
+    notifyEarlyReturnRejected: "ไม่อนุมัติคืนของก่อนวัน",
     reqTypeEquipment: "อุปกรณ์",
     reqTypeProductionHouse: "บริษัทโปรดักชั่น",
     reqTypeMemberRegister: "บัญชีผู้ใช้",

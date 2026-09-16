@@ -8,6 +8,7 @@ import { isPickEvt, isReturnEvt, isLostEvt, isVoidEvt, jobCheckoutState, outstan
 import { formatDate, formatDateTime, tCount, statusLabel } from "../i18n/format.js";
 import { kpiMax, kpiStars, isKpiAdd, buildKpiEvent } from "../logic/kpi.js";
 import { normalizeCrew, hasRoster, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, pushEmployeeIds, buildJobMessage, EMPTY_CREW_ROW } from "../logic/roster.js";
+import { outcomeRecipients, gearOutcomeMessage } from "../logic/requestPush.js";
 import { utilisation, utilisationCsv, overdueCsv, customerHistory, customerHistoryCsv, customerNames, crewStatement, crewStatementCsv, periodPreset, monthOf } from "../logic/reports.js";
 import { JOB_STATUSES, JOB_STATUS_BADGE, SHOOT_TIMES, LOCATIONS, j, api, actorName, Icon, icons, APP_TZ, today, addDaysStr, kpiPeriod, kpiScore, kpiEventsInPeriod, StarRating, compressImage, S, useMinWidth, Modal, LazyPhoto, AvailBar, usePhotoCapture, GeoPhoto, ReturnDetailsFields, QRScanner, LangCtx, useRoleList, useT, calcAvailable, jobHoldDatesOf, calcAvailableSpan, describeReasons, AvChip, AvReasons, printQRForItems, EQ_SORT_OPTIONS } from "../ui/shared.jsx";
 import { DashboardCalendar } from "./calendar.jsx";
@@ -1112,14 +1113,14 @@ export function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckout
   })();
   const toggleActivity = (key) => setExpandedActivityKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
-  // Tell the requester on their own LINE (linked members only, resolved server-side, P3-6).
+  // Gear request outcome (P3-6 + 2026-09-16): the group heard the request go in
+  // (crew.jsx "[Gear Request]"), so it hears the APPROVAL; a denial reaches only
+  // the requester, on their own LINE when linked (resolved server-side).
+  // Recipients + wording: src/logic/requestPush.js (unit tested).
   const pushRequestOutcome = (req, ok) => {
-    if (lineNotifyMuted || !req.employeeId) return;
-    if (!(employees || []).some(e => e && e.id === req.employeeId && e.lineLinked)) return; // not linked: nothing to send
-
-    const items = (req.items && req.items.length ? req.items : [{ eqName: req.eqName, qty: req.qty }]).map(it => `${it.eqName || ""}${(+it.qty || 1) > 1 ? ` ×${it.qty}` : ""}`).join(", ");
-    const dates = (req.useDates || []).map(d => formatDate(d)).join(", ");
-    api.notify({ userIds: [], employeeIds: [req.employeeId], message: `${ok ? "✅" : "❌"} [${ok ? t("notifyGearApproved") : t("notifyGearDenied")}] ${items}${dates ? `\n📅 ${dates}` : ""}\n🔗 https://pickshootreturn.pages.dev` });
+    const to = outcomeRecipients({ ok, lineGroupId, lineNotifyMuted, employees, employeeId: req.employeeId });
+    if (!to) return;
+    api.notify({ ...to, message: gearOutcomeMessage(req, ok, { t, formatDate }) });
   };
   const approveRequest = (req) => {
     // Approval only unlocks the request — the employee still picks up with photo verification
