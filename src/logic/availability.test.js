@@ -351,3 +351,14 @@ describe("lost / written-off units keep reducing availability until reconciled (
     expect(byId(availability(equipment, T, { ...ctx, checkouts: [...checkouts, lostEvt, wo] }), "eq_vmount").available).toBe(4); // 2 out + 2 lost
   });
 });
+
+describe("a deleted job keeps its due date on the still-out row (P1-11 follow-up)", () => {
+  it("uses the dueDate stamped on the pick event when the job record is gone", () => {
+    const evts = [{ ...pick("eq_fx6", 1, at(-3, 8)), jobId: "job_gone", jobName: "Old Job", dueDate: day(-2) }];
+    const rows = stillOutList({ checkouts: evts, jobs: [], equipment, today: T });
+    expect(rows[0]).toMatchObject({ jobGone: true, dueDate: day(-2), overdue: true, daysOverdue: 2, jobName: "Old Job" });
+    // no stamp (old events): still listed, just without a due date
+    const old = stillOutList({ checkouts: [{ ...pick("eq_fx6", 1, at(-3, 8)), jobId: "job_gone" }], jobs: [], equipment, today: T });
+    expect(old[0].dueDate).toBeNull();
+  });
+});

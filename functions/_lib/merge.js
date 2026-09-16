@@ -38,9 +38,28 @@ export function tombstoneOf(entry, deletedAt = new Date().toISOString()) {
 //    whose `ts` is older than the clear is a record a stale device still holds
 //    from before the clear. It is dropped instead of resurrected. New captures
 //    (ts after the clear) always pass.
-export function mergePhotoArray(incoming, existing, { clearedAt = 0 } = {}) {
+// Timestamp of a record for the watermark rules (checkouts ts, requests
+// requestedAt/submittedAt, invoices createdAt).
+export function recordTime(e) {
+  if (!e || typeof e !== "object") return null;
+  for (const k of ["ts", "createdAt", "requestedAt", "submittedAt"]) {
+    const v = e[k];
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v) { const t = Date.parse(v); if (Number.isFinite(t)) return t; }
+  }
+  return null;
+}
+// Drop incoming entries KV does not know whose record time predates `since`
+// (a clear-history or a restore): a stale device still holds them from before.
+// Entries with no timestamp always pass (never lose a record on a guess).
+export function dropStaleUnknown(incoming, exMap, since) {
+  if (!since) return incoming;
+  return incoming.filter(e => { if (!e || exMap.has(e.id)) return true; const t = recordTime(e); return !(typeof t === "number" && t < since); });
+}
+
+export function mergePhotoArray(incoming, existing, { clearedAt = 0, restoredAt = 0 } = {}) {
   const exMap = new Map((existing || []).map(e => [e.id, e]));
-  if (clearedAt) incoming = incoming.filter(e => !(e && !exMap.has(e.id) && typeof e.ts === "number" && e.ts < clearedAt));
+  incoming = dropStaleUnknown(incoming, exMap, Math.max(clearedAt || 0, restoredAt || 0));
   const incomingIds = new Set(incoming.map(e => e.id));
   const merged = incoming.map(inc => {
     const kv = exMap.get(inc.id);
@@ -65,8 +84,9 @@ export function mergePhotoArray(incoming, existing, { clearedAt = 0 } = {}) {
 // (equipmentRequests): incoming entries win for shared ids, KV-only ids are
 // preserved so a stale session never erases another session's additions.
 // Tombstones as above.
-export function mergeById(incoming, existing) {
+export function mergeById(incoming, existing, { restoredAt = 0 } = {}) {
   const exMap = new Map((existing || []).map(e => [e.id, e]));
+  incoming = dropStaleUnknown(incoming, exMap, restoredAt);
   const incomingIds = new Set(incoming.map(e => e.id));
   const merged = incoming.map(inc => {
     const kv = exMap.get(inc.id);
@@ -84,9 +104,10 @@ export function mergeById(incoming, existing) {
 //  - admin session: append-only merge across all invoices.
 //  - write-once fields set by one device must not be wiped by a stale session.
 //  - tombstones as above (KV `_deleted` wins over an incoming live copy).
-export function mergeInvoices(incoming, existing, employeeId) {
+export function mergeInvoices(incoming, existing, employeeId, { restoredAt = 0 } = {}) {
   const kvList = existing || [];
   const existingMap = new Map(kvList.map(e => [e.id, e]));
+  incoming = dropStaleUnknown(incoming, existingMap, restoredAt);
   const mergeInv = (inc) => {
     const kv = existingMap.get(inc.id);
     if (!kv) return inc;

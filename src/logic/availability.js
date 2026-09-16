@@ -113,6 +113,7 @@ function computeStillOutUnits(checkouts) {
         missing: it.missing,
         pickedAt: it.owner ? it.owner.ts || 0 : 0, pickedBy: it.owner ? it.owner.employeeName || null : null,
         pickedById: it.owner ? it.owner.employeeId || null : null, jobName: it.owner ? it.owner.jobName || null : null,
+        dueDate: it.owner ? it.owner.dueDate || null : null, // stamped on the pick event: survives a deleted job
       });
     }
   }
@@ -129,7 +130,7 @@ export function stillOutList({ checkouts, jobs = [], equipment = [], equipmentRe
     const job = u.jobId ? jobs.find(j => j.id === u.jobId) || null : null;
     const req = u.requestId ? equipmentRequests.find(r => r.id === u.requestId) || null : null;
     const eq = equipment.find(e => e.id === u.eqId) || null;
-    const dueDate = job ? effReturnDate(job) : req ? [...(req.useDates || [])].sort().slice(-1)[0] || null : null;
+    const dueDate = job ? effReturnDate(job) : req ? [...(req.useDates || [])].sort().slice(-1)[0] || null : (u.dueDate || null);
     const overdue = !!dueDate && dueDate < t;
     return {
       key: `${u.holder}::${u.eqId}`, ...u, job, request: req, eq,

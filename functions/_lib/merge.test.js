@@ -140,3 +140,23 @@ describe("mergeInvoices: paidDate is stale-safe, not frozen", () => {
     expect(repaid[0].paidDate).toBe("2026-09-16");
   });
 });
+
+describe("restore watermark (restoredAt) on the id-merged arrays", () => {
+  const restoredAt = 2_000_000;
+  it("mergeById / mergeInvoices drop records a stale device re-saves from before the restore, keep newer and known ones", () => {
+    const kv = [{ id: "r_keep", requestedAt: restoredAt - 500 }];
+    const incoming = [
+      { id: "r_keep", requestedAt: restoredAt - 500, status: "approved" },   // known to KV: an edit, kept
+      { id: "r_old", requestedAt: restoredAt - 10 },                          // removed by the restore: stays gone
+      { id: "r_new", requestedAt: restoredAt + 10 },                          // made after the restore: kept
+    ];
+    expect(mergeById(incoming, kv, { restoredAt }).map(e => e.id)).toEqual(["r_keep", "r_new"]);
+    const kvInv = [{ id: "i_keep", employeeId: "admin", createdAt: restoredAt - 900 }];
+    const inc = [{ id: "i_keep", employeeId: "admin", createdAt: restoredAt - 900, status: "Paid" }, { id: "i_old", employeeId: "admin", createdAt: restoredAt - 1 }, { id: "i_new", employeeId: "admin", createdAt: restoredAt + 1 }];
+    expect(mergeInvoices(inc, kvInv, "admin", { restoredAt }).map(e => e.id)).toEqual(["i_keep", "i_new"]);
+    // adminRequests carry an ISO submittedAt
+    const iso = (t) => new Date(t).toISOString();
+    const reqs = [{ id: "a_old", submittedAt: iso(restoredAt - 5), photo: null }, { id: "a_new", submittedAt: iso(restoredAt + 5), photo: null }];
+    expect(mergePhotoArray(reqs, [], { restoredAt }).map(e => e.id)).toEqual(["a_new"]);
+  });
+});

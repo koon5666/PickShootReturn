@@ -21,7 +21,10 @@ const SHOTS = resolve(dirname(fileURLToPath(import.meta.url)), ".walk-shots");
 mkdirSync(SHOTS, { recursive: true });
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const errors = [];
-const ALLOW = [/ws:\/\/[^']*\/api\/(session|chat)/i, /\/api\/profile\/[^ ]* .*404/i, /Failed to load resource: the server responded with a status of (404|503|500)/i, /\/api\/notify/];
+// 401: the harness ends a persona's session with a raw /api/logout before closing
+// its page, so the pending-delta flush this app sends on pagehide (P1-4 follow-up)
+// arrives without a cookie. A real user closing a tab still has a live session.
+const ALLOW = [/ws:\/\/[^']*\/api\/(session|chat)/i, /\/api\/profile\/[^ ]* .*404/i, /Failed to load resource: the server responded with a status of (401|404|503|500)/i, /\/api\/notify/];
 const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ["--use-gl=angle", "--use-angle=swiftshader", "--no-sandbox"] });
 let page; let shotN = 0;
 const fail = (m) => { throw new Error(m); };
@@ -272,18 +275,41 @@ try {
     await clickText("All", "button", true, 1);
   });
 
-  await step("crew: shared production house is read-only, own one editable", async () => {
+  await step("crew: shared production house: empty billing fields can be filled, filled ones are read-only; own one editable", async () => {
+    // A fully filled house company is locked for crew; one with empty tax id / branch lets them fill just those (review fix-up).
+    const d0 = await kv();
+    const full = d0.productionCompanies.map(c => c.id === "co_bkkpics" ? { ...c, taxId: "0105551234567", branch: "00000" } : c);
+    const rf = await kvAdmin.put("/api/data", { productionCompanies: full, _v: { productionCompanies: d0._v.productionCompanies } });
+    if (!rf.ok) fail("fixture PUT " + rf.status);
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickText("Invoice", "button", false);
+    await sleep(600);
     await page.evaluate(() => { const el = [...document.querySelectorAll("p")].find(p => /Production Houses/i.test(p.textContent)); el && el.scrollIntoView({ block: "start" }); });
     await sleep(200);
-    await clickText("Netflix Thailand", "p", false);
+    await clickText("Bangkok Pictures", "p", false);
     await waitText("Edit Production House");
     if (!(await hasText("Only they or an admin can edit"))) fail("read-only notice missing");
-    const ro = await page.$$eval("input[readonly]", els => els.length);
+    const ro = await page.$$eval("[role=dialog] input[readonly]", els => els.length);
     if (ro < 3) fail("name/tax/branch inputs not read-only: " + ro);
-    if (await hasText("Save")) { const btns = await page.evaluate(() => [...document.querySelectorAll("button")].map(b => b.textContent.trim())); if (btns.includes("Save")) fail("Save button shown on read-only company"); }
+    { const btns = await page.evaluate(() => [...document.querySelectorAll("[role=dialog] button")].map(b => b.textContent.trim())); if (btns.includes("Save")) fail("Save button shown on a fully filled house company"); }
     await shot("crew-prodhouse-readonly");
     await clickText("Back");
     await sleep(300);
+    await clickText("Netflix Thailand", "p", false);
+    await waitText("Edit Production House");
+    if (!(await hasText("You can fill in the empty billing fields"))) fail("fill-in notice missing");
+    const nameRo = await page.$eval("[role=dialog] input[placeholder='e.g. Thai Film Co.'], [role=dialog] input", e => e.readOnly);
+    if (!nameRo) fail("name should stay locked on a shared company");
+    const taxRo = await page.$eval("[role=dialog] input[placeholder='0105551234567']", e => e.readOnly);
+    if (taxRo) fail("empty tax id should be fillable");
+    await page.type("[role=dialog] input[placeholder='0105551234567']", "0105557777777");
+    await shot("crew-prodhouse-fill-in");
+    await clickText("Save");
+    await sleep(3500);
+    const dn = await kv();
+    const nf = dn.productionCompanies.find(c => c.id === "co_netflix");
+    if (!nf || nf.taxId !== "0105557777777" || nf.address !== "1 Rama IV Rd, Bangkok 10500" || nf.addedBy) fail("fill-in not persisted as expected: " + JSON.stringify(nf));
+    console.log("  ok crew filled the empty tax id on a house company; address and name untouched");
     // add own company with tax id
     await clickText("+ Add");
     await waitText("Add Production House");

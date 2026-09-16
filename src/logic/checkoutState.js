@@ -90,7 +90,7 @@ export function itemCounts(events, { todayKey, dayOf } = {}) {
       picked, returned, lost: it.lost, lostBy: it.lostBy, out: outQty, pickedToday,
       // partially back (or a return explicitly flagged some units missing) and still short
       missing: outQty > 0 && (returned > 0 || it.lost > 0 || it.missingFlag),
-      owner: it.lastPick ? { employeeId: it.lastPick.employeeId, employeeName: it.lastPick.employeeName, ts: it.lastPick.ts, jobName: it.lastPick.jobName || null } : null,
+      owner: it.lastPick ? { employeeId: it.lastPick.employeeId, employeeName: it.lastPick.employeeName, ts: it.lastPick.ts, jobName: it.lastPick.jobName || null, dueDate: it.lastPick.dueDate || null } : null,
       lanes: { photoPicked: it.photoPicked, barcodePicked: it.barcodePicked, photoReturned: it.photoReturned, barcodeReturned: it.barcodeReturned, photoPickedToday: it.photoPickedToday, barcodePickedToday: it.barcodePickedToday },
     };
   }

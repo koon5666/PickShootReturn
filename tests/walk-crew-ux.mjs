@@ -141,7 +141,8 @@ try {
   });
 
   await step("request row says who approves + how you hear back (P3-6)", async () => {
-    await waitText("Sent to Lucky Cam Rental, you'll get a LINE message when approved.", 5_000);
+    // Unlinked crew: the copy no longer promises a message the system cannot send (P3-6 fix-up).
+    await waitText("Sent to Lucky Cam Rental. You will get a LINE message when it is approved once your LINE is linked", 5_000);
     const row = await page.evaluate(() => document.querySelector('[data-testid^="gear-req-"]').innerText);
     if (!/^Pending/m.test(row)) fail(`status badge should read "Pending" (title case), row: ${row}`);
     await shot("request-row");

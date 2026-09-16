@@ -183,3 +183,13 @@ describe("protectRequests (admin PUT of adminRequests keeps the requested PIN ha
     expect(out.find(r => r.id === "ar9")).toEqual({ id: "ar9", type: "member-register", status: "pending", name: "New" });
   });
 });
+
+describe("protectEmployees keeps the LINE identity from KV (P3-6)", () => {
+  it("an admin save of the stripped list carries lineUserId / link code forward and drops client values", async () => {
+    const kv = [{ id: "e1", name: "Nong", pinHash: await hashPin("1111"), lineUserId: "U123", lineLinkedAt: 5 }, { id: "e2", name: "Arthit", lineLinkCode: "ABC234", lineLinkCodeAt: 9 }];
+    const out = await protectEmployees([{ id: "e1", name: "Nong Renamed", lineLinked: true, lineUserId: "Uattacker" }, { id: "e2", name: "Arthit" }], kv);
+    expect(out[0]).toMatchObject({ id: "e1", name: "Nong Renamed", pinHash: kv[0].pinHash, lineUserId: "U123", lineLinkedAt: 5 });
+    expect(out[0].lineLinked).toBeUndefined();
+    expect(out[1]).toMatchObject({ id: "e2", name: "Arthit", lineLinkCode: "ABC234", lineLinkCodeAt: 9 });
+  });
+});

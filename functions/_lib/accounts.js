@@ -13,6 +13,7 @@
 // A member-register request stores `requestedPinHash` (hashed at registration,
 // never the plaintext); approval copies the hash onto the new employee.
 import { hashPin, verifyPin, isPinHash, PIN_RE, ADMIN_ID, OWNER_STAFF_ID, stripEmployee, stripStaff } from "./auth.js";
+import { LINE_SERVER_FIELDS } from "./linelink.js";
 import { readField, writeField } from "./store.js";
 
 export const DEFAULT_ADMIN_PIN = "1234"; // only when KV holds NO owner credential at all (brand-new account)
@@ -183,8 +184,12 @@ export async function protectEmployees(incoming, existing) {
   const out = [];
   for (const e of list(incoming)) {
     if (!e || typeof e !== "object") { out.push(e); continue; }
-    const { pin, pinHash, ...rest } = e;
+    // LINE identity fields (P3-6) come from KV as well: the client never holds
+    // them (GET shows only `lineLinked`), so an incoming value is dropped.
+    const { pin, pinHash, lineUserId, lineLinkCode, lineLinkCodeAt, lineLinkedAt, lineLinked, ...bare } = e;
     const prev = kv.get(e.id);
+    const rest = { ...bare };
+    for (const f of LINE_SERVER_FIELDS) if (prev && prev[f] !== undefined) rest[f] = prev[f];
     if (typeof pin === "string" && PIN_RE.test(pin)) { out.push({ ...rest, pinHash: await hashPin(pin) }); continue; }
     if (prev && isPinHash(prev.pinHash)) out.push({ ...rest, pinHash: prev.pinHash });
     else if (prev && typeof prev.pin === "string" && prev.pin) out.push({ ...rest, pin: prev.pin });

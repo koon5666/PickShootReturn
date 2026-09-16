@@ -1,6 +1,8 @@
 // LINE push relay. Session required (P0-2): it used to be an open relay that
 // anyone could burn the shared monthly push quota through.
 import { requireSession } from "../_lib/auth.js";
+import { readField } from "../_lib/store.js";
+import { resolveLineUserIds } from "../_lib/linelink.js";
 
 const CORS = {};
 
@@ -17,11 +19,19 @@ export async function onRequestPost(context) {
     return Response.json({ ok: false, error: "LINE_CHANNEL_ACCESS_TOKEN not configured" }, { status: 500, headers: CORS });
   }
 
-  let userIds, message;
-  try { ({ userIds, message } = await request.json()); } catch { return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400, headers: CORS }); }
-  if (!userIds?.length || !message) {
-    return Response.json({ ok: false, error: "Missing userIds or message" }, { status: 400, headers: CORS });
+  let userIds, employeeIds, message;
+  try { ({ userIds, employeeIds, message } = await request.json()); } catch { return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400, headers: CORS }); }
+  userIds = Array.isArray(userIds) ? userIds.filter(Boolean) : [];
+  // Per-user pushes (P3-6): the client names EMPLOYEES, the server resolves the
+  // LINE userIds it keeps (functions/_lib/linelink.js). A crew session may only
+  // address itself; the house may address anyone. Unlinked members are skipped.
+  if (Array.isArray(employeeIds) && employeeIds.length) {
+    const own = auth.session.role === "admin" ? employeeIds : employeeIds.filter(id => String(id) === String(auth.session.id));
+    const { value } = await readField(env.KV, "employees");
+    for (const uid of resolveLineUserIds(Array.isArray(value) ? value : [], own)) if (!userIds.includes(uid)) userIds.push(uid);
   }
+  if (!message) return Response.json({ ok: false, error: "Missing message" }, { status: 400, headers: CORS });
+  if (!userIds.length) return Response.json({ ok: true, sent: 0, failed: 0, errors: [], skipped: "no recipient" }, { headers: CORS });
 
   const results = await Promise.allSettled(
     userIds.map(async (userId) => {

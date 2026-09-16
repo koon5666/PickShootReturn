@@ -22,6 +22,9 @@ import { FIELDS, readField, prepareWrite, commitWrites } from "./store.js";
 import { PHOTO_FIELDS, externalize, photoKeysOf, loadPhotos, inlinePhotos, isDataUri } from "./photos.js";
 
 export const RETENTION = { manual: 5, auto: 5, safety: 3 };
+// Arrays PUT /api/data merges by id (a stale client copy cannot overwrite them
+// wholesale, so a restore has to stamp them, see restoreBackup).
+export const ID_MERGED = ["checkouts", "adminRequests", "equipmentRequests", "invoices"];
 // Daily auto-backup: one per 20 h, judged SERVER-side from the newest auto
 // version, so every new device / cleared browser cannot mint another "Daily"
 // version and evict the real older ones (the client's localStorage gate is only
@@ -184,7 +187,14 @@ export async function restoreBackup(kv, id, { safety = true } = {}) {
     prepared.push(p);
     if (PHOTO_FIELDS[f]) restoredArrays[f] = p.entries;
   }
-  const versions = await commitWrites(kv, prepared);
+  // restoredAt: a device that loaded BEFORE the restore still holds records the
+  // restored version does not have; when it re-saves, the id-merges drop the
+  // ones that predate this moment instead of resurrecting them (same rule as
+  // clearedAt for clear-history; functions/_lib/merge.js).
+  const restoredAt = Date.now();
+  const extraMeta = {};
+  for (const f of ID_MERGED) extraMeta[f] = { restoredAt };
+  const versions = await commitWrites(kv, prepared, {}, extraMeta);
 
   // 3. profiles
   const profiles = await readBackupProfiles(kv, meta);

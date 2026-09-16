@@ -56,6 +56,9 @@ describe("backup versions (P2-7)", () => {
     expect(await getPhoto(kv, "checkouts", "c1")).toBe(P(2));                             // photo back
     expect(await getPhoto(kv, "checkouts", "c3")).toBe(null);                             // orphan photo dropped
     expect(res.orphanPhotosRemoved).toBe(1);
+    // the id-merged arrays carry a restoredAt watermark so a stale device cannot re-add what the restore removed
+    for (const f of ["checkouts", "adminRequests", "equipmentRequests", "invoices"]) expect(typeof (await readField(kv, f)).meta.restoredAt).toBe("number");
+    expect((await readField(kv, "jobs")).meta.restoredAt).toBeUndefined();
     expect(kv.json("profile_e1")).toEqual({ firstName: "Nong", idCard: P(3) });
     expect((await readField(kv, "equipment")).value[0].hasPhoto).toBe(true);
     // the safety snapshot holds the pre-restore state and is itself restorable

@@ -127,7 +127,7 @@ export async function deletePhotoPrefix(kv, field) {
 // and resumable: photo keys are written first, then the array; a crash between
 // the two only means the next run rewrites the same keys. Returns progress.
 export async function migrateField(kv, field, limit = 20) {
-  const { value, v, meta } = await readField(kv, field);
+  const { value, v } = await readField(kv, field);
   const before = countInline(field, value);
   if (!before) return { field, moved: 0, remaining: 0, records: Array.isArray(value) ? value.length : 0 };
   const { entries, photos } = externalize(field, value, limit);
@@ -135,8 +135,15 @@ export async function migrateField(kv, field, limit = 20) {
   const str = JSON.stringify(entries);
   const size = checkSize(field, str);
   if (size) throw Object.assign(new Error(size.error), { size });
+  // Re-read right before the array write: a PUT that landed while the photo keys
+  // were being written (a new checkout, an approval) must not be overwritten by
+  // the copy read above. That PUT externalized the field itself on the way in
+  // (prepareWrite), so this batch simply yields; the caller loops until
+  // `remaining` is 0 and the keys already written are reused.
+  const fresh = await readField(kv, field);
+  if (fresh.v !== v) return { field, moved: 0, remaining: countInline(field, fresh.value), records: Array.isArray(fresh.value) ? fresh.value.length : 0, retry: true };
   // keep the version: migration is not a user edit, open clients stay valid
-  await kv.put(field, str, { metadata: { ...meta, v: v || newVersion() } });
+  await kv.put(field, str, { metadata: { ...fresh.meta, v: v || newVersion() } });
   return { field, moved: photos.length, remaining: countInline(field, entries), records: entries.length, bytes: str.length };
 }
 

@@ -356,7 +356,7 @@ try {
     await shot("offline-admin-clean");
     await clickSel('[data-testid="dash-new-job"]');
     await waitText("New Job");
-    await page.type('input[placeholder="e.g. TVC Toyota — Hero Film"]', "Offline Job Walk");
+    await page.type('input[placeholder="e.g. TVC Toyota Hero Film"]', "Offline Job Walk");
     await clickJobDay(27);
     await clickText("Save Job", "button", false);
     await sleep(500);

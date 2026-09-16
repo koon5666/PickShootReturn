@@ -145,12 +145,12 @@ export async function onRequestPut(context) {
         // Employee sessions: ownership is the SESSION, never a client-declared id.
         const owner = isAdmin ? "admin" : session.id;
         if (!isAdmin) value = ownInvoices(value, existing, owner);
-        value = mergeInvoices(value, existing, owner);
+        value = mergeInvoices(value, existing, owner, { restoredAt: cur.meta.restoredAt || 0 });
       } else {
         if (!isAdmin) value = restrictOwn(value, existing, session.id, OWNER_KEY[k]);
         if (k === "adminRequests") value = protectRequests(value, existing); // requested PIN hash comes from KV, never the client
-        if (PHOTO_ARRAYS.has(k)) value = mergePhotoArray(value, existing, { clearedAt: cur.meta.clearedAt || 0 });
-        else value = mergeById(value, existing);
+        if (PHOTO_ARRAYS.has(k)) value = mergePhotoArray(value, existing, { clearedAt: cur.meta.clearedAt || 0, restoredAt: cur.meta.restoredAt || 0 });
+        else value = mergeById(value, existing, { restoredAt: cur.meta.restoredAt || 0 });
       }
     } else if (ownedWhole) {
       // Crew never deletes a report (the UI only appends / the house resolves), so

@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
-import jsQR from "jsqr";
+// jsQR (≈50 KB) is loaded on demand the first time a scanner opens (P3-8:
+// keeps the decoder out of the main bundle; most sessions never scan).
+let jsQRModule = null;
+const loadJsQR = () => jsQRModule || (jsQRModule = import("jsqr").then(m => m.default || m));
 import { LANG } from "./i18n/index.js";
 import { hoursWorked, DEFAULT_OT_TIERS, calcOtAmount, calcVatBreakdown, calcTotal, otExample } from "./logic/money.js";
 import { versionsFor, rebasePayload, pendingSave, adoptRemote } from "./logic/sync.js";
@@ -13,7 +16,7 @@ import { ToastProvider, useToast } from "./components/toast.jsx";
 import { Dialog } from "./components/dialog.jsx";
 import { formatDate, formatDateTime, formatDay, formatLongDay, setFormatLang, tCount, shootTimeLabel, locationLabel, statusLabel } from "./i18n/format.js";
 import { kpiMax, kpiPeriod as kpiPeriodAt, kpiScore as kpiScoreAt, kpiStars, kpiEventsInPeriod as kpiEventsInPeriodAt, kpiDelta, isKpiAdd, buildKpiEvent, visibleKpiRules } from "./logic/kpi.js";
-import { normalizeCrew, hasRoster, isOnRoster, myRosterEntry, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage, EMPTY_CREW_ROW } from "./logic/roster.js";
+import { normalizeCrew, hasRoster, isOnRoster, myRosterEntry, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, pushEmployeeIds, buildJobMessage, EMPTY_CREW_ROW } from "./logic/roster.js";
 import { buildSavePayload, dirtyFields, queueProfile, drainProfileQueue } from "./logic/offline.js";
 import { utilisation, utilisationCsv, overdueCsv, customerHistory, customerHistoryCsv, customerNames, crewStatement, crewStatementCsv, periodPreset, monthOf } from "./logic/reports.js";
 import { qrSvg } from "./vendor/qrcodegen.js";
@@ -47,6 +50,10 @@ const api = {
   staffPin: (id, pin) => post(`/api/staff/${encodeURIComponent(id)}/pin`, { pin }).then(j),
   calendarToken: (rotate) => post("/api/calendar-token", { rotate: !!rotate }).then(j),
   audit: (entry) => post("/api/audit", entry).catch(() => {}),
+  // Per-user LINE link (P3-6): own record for crew, ?employeeId= for the house.
+  lineLink: (employeeId) => fetch(`/api/line-link${employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : ""}`).then(j),
+  lineLinkCode: (employeeId) => post("/api/line-link", employeeId ? { employeeId } : {}).then(j),
+  lineUnlink: (employeeId) => fetch(`/api/line-link${employeeId ? `?employeeId=${encodeURIComponent(employeeId)}` : ""}`, { method: "DELETE" }).then(j),
   // data
   getData: () => fetch("/api/data").then(r => { if (!r.ok) { const e = new Error("load failed"); e.status = r.status; throw e; } return r.json(); }),
   putData: (body, opts = {}) => fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), ...(opts.keepalive ? { keepalive: true } : {}) }),
@@ -594,6 +601,9 @@ function QRScanner({ onScan, onClose, label }) {
 
   useEffect(() => {
     let stopped = false;
+    let jsQR = null;
+    // Decoder and camera start in parallel; scanning begins once both are ready.
+    loadJsQR().then(fn => { jsQR = fn; }).catch(() => setErr("Scanner failed to load. Check your connection and try again."));
     navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false })
       .then(stream => {
         if (stopped) { stream.getTracks().forEach(t => t.stop()); return; }
@@ -609,7 +619,7 @@ function QRScanner({ onScan, onClose, label }) {
       if (stopped || scannedRef.current) return;
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      if (!video || !canvas || video.readyState < 2) { rafRef.current = requestAnimationFrame(tick); return; }
+      if (!video || !canvas || !jsQR || video.readyState < 2) { rafRef.current = requestAnimationFrame(tick); return; }
       const w = video.videoWidth, h = video.videoHeight;
       canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext("2d");
@@ -2152,7 +2162,9 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
       };
       const msg = buildJobMessage(clean, { changes, employees: employees || [], formatDates });
       const to = pushRecipients(clean, employees || [], lineGroupId);
-      if (to.length > 0) api.notify({ userIds: to, message: msg });
+      // No group connected: the roster (or everyone) on their own LINE, resolved server-side (P3-6).
+      const employeeIds = to.length ? [] : pushEmployeeIds(clean, employees || []).filter(id => (employees || []).some(e => e && e.id === id && e.lineLinked));
+      if (to.length > 0 || employeeIds.length > 0) api.notify({ userIds: to, employeeIds, message: msg });
     }
     onClose();
   };
@@ -2188,7 +2200,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
           })}
         </div>
         {form.dates.length > 0 && (
-          <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", marginTop: 10 }}>{form.dates.length} date{form.dates.length > 1 ? "s" : ""} selected: {form.dates.map(formatDate).join(", ")}</p>
+          <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", marginTop: 10 }}>{tCount(t, "datesSelected", form.dates.length)} {form.dates.map(formatDate).join(", ")}</p>
         )}
       </div>
     );
@@ -2493,12 +2505,12 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
                   <h3 style={{ margin: "0 0 2px", fontSize: 16, fontWeight: 700 }}>{job.name}</h3>
                   <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{job.production}</p>
                   <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>
-                    {job.dates.length} day{job.dates.length !== 1 ? "s" : ""} · {job.dates[0] ? formatDate(job.dates[0]) : "No date"}{job.dates.length > 1 ? ` → ${formatDate(job.dates[job.dates.length - 1])}` : ""}
+                    {tCount(t, "countDays", job.dates.length)} · {job.dates[0] ? formatDate(job.dates[0]) : "No date"}{job.dates.length > 1 ? ` → ${formatDate(job.dates[job.dates.length - 1])}` : ""}
                   </p>
                   {outCount > 0 && <p style={{ margin: "4px 0 0", fontSize: 11, color: "#2563EB" }}>{outCount} assigned · {picked} picked · {returned} returned</p>}
                   {hasRoster(job)
-                    ? <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }} data-testid="job-crew-line">👥 {crewNames(job, employees).join(", ")}</p>
-                    : <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#8CA2B5)" }}>👥 {t("jobNoCrewYet")}</p>}
+                    ? <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }} data-testid="job-crew-line"><Icon d={icons.user} size={11} style={{ verticalAlign: "-2px", marginRight: 3 }} />{crewNames(job, employees).join(", ")}</p>
+                    : <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#8CA2B5)" }}><Icon d={icons.user} size={11} style={{ verticalAlign: "-2px", marginRight: 3 }} />{t("jobNoCrewYet")}</p>}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                   {(job.status === "Confirmed" || job.status === "Pencil") && <button style={{ ...S.btn(job.status === "Confirmed" ? "success" : "ghost"), padding: "6px 10px", fontSize: 12 }} onClick={() => openAssign(job)}><Icon d={icons.gear} size={13} /> {t("jobAssignGear")}</button>}
@@ -2772,9 +2784,9 @@ function JobDetailModal({ job, equipment, onClose, onEdit }) {
           </div>
           {(job.pickupDate || job.returnDate) && (
             <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>
-              {job.pickupDate ? <>📦 Pickup from <strong style={{ color: "var(--text,#16324A)" }}>{formatDate(job.pickupDate)}</strong></> : null}
+              {job.pickupDate ? <><Icon d={icons.package} size={12} style={{ verticalAlign: "-2px", marginRight: 3 }} />Pickup from <strong style={{ color: "var(--text,#16324A)" }}>{formatDate(job.pickupDate)}</strong></> : null}
               {job.pickupDate && job.returnDate ? " · " : ""}
-              {job.returnDate ? <>🔙 Return by <strong style={{ color: "var(--text,#16324A)" }}>{formatDate(job.returnDate)}</strong></> : null}
+              {job.returnDate ? <><Icon d={icons.undo} size={12} style={{ verticalAlign: "-2px", marginRight: 3 }} />Return by <strong style={{ color: "var(--text,#16324A)" }}>{formatDate(job.returnDate)}</strong></> : null}
             </p>
           )}
         </div>
@@ -3078,9 +3090,19 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   })();
   const toggleActivity = (key) => setExpandedActivityKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
+  // Tell the requester on their own LINE (linked members only, resolved server-side, P3-6).
+  const pushRequestOutcome = (req, ok) => {
+    if (lineNotifyMuted || !req.employeeId) return;
+    if (!(employees || []).some(e => e && e.id === req.employeeId && e.lineLinked)) return; // not linked: nothing to send
+
+    const items = (req.items && req.items.length ? req.items : [{ eqName: req.eqName, qty: req.qty }]).map(it => `${it.eqName || ""}${(+it.qty || 1) > 1 ? ` ×${it.qty}` : ""}`).join(", ");
+    const dates = (req.useDates || []).map(d => formatDate(d)).join(", ");
+    api.notify({ userIds: [], employeeIds: [req.employeeId], message: `${ok ? "✅" : "❌"} [${ok ? t("notifyGearApproved") : t("notifyGearDenied")}] ${items}${dates ? `\n📅 ${dates}` : ""}\n🔗 https://pickshootreturn.pages.dev` });
+  };
   const approveRequest = (req) => {
     // Approval only unlocks the request — the employee still picks up with photo verification
     setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "approved", resolvedAt: Date.now() } : r));
+    pushRequestOutcome(req, true);
     setDashReqModal(null);
   };
   const deleteRequest = async (req) => {
@@ -3094,6 +3116,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
   };
   const denyRequest = (req) => {
     setEquipmentRequests(p => p.map(r => r.id === req.id ? { ...r, status: "denied", resolvedAt: Date.now() } : r));
+    pushRequestOutcome(req, false);
     setDashReqModal(null);
   };
 
@@ -3197,7 +3220,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <p style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{req.eqName || req.eqId}</p>
                               <p style={{ margin: "2px 0 0", fontSize: 11, color: req.distance !== null ? (req.distance > 50 ? "#C53030" : "#2F855A") : "var(--text-muted,#6E8398)" }}>
-                                {req.distance !== null ? `📍 ${req.distance}${t("dashGpsFrom")}` : `📍 ${t("dashGpsUnavail")}`}
+                                <Icon d={icons.map} size={11} style={{ verticalAlign: "-2px", marginRight: 3 }} />{req.distance !== null ? `${req.distance}${t("dashGpsFrom")}` : t("dashGpsUnavail")}
                               </p>
                               <p style={{ margin: "3px 0 0", fontSize: 10, color: "var(--text-muted,#7B8FA3)" }}>Requested {fmtReqTime(req.submittedAt)}{req.resolvedAt ? ` · ${req.status} ${fmtReqTime(req.resolvedAt)}` : ""}</p>
                               <LazyPhoto field="adminRequests" id={req.id} photo={req.photo} hasPhoto={req.hasPhoto} alt="preview" style={{ width: "100%", maxWidth: 260, height: "auto", borderRadius: 5, marginTop: 6, border: "1px solid var(--border-color,#D8E1EC)" }} />
@@ -3252,7 +3275,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: stillOutItems.length ? 8 : 0 }}>
           <p style={{ ...S.sectionTitle, margin: 0, fontSize: 12 }}>{t("dashStillOut")}</p>
           {stillOutItems.length > 0 && (
-            <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{t("dashPhysOutCount").replace("{u}", physOutUnits).replace("{n}", stillOutItems.length)}</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{tCount(t, "countUnits", physOutUnits)} · {tCount(t, "countItems", stillOutItems.length)}</span>
           )}
         </div>
         {stillOutItems.length === 0
@@ -3281,7 +3304,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                       {picked}{due ? ` · ${due}` : item.dueDate ? ` · ${t("dashDue").replace("{date}", formatDate(item.dueDate))}` : ""}
                     </p>
                     <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text,#16324A)" }}>
-                      👤 {item.pickedBy || "?"}{phone ? <> · <a href={`tel:${phone.replace(/[^+\d]/g, "")}`} style={{ color: "var(--accent,#2563EB)", textDecoration: "none", fontWeight: 600 }}>{phone}</a></> : ""}
+                      <Icon d={icons.user} size={11} style={{ verticalAlign: "-2px", marginRight: 3 }} />{item.pickedBy || "?"}{phone ? <> · <a href={`tel:${phone.replace(/[^+\d]/g, "")}`} style={{ color: "var(--accent,#2563EB)", textDecoration: "none", fontWeight: 600 }}>{phone}</a></> : ""}
                     </p>
                   </div>
                   {onReceive && (
@@ -3389,7 +3412,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                   <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{j.name}</p>
                   <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{j.production} · {j.shootTime}</p>
                   <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>
-                    {j.dates.length} day{j.dates.length !== 1 ? "s" : ""}
+                    {tCount(t, "countDays", j.dates.length)}
                     {j.dates[0] ? ` · ${formatDate(j.dates[0])}${j.dates.length > 1 ? " →" : ""}` : ""}
                     {j.dates.length > 1 ? ` ${formatDate(j.dates[j.dates.length - 1])}` : ""}
                   </p>
@@ -3426,7 +3449,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
               style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderRadius: 8, marginBottom: outJobs.length ? 10 : 0, cursor: "pointer",
                 background: physOutUnits > 0 ? (stillOutItems.some(i => i.overdue) ? "rgba(197,48,48,0.06)" : "rgba(var(--accent-rgb,37,99,235),0.06)") : "var(--surface2,#EAF0F7)",
                 border: `1px solid ${stillOutItems.some(i => i.overdue) ? "rgba(197,48,48,0.3)" : "var(--divider-color,#D8E1EC)"}` }}>
-              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: stillOutItems.some(i => i.overdue) ? "#C53030" : "var(--text-muted,#4E6B84)" }}>📦 {t("dashPhysOut")}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: stillOutItems.some(i => i.overdue) ? "#C53030" : "var(--text-muted,#4E6B84)" }}><Icon d={icons.package} size={12} style={{ verticalAlign: "-2px", marginRight: 4 }} />{t("dashPhysOut")}</span>
               <span data-testid="phys-out" style={{ fontSize: 12, fontWeight: 700, color: physOutUnits > 0 ? (stillOutItems.some(i => i.overdue) ? "#C53030" : "var(--accent,#2563EB)") : "#2F855A" }}>{t("dashPhysOutCount").replace("{u}", physOutUnits).replace("{n}", physOutTypes)}</span>
             </div>
             {outJobs.length === 0
@@ -3441,7 +3464,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                           <p style={{ margin: 0, fontWeight: 700, fontSize: 13, color: "var(--text,#16324A)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.name}</p>
                           <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.production || "—"}</p>
                         </div>
-                        <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{eqCount} item{eqCount !== 1 ? "s" : ""}</span>
+                        <span style={{ ...S.badge("amber"), flexShrink: 0 }}>{tCount(t, "countItems", eqCount)}</span>
                       </button>
                     );
                   })}
@@ -3715,6 +3738,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [promptPayQR, setPromptPayQR] = useState(null);
   const [signature, setSignature] = useState(null);
   const [positions, setPositions] = useState([]); // [{ id, name, dayRate, hoursPerDay, variableOT, otMultiplier, otTiers }]
+  const [lineLink, setLineLink] = useState(null); // { linked, code, expiresAt } from /api/line-link (P3-6)
+  useEffect(() => { if (tab === "profile" && !offlineMode) api.lineLink().then(r => { if (r && r.ok) setLineLink(r); }).catch(() => {}); }, [tab]); // eslint-disable-line
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [invoiceModal, setInvoiceModal] = useState(null); // null | { job, existing }
   const [expandedInv, setExpandedInv] = useState(null);
@@ -3897,7 +3922,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     const now = Date.now();
     const eq = equipment.find(e => e.id === ae.eqId);
     // Gear-request pickups carry requestId instead of jobId
-    const evtRef = selectedJob.__reqId ? { jobId: null, requestId: selectedJob.__reqId } : { jobId: selectedJob.id };
+    const evtRef = selectedJob.__reqId ? { jobId: null, requestId: selectedJob.__reqId, dueDate: jobLastDate(selectedJob) || null } : { jobId: selectedJob.id, dueDate: effReturnDate(selectedJob) || null };
     if (phase === "pick") {
       const id = "co" + now + ae.eqId;
       setCheckouts(p => [...p, { id, ...evtRef, jobName: selectedJob.name, eqId: ae.eqId, qty: ae.qty, employeeId: employee.id, employeeName: employee.name, type: "pick", ts: now, photo: dataUrl || null, location: loc || null }]);
@@ -3929,7 +3954,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const commitBarcode = (ae, loc, details) => {
     const now = Date.now();
     const evType = phase === "pick" ? "barcode_pick" : "barcode_return";
-    const evtRef = selectedJob.__reqId ? { jobId: null, requestId: selectedJob.__reqId } : { jobId: selectedJob.id };
+    const evtRef = selectedJob.__reqId ? { jobId: null, requestId: selectedJob.__reqId, dueDate: jobLastDate(selectedJob) || null } : { jobId: selectedJob.id, dueDate: effReturnDate(selectedJob) || null };
     const id = "bc" + now + ae.eqId;
     let qty = ae.qty, extra = {};
     if (phase !== "pick") {
@@ -4553,7 +4578,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                             {me.pickupTime ? `${t("crewPickupAt")} ${fmtClock(me.pickupTime)}` : ""}{me.pickupTime && me.callTime ? " · " : ""}{me.callTime ? `${t("crewCallAt")} ${fmtClock(me.callTime)}` : ""}
                           </p>
                         )}
-                        {other && <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#8CA2B5)" }}>👥 {crewNames(job, employees || []).join(", ")}</p>}
+                        {other && <p style={{ margin: "4px 0 0", fontSize: 11, color: "var(--text-muted,#8CA2B5)" }}><Icon d={icons.user} size={11} style={{ verticalAlign: "-2px", marginRight: 3 }} />{crewNames(job, employees || []).join(", ")}</p>}
                       </div>
                       <Icon d={icons.chevron_right} size={16} color="var(--text-muted,#5F7A91)" strokeW={2} />
                     </div>
@@ -4595,7 +4620,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 const reqState = reqJob ? getJobCheckoutState(reqJob) : null;
                 const needsPickup = reqJob && (reqJob.assignedEquipment || []).some(ae => equipment.some(e => e.id === ae.eqId) && !reqState.pickedIds.has(ae.eqId));
                 // Who approves and how you hear back (P3-6): the house is named, LINE is the channel.
-                const statusHint = req.status === "pending" ? (companyName ? t("reqSentTo").replace("{company}", companyName) : t("reqSentToHouse"))
+                const meLinked = !!(employees || []).find(e => e.id === employee.id)?.lineLinked;
+                const statusHint = req.status === "pending" ? (meLinked ? t("requestSentPendingLinked") : t("requestSentPending")).replace("{house}", companyName || t("theHouse"))
                   : req.status === "approved" && needsPickup ? t("reqApprovedHint")
                   : req.status === "denied" || req.status === "rejected" ? t("reqDeniedHint") : "";
                 return (
@@ -5405,6 +5431,34 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
               </div>
             </div>
 
+            {/* LINE notifications (P3-6): link this account to a LINE user through the OA */}
+            <div style={S.card} data-testid="line-link-card">
+              <p style={{ ...S.sectionTitle, display: "flex", alignItems: "center", gap: 6 }}><Icon d={icons.bell} size={13} /> {t("lineLinkTitle")}</p>
+              <div style={S.col}>
+                {lineLink?.linked ? (
+                  <>
+                    <p style={{ fontSize: 13, color: "#2F855A", margin: 0, lineHeight: 1.6, display: "flex", gap: 6, alignItems: "flex-start" }}><Icon d={icons.check} size={15} style={{ flexShrink: 0, marginTop: 2 }} /> <span>{t("lineLinked")}</span></p>
+                    <div><button style={S.btn("ghost", "md")} onClick={async () => { const r = await api.lineUnlink().catch(() => null); if (r && r.ok) setLineLink(r); }}>{t("lineUnlink")}</button></div>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.7 }}>{t("lineLinkedNo")} {t("lineLinkHintCrew")}</p>
+                    {lineLink?.code ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <div>
+                          <p style={{ ...S.label, margin: 0 }}>{t("lineLinkCode")}</p>
+                          <p data-testid="line-link-code" style={{ margin: "2px 0 0", fontSize: 26, fontWeight: 800, letterSpacing: "0.12em", fontFamily: "monospace", color: "var(--accent,#2563EB)" }}>{lineLink.code}</p>
+                        </div>
+                        <button style={S.btn("ghost", "md")} onClick={async () => { const r = await api.lineLink().catch(() => null); if (r && r.ok) setLineLink(r); }}>{t("lineLinkRefresh")}</button>
+                      </div>
+                    ) : (
+                      <div><button style={S.btn("primary", "md")} data-testid="line-link-get" onClick={async () => { const r = await api.lineLinkCode().catch(() => null); if (r && r.ok) setLineLink(r); }}>{t("lineLinkGetCode")}</button></div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
             {/* Calendar Sync */}
             <div style={S.card}>
               <p style={{ ...S.sectionTitle, display: "flex", alignItems: "center", gap: 6 }}><Icon d={icons.calendar} size={13} /> {t("calendarSync")}</p>
@@ -6068,7 +6122,7 @@ function AdminReportsPage({ reports, setReports, equipment, jobs, productionComp
                     <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
                       {statusBadge(r.status)}
                       {(eq || r.eqName) && <span style={S.tag}>{eq?.name || r.eqName}{(r.qty || 1) > 1 ? ` ×${r.qty}` : ""}</span>}
-                      {r.status === "open" && eq && <span style={{ ...S.badge("red"), fontSize: 10 }}>{t("reportOutOfServiceBadge")} · {t("reportUnitsShort").replace("{n}", r.qty || 1)}</span>}
+                      {r.status === "open" && eq && <span style={{ ...S.badge("red"), fontSize: 10 }}>{t("reportOutOfServiceBadge")} · {tCount(t, "countUnits", r.qty || 1)}</span>}
                     </div>
                     <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text,#16324A)", lineHeight: 1.4 }}>{r.description}</p>
                     <p style={{ margin: "5px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{t("reportBy")} <strong style={{ color: "var(--text-muted,#4E6B84)" }}>{r.reportedBy?.name || (typeof r.reportedBy === "string" ? r.reportedBy : "")}</strong> · {formatDateTime(r.ts)}</p>
@@ -6079,12 +6133,12 @@ function AdminReportsPage({ reports, setReports, equipment, jobs, productionComp
                       if (!jobName && !customer) return null;
                       return (
                         <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text,#16324A)" }}>
-                          {jobName ? <>🎬 {t("reportLinkedJob")}: <strong>{jobName}</strong>{job && (job.dates || [])[0] ? ` (${formatDate(job.dates[0])})` : ""}</> : null}
+                          {jobName ? <><Icon d={icons.film} size={11} style={{ verticalAlign: "-2px", marginRight: 3 }} />{t("reportLinkedJob")}: <strong>{jobName}</strong>{job && (job.dates || [])[0] ? ` (${formatDate(job.dates[0])})` : ""}</> : null}
                           {customer ? <>{jobName ? " · " : ""}{t("reportCustomer")}: <strong>{customer}</strong></> : null}
                         </p>
                       );
                     })()}
-                    {(r.cost || r.vendor) && <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{r.vendor ? `🔧 ${r.vendor}` : ""}{r.vendor && r.cost ? " · " : ""}{r.cost ? `฿${Number(r.cost).toLocaleString()}` : ""}</p>}
+                    {(r.cost || r.vendor) && <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{r.vendor ? `${t("reportVendorLabel")}: ${r.vendor}` : ""}{r.vendor && r.cost ? " · " : ""}{r.cost ? `฿${Number(r.cost).toLocaleString()}` : ""}</p>}
                   </div>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
                     {r.photos?.length > 0 && <img src={r.photos[0]} alt="" style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 8 }} />}
@@ -6449,6 +6503,7 @@ function TeamPage({ employees, setEmployees, setEmployeePin, equipmentRequests, 
                   </div>
                 ); })()}
                 {e.contact && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{e.contact}</p>}
+                {e.lineLinked && <span style={{ ...S.badge("green"), marginTop: 3, display: "inline-block" }}>{t("lineLinkTeamBadge")}</span>}
               </div>
               <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
                 <button style={{ ...S.btn("ghost"), padding: "5px 9px", fontSize: 12 }} onClick={() => openPin(e)} title={t("pinResetTitle")}><Icon d={icons.lock} size={12} /> {t("pinResetTitle")}</button>
@@ -6714,7 +6769,7 @@ function SettingsPage({ companyName, setCompanyName, user, onUserUpdate, staff, 
       <div style={{ ...S.card, marginBottom: 20 }}>
         <p style={S.sectionTitle}>{t("settingsLanguage")}</p>
         <div style={{ display: "flex", gap: 8 }}>
-          {[{ id: "en", label: "🇬🇧 English" }, { id: "th", label: "🇹🇭 ภาษาไทย" }].map(l => (
+          {[{ id: "en", label: "EN · English" }, { id: "th", label: "TH · ภาษาไทย" }].map(l => (
             <button key={l.id} onClick={() => setLang(l.id)} style={{ flex: 1, padding: "10px 4px", borderRadius: 8, border: lang === l.id ? "2px solid var(--accent,#2563EB)" : "1px solid var(--border-color,#D8E1EC)", background: lang === l.id ? "rgba(var(--accent-rgb,37,99,235),0.08)" : "transparent", color: lang === l.id ? "var(--accent,#2563EB)" : "var(--text-muted,#5F7A91)", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{l.label}</button>
           ))}
         </div>
@@ -6890,7 +6945,7 @@ function SettingsPage({ companyName, setCompanyName, user, onUserUpdate, staff, 
                   <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => {
                     if (!navigator.geolocation) return;
                     navigator.geolocation.getCurrentPosition(pos => patch({ homeBase: { lat: +pos.coords.latitude.toFixed(5), lng: +pos.coords.longitude.toFixed(5), acc: Math.round(pos.coords.accuracy) } }), () => {}, { enableHighAccuracy: true, timeout: 10000 });
-                  }}>📍 {t("settingsUseMyLocation")}</button>
+                  }}><Icon d={icons.map} size={12} /> {t("settingsUseMyLocation")}</button>
                   {hb && <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => patch({ homeBase: null })}>{t("settingsHomeBaseClear")}</button>}
                 </div>
                 <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", marginTop: 6, lineHeight: 1.5 }}>{t("settingsHomeBaseHint")}</p>
@@ -6968,7 +7023,7 @@ function SettingsPage({ companyName, setCompanyName, user, onUserUpdate, staff, 
         </div>
         {lineTest && lineTest !== "sending" && (
           <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 8, fontSize: 12, background: lineTest.ok ? "rgba(47,133,90,0.07)" : "rgba(197,48,48,0.07)", border: `1px solid ${lineTest.ok ? "rgba(47,133,90,0.25)" : "rgba(197,48,48,0.25)"}`, color: lineTest.ok ? "#2F855A" : "#C53030" }}>
-            {lineTest.ok ? "✅ " : "⚠️ "}{lineTest.text}
+            <Icon d={lineTest.ok ? icons.check : icons.alert} size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />{lineTest.text}
             {!lineTest.ok && /Failed to send messages/i.test(lineTest.text) && (
               <p style={{ margin: "6px 0 0", color: "var(--text-muted,#4E6B84)" }}>
                 The OA is probably no longer in this group (or the group was recreated). Re-invite the OA to the group, send any message there, then tap Refresh here to pick up the new group ID and test again.
@@ -7680,7 +7735,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                         {(co.taxId || co.branch) && <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{co.taxId ? `${t("prodHouseTaxId")} ${co.taxId}` : ""}{co.taxId && co.branch ? " · " : ""}{co.branch ? `${t("prodHouseBranch")} ${co.branch}` : ""}</p>}
                         {count > 0 && (
                           <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
-                            <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{count} doc{count !== 1 ? "s" : ""}</span>
+                            <span style={{ fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{tCount(t, "countDocs", count)}</span>
                             {paid > 0 && <span style={{ fontSize: 11, color: "#2F855A" }}>฿{paid.toLocaleString()} paid</span>}
                             {due > 0 && <span style={{ fontSize: 11, color: "var(--accent,#2563EB)" }}>฿{due.toLocaleString()} due</span>}
                           </div>
@@ -7908,7 +7963,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                             return !hasActiveInv ? <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleRegenerateInv(inv.jobId)}>{t("createInvoiceFromQuote")}</button> : null;
                           })()}
                           {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? t("markPending") : t("markPaid")}</button>}
-                          {(inv.docType === "invoice" || !inv.docType) && isPaid && !liveReceiptFor(inv) && <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => issueReceipt(inv)}>🧾 {t("issueReceipt")}</button>}
+                          {(inv.docType === "invoice" || !inv.docType) && isPaid && !liveReceiptFor(inv) && <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => issueReceipt(inv)}><Icon d={icons.receipt} size={11} /> {t("issueReceipt")}</button>}
                           {/* A void receipt is a frozen record: it keeps its burned number, it is not edited or deleted (P0-8). */}
                           {st !== "Void" && <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true, deletedAt: Date.now(), deletedBy: actorName() } : i)); }}><Icon d={icons.trash} size={11} /></button>}
                         </div>
@@ -7996,7 +8051,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
               <div key={group.employeeId} style={S.card}>
                 <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
                   <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.employeeName}</p>
-                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{group.docs.length} document{group.docs.length !== 1 ? "s" : ""}</p>
+                  <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{tCount(t, "countDocs", group.docs.length)}</p>
                 </div>
                 {[...group.docs].sort((a, b) => b.updatedAt - a.updatedAt).map((inv, idx, arr) => {
                   const total = calcTotal(inv);
@@ -8040,9 +8095,9 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             <div style={{ flex: 1 }}>
               {[
                 { key: "info", label: "My Info", sub: [adminProfileInfo.firstName, adminProfileInfo.lastName].filter(Boolean).join(" ") || "Name, contact details", open: () => { setAdminMyInfoOpen(true); setMyInfoPanelOpen(false); } },
-                { key: "pos", label: "Positions & Day Rate", sub: adminPositions.length ? `${adminPositions.length} position${adminPositions.length > 1 ? "s" : ""}` : "No positions yet", open: () => { setAdminPosOpen(true); setMyInfoPanelOpen(false); } },
+                { key: "pos", label: "Positions & Day Rate", sub: adminPositions.length ? tCount(t, "countPositions", adminPositions.length) : "No positions yet", open: () => { setAdminPosOpen(true); setMyInfoPanelOpen(false); } },
                 { key: "doc", label: "Document", sub: [headerLogo && "Header logo", watermarkLogo && "Watermark logo"].filter(Boolean).join(" · ") || "Logos, signature, bank details", open: () => { setAdminDocOpen(true); setMyInfoPanelOpen(false); } },
-                { key: "presets", label: "Invoice Item Presets", sub: invoicePresets.length ? `${invoicePresets.length} preset${invoicePresets.length > 1 ? "s" : ""}` : "Quick-add line items", open: () => { setAdminPresetsOpen(true); setMyInfoPanelOpen(false); } },
+                { key: "presets", label: "Invoice Item Presets", sub: invoicePresets.length ? tCount(t, "countPresets", invoicePresets.length) : "Quick-add line items", open: () => { setAdminPresetsOpen(true); setMyInfoPanelOpen(false); } },
               ].map(({ key, label, sub, open }, idx, arr) => (
                 <button key={key} onClick={open} style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", background: "none", border: "none", borderBottom: idx < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none", cursor: "pointer", textAlign: "left" }}>
                   <div>
@@ -8551,7 +8606,7 @@ function ChatWindow({ user, messages, onSend, onClose, isMobile }) {
       <div ref={listRef} style={{ flex: 1, overflowY: "auto", padding: "14px 14px 6px", display: "flex", flexDirection: "column", gap: 12 }}>
         {messages.length === 0 && (
           <div style={{ textAlign: "center", color: "var(--text-muted,#8CA2B5)", fontSize: 12, marginTop: "auto", paddingTop: 60 }}>
-            No messages yet. Say hello! 👋
+            No messages yet. Say hello!
           </div>
         )}
         {messages.map(msg => {
@@ -9039,7 +9094,8 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
       .sort((a, b) => (b.overdue ? 2 : b.dueToday ? 1 : 0) - (a.overdue ? 2 : a.dueToday ? 1 : 0) || String((a.job.dates || [])[0] || "").localeCompare(String((b.job.dates || [])[0] || "")));
   })();
 
-  const evtRefOf = (job) => job.__reqId ? { jobId: null, requestId: job.__reqId } : { jobId: job.id, requestId: null };
+  // dueDate rides on every event so a still-out row keeps its due date even after the job record is deleted (P1-11).
+  const evtRefOf = (job) => job.__reqId ? { jobId: null, requestId: job.__reqId, dueDate: jobLastDate(job) || null } : { jobId: job.id, requestId: null, dueDate: effReturnDate(job) || null };
 
   const selectJob = (job) => {
     const { allPicked, outCount } = getState(job);
@@ -9414,7 +9470,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
                     <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text,#16324A)" }}>{job.name}{job.__reqId ? <span style={{ ...S.badge("blue"), marginLeft: 6 }}>{t("adminRequestBadge")}</span> : null}</p>
                     {job.production && <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--accent,#2563EB)", fontWeight: 600 }}>{job.production}</p>}
                     <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
-                      {(job.assignedEquipment || []).length} item{(job.assignedEquipment || []).length !== 1 ? "s" : ""} · {fmtRange(job.dates) || "—"}
+                      {tCount(t, "countItems", (job.assignedEquipment || []).length)} · {fmtRange(job.dates) || ""}
                       {dueDate && st.outCount > 0 ? ` · ${overdue ? t("adminOverdue") : dueToday ? t("adminDueToday") : t("adminDue").replace("{d}", formatDate(dueDate))}` : ""}
                     </p>
                   </div>
@@ -10423,7 +10479,7 @@ export default function App() {
   // with a keepalive PUT, which the browser completes after the page is gone.
   useEffect(() => {
     const flush = () => {
-      if (!saveDueRef.current || !loaded || !cloudSynced || offlineMode) return;
+      if (!saveDueRef.current || !loaded || !cloudSynced || offlineMode || !userRef.current) return;
       const { payload } = buildSavePayload(latestStateRef.current, { lastSaved: lastSavedRef.current, kvLoaded: kvLoadedRef.current, snapshot: postLoadSnapRef.current, user: userRef.current });
       if (Object.keys(payload).length === 0) return;
       const body = { ...payload, _v: versionsFor(payload, versionsRef.current) };
@@ -10684,14 +10740,17 @@ export default function App() {
     return { ok: true, created: !!r.created };
   };
 
+  const isLineLinked = (empId) => (employees || []).some(e => e && e.id === empId && e.lineLinked); // P3-6: GET exposes only the flag
   // Tell the crew member the outcome of a geo-gated return (P1-5): LINE push to the
-  // group when one is connected (crew have no personal lineUserId yet), and the
-  // in-app status on their "Returns waiting for approval" card either way.
+  // group when one is connected and to the requester's own LINE when linked
+  // (P3-6), plus the in-app status on their "Returns waiting for approval" card.
   const notifyRequester = (req, outcome) => {
-    if (req.type !== "geo-return" || !lineGroupId || lineNotifyMuted) return;
+    if (req.type !== "geo-return" || lineNotifyMuted) return;
+    if (!lineGroupId && !isLineLinked(req.employeeId)) return; // nobody to reach
     const ok = outcome === "approved";
     const dist = req.distance == null ? "" : req.distance < 1000 ? ` (${req.distance} m)` : ` (${(req.distance / 1000).toFixed(1)} km)`;
-    api.notify({ userIds: [lineGroupId], message: `${ok ? "✅" : "❌"} [${_tRoot(ok ? "notifyReturnApproved" : "notifyReturnRejected")}] ${req.employeeName}\n📦 ${req.eqName || req.name || req.eqId}${req.qty > 1 ? ` ×${req.qty}` : ""}\n🎬 ${req.jobName || ""}${dist}\n🔗 https://pickshootreturn.pages.dev` });
+    // Group when connected, plus the requester's own LINE when linked (P3-6, resolved server-side).
+    api.notify({ userIds: lineGroupId ? [lineGroupId] : [], employeeIds: req.employeeId ? [req.employeeId] : [], message: `${ok ? "✅" : "❌"} [${_tRoot(ok ? "notifyReturnApproved" : "notifyReturnRejected")}] ${req.employeeName}\n📦 ${req.eqName || req.name || req.eqId}${req.qty > 1 ? ` ×${req.qty}` : ""}\n🎬 ${req.jobName || ""}${dist}\n🔗 https://pickshootreturn.pages.dev` });
   };
 
   // Tell other tabs / devices to re-GET after a server-side change that did not
@@ -10779,7 +10838,8 @@ export default function App() {
       total += r.moved || 0;
       if (onProgress) onProgress(total, r.remaining || 0);
       if (!r.remaining) break;
-      if (!r.moved) break; // nothing moves any more: stop rather than loop
+      if (!r.moved && !r.retry) break; // nothing moves any more: stop rather than loop
+      // r.retry: a PUT landed mid-batch and the server yielded; the next call continues.
     }
     return total;
   };
@@ -10816,7 +10876,7 @@ export default function App() {
         </div>
       ) : loadError ? (
         <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
-          <div style={{ fontSize: 40 }}>⚠️</div>
+          <Icon d={icons.alert} size={40} color="#C53030" />
           <p style={{ color: "#C53030", fontSize: 17, fontWeight: 700, textAlign: "center" }}>{bootError ? "Server configuration error" : "Could Not Connect to Cloud Storage"}</p>
           <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13, textAlign: "center", maxWidth: 320, lineHeight: 1.6 }}>
             {bootError
@@ -10829,7 +10889,7 @@ export default function App() {
         <Login onLogin={onLogin} info={loginInfo} refreshInfo={refreshLoginInfo} setLang={setLang} />
       ) : needsInit && user?.role === "admin" ? (
         <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 16, padding: 32 }}>
-          <div style={{ fontSize: 40 }}>🗄️</div>
+          <Icon d={icons.package} size={40} color="var(--text-muted,#5F7A91)" />
           <p style={{ color: "#f0f0dc", fontSize: 17, fontWeight: 700, textAlign: "center" }}>No Data Found in Cloud Storage</p>
           <p style={{ color: "#8a8a68", fontSize: 13, textAlign: "center", maxWidth: 340, lineHeight: 1.6 }}>
             All cloud storage fields came back empty. This is expected for a <strong style={{ color: "var(--accent,#2563EB)" }}>brand-new account</strong>.<br /><br />
@@ -10871,7 +10931,7 @@ export default function App() {
           )}
           {offlineMode && isMobile && (
             <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", borderBottom: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", padding: "8px 16px", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 13 }}>⚠️</span>
+              <Icon d={icons.alert} size={14} color="var(--accent,#2563EB)" style={{ flexShrink: 0 }} />
               <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
                 <strong>{_tRoot("offlineTitle")}</strong> {_tRoot("offlineBody")} {offlinePending.length + profileQueueSize > 0 ? _tRoot("offlinePendingN").replace("{n}", offlinePending.length + profileQueueSize) : _tRoot("offlineClean")}
               </p>
@@ -10880,7 +10940,7 @@ export default function App() {
           <main style={{ ...S.main, paddingBottom: isMobile ? 80 : 20, marginLeft: isMobile ? 0 : 240, minHeight: isMobile ? "calc(100vh - 54px)" : "100vh" }}>
             {!isMobile && offlineMode && (
               <div style={{ background: "rgba(var(--accent-rgb,37,99,235),0.12)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.25)", borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-                <span style={{ fontSize: 13 }}>⚠️</span>
+                <Icon d={icons.alert} size={14} color="var(--accent,#2563EB)" style={{ flexShrink: 0 }} />
                 <p style={{ margin: 0, fontSize: 12, color: "var(--accent,#2563EB)", lineHeight: 1.4 }}>
                   <strong>{_tRoot("offlineTitle")}</strong> {_tRoot("offlineBody")} {offlinePending.length + profileQueueSize > 0 ? _tRoot("offlinePendingN").replace("{n}", offlinePending.length + profileQueueSize) : _tRoot("offlineClean")}
                 </p>
@@ -10946,7 +11006,7 @@ export default function App() {
           gap: 10,
           boxShadow: "0 8px 32px rgba(22,50,74,0.17)",
         }}>
-          <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+          <Icon d={icons.alert} size={20} color="#B7791F" style={{ flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#B7791F", lineHeight: 1.3 }}>
               Another device is active

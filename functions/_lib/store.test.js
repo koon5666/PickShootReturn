@@ -105,3 +105,28 @@ describe("store: field metadata is carried across writes", () => {
     expect(kv.metaOf("checkouts")).toEqual({ clearedAt: 123, v: v2 }); // migration keeps both
   });
 });
+
+describe("store: a PUT landing during a migration batch is never overwritten", () => {
+  it("yields the batch when the field version changed between the read and the write", async () => {
+    const rows = [{ id: "c0", photo: P(0) }, { id: "c1", photo: P(1) }];
+    const kv = fakeKV({ checkouts: rows });
+    await kv.put("checkouts", JSON.stringify(rows), { metadata: { v: "v0" } });
+    // simulate a concurrent PUT: the field is rewritten (new record, new version) while the batch runs
+    const origGet = kv.getWithMetadata.bind(kv);
+    let reads = 0;
+    kv.getWithMetadata = async (key) => {
+      const r = await origGet(key);
+      if (key === "checkouts" && ++reads === 1) {
+        const next = [...rows, { id: "c_new", photo: null, qty: 9 }];
+        await kv.put("checkouts", JSON.stringify(next), { metadata: { v: "v1" } });
+      }
+      return r;
+    };
+    const r = await migrateField(kv, "checkouts", 5);
+    expect(r).toMatchObject({ moved: 0, retry: true, records: 3 });
+    expect(kv.json("checkouts").map(e => e.id)).toEqual(["c0", "c1", "c_new"]); // the concurrent write survived
+    kv.getWithMetadata = origGet;
+    const r2 = await migrateField(kv, "checkouts", 5);
+    expect(r2).toMatchObject({ moved: 2, remaining: 0, records: 3 });
+  });
+});

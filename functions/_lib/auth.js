@@ -204,8 +204,10 @@ export function stripCredentials(data) {
 }
 export function stripEmployee(e) {
   if (!e || typeof e !== "object") return e;
-  const { pin, pinHash, ...rest } = e;
-  return rest;
+  // Credentials and the LINE identity never reach a client; the client only
+  // learns whether the member is linked (P3-6, functions/_lib/linelink.js).
+  const { pin, pinHash, lineUserId, lineLinkCode, lineLinkCodeAt, lineLinkedAt, lineLinked, ...rest } = e;
+  return lineUserId ? { ...rest, lineLinked: true } : rest;
 }
 export function stripStaff(s) {
   if (!s || typeof s !== "object") return s;

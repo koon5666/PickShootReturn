@@ -77,7 +77,7 @@ try {
   await adminLogin();
   await expectText("Booked today");
   await expectText("Physically out");
-  await expectText("5 unit(s) · 2 item(s)");           // FX6 x1 + V-Mount x4
+  await expectText("5 units · 2 items");           // FX6 x1 + V-Mount x4 (plurals now go through tCount)
   await expectText("4 × V-Mount 150Wh");
   await expectText("1 × Sony FX6");
   await expectText("OVERDUE 2d");
@@ -217,13 +217,13 @@ try {
   await sleep(2500);
   if (!dialogs.some(d => d.includes("received back"))) throw new Error("expected receive confirm");
   await expectNoText("4 × V-Mount 150Wh", "V-Mount received");
-  await expectText("1 unit(s) · 1 item(s)");
+  await expectText("1 unit · 1 item");
   await shot("dashboard-after-receive");
   // persisted? reload and check
   await page.evaluate(() => fetch("/api/logout", { method: "POST" })); await page.reload({ waitUntil: "networkidle0" }); // the session cookie survives a reload (P0-2): end it so the script re-logs in as before
   await sleep(800);
   await adminLogin();
-  await expectText("1 unit(s) · 1 item(s)", "receive persisted after reload");
+  await expectText("1 unit · 1 item", "receive persisted after reload");
 
   console.log("== equipment: V-Mount back to 8/8");
   await goPage("Equipment");

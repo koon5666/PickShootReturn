@@ -94,6 +94,15 @@ export function pushRecipients(job, employees, lineGroupId) {
   const ids = new Set(normalizeCrew(job.crew).map(r => r.employeeId));
   return withLine.filter(e => ids.has(e.id)).map(e => e.lineUserId);
 }
+// Employees a job push addresses when no group is connected: the roster, or
+// everyone when the job is open. The server resolves who is LINE-linked
+// (P3-6: clients never see lineUserId, only `lineLinked`).
+export function pushEmployeeIds(job, employees) {
+  const all = (employees || []).filter(e => e && e.id != null);
+  if (!hasRoster(job)) return all.map(e => e.id);
+  const ids = new Set(normalizeCrew(job.crew).map(r => r.employeeId));
+  return all.filter(e => ids.has(e.id)).map(e => e.id);
+}
 
 // Text of the job push. `changes` from jobChangeSet decides the headline.
 export function buildJobMessage(job, { changes = ["new"], employees = [], formatDates, appUrl = "https://pickshootreturn.pages.dev" } = {}) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeCrew, cleanTime, hasRoster, isOnRoster, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage } from "./roster.js";
+import { normalizeCrew, cleanTime, hasRoster, isOnRoster, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage, pushEmployeeIds } from "./roster.js";
 
 const emps = [{ id: "e1", name: "Nong", lineUserId: "U1" }, { id: "e2", name: "Arthit" }, { id: "e3", name: "Ploy", lineUserId: "U3" }];
 const job = (extra = {}) => ({ id: "j1", name: "TVC", production: "Indie", dates: ["2026-09-20", "2026-09-21"], status: "Confirmed", location: "Local (Bangkok)", ...extra });
@@ -88,5 +88,13 @@ describe("buildJobMessage", () => {
     expect(buildJobMessage(j, { changes: ["roster"] })).toContain("[Crew updated]");
     expect(buildJobMessage(j, { changes: ["dates", "roster"] })).toContain("[Updated]");
     expect(buildJobMessage(job(), { changes: ["new"] })).not.toContain("👥");
+  });
+});
+
+describe("pushEmployeeIds (per-user LINE without lineUserId on the client, P3-6)", () => {
+  const emps = [{ id: "e1", name: "Nong", lineLinked: true }, { id: "e2", name: "Arthit" }];
+  it("open job: everyone; rostered job: the roster only", () => {
+    expect(pushEmployeeIds({ crew: [] }, emps)).toEqual(["e1", "e2"]);
+    expect(pushEmployeeIds({ crew: [{ employeeId: "e2", role: "Grip" }] }, emps)).toEqual(["e2"]);
   });
 });

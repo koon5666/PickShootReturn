@@ -4,7 +4,9 @@
 // resumable: each call moves up to `limit` photos (default 20) and reports what
 // is left; call again until every `remaining` is 0. Safe to run while the app is
 // in use: photo keys are written before the array, the field version is kept,
-// and /api/photo serves inline photos as a fallback for anything not moved yet.
+// a batch yields (`retry: true`) instead of overwriting a PUT that landed on the
+// field meanwhile, and /api/photo serves inline photos as a fallback for
+// anything not moved yet.
 // GET /api/migrate-photos -> progress only (no writes).
 import { migrateField, readField, PHOTO_FIELD_NAMES } from "../_lib/store.js";
 import { countInline } from "../_lib/photos.js";
@@ -51,5 +53,6 @@ export async function onRequestPost(context) {
   }
   const fields = await progress(env);
   const remaining = Object.values(fields).reduce((n, f) => n + f.inline, 0);
-  return Response.json({ ok: true, moved: results.reduce((n, r) => n + r.moved, 0), remaining, results, fields }, { headers: CORS });
+  // retry: a batch yielded because a PUT landed on that field meanwhile (store.js migrateField); the client just calls again.
+  return Response.json({ ok: true, moved: results.reduce((n, r) => n + r.moved, 0), remaining, retry: results.some(r => r.retry) || undefined, results, fields }, { headers: CORS });
 }
