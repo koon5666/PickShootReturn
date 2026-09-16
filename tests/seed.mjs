@@ -121,8 +121,9 @@ async function put(path, body) {
 
 // Owner login for seeding: try the seed PIN (a re-seed), then the fresh-state
 // default, then any PIN given as SEED_ADMIN_PIN.
-async function loginOwner() {
-  const pins = [...new Set([process.env.SEED_ADMIN_PIN, "9999", "1234"].filter(Boolean))];
+async function loginOwner(extraPin) {
+  // extraPin = the PIN the seed itself carries (prod-copy sets the real owner PIN), so a re-login after seeding works.
+  const pins = [...new Set([process.env.SEED_ADMIN_PIN, extraPin, "9999", "1234"].filter(Boolean))];
   for (const pin of pins) {
     try { return await apiClient(base).loginAdmin(pin); } catch {}
   }
@@ -133,13 +134,12 @@ const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv
 if (isMain) {
   const health = await fetch(base + "/api/public").catch(() => null);
   if (!health || health.status !== 200) { console.error(`no server at ${base} (GET /api/public ${health ? health.status : "unreachable"}); boot one with tests/local-server.mjs`); process.exit(1); }
-  client = await loginOwner();
+  const seed = profile === "prod-copy" ? buildProdCopySeed() : profile === "default" ? buildDefaultSeed() : null;
+  if (!seed) { console.error("unknown profile " + profile); process.exit(2); }
+  client = await loginOwner(seed.data.adminPin);
   const before = await client.get("/api/data");
   const nonEmpty = Object.keys(before).filter(k => before[k] !== null && before[k] !== undefined);
   if (nonEmpty.length) console.log(`note: KV already has ${nonEmpty.length} field(s) (${nonEmpty.slice(0, 5).join(", ")}…); PUT merges, use a fresh --persist-to dir for a clean slate`);
-
-  const seed = profile === "prod-copy" ? buildProdCopySeed() : profile === "default" ? buildDefaultSeed() : null;
-  if (!seed) { console.error("unknown profile " + profile); process.exit(2); }
   // One PUT per field: keeps each request small (prod-copy is ~40 MB) and shows progress.
   for (const [k, v] of Object.entries(seed.data)) {
     if (v === undefined) continue;
@@ -149,7 +149,7 @@ if (isMain) {
   }
   for (const [id, prof] of Object.entries(seed.profiles)) { await put(`/api/profile/${id}`, prof); console.log(`  profile_${id}`); }
   // The seed changed the owner PIN (adminPin): log in again with it for the final read.
-  client = await loginOwner();
+  client = await loginOwner(seed.data.adminPin);
   const after = await client.get("/api/data");
   console.log(`seeded profile "${profile}" on ${base}: ${(after.employees || []).length} employees, ${(after.equipment || []).length} gear, ${(after.jobs || []).length} jobs, ${(after.checkouts || []).length} checkouts, company "${after.companyName}"`);
 }

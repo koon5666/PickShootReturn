@@ -9,7 +9,7 @@ Verification on the final branch: `npm run build` ✓, `npx vitest run` 323/323 
 
 | URL | Data | Log in with |
 |---|---|---|
-| **http://localhost:8770** | A **migrated copy of your real prod data** (pulled 2026-09-16, `~/psr-backups/2026-09-16_pre-theme/`). Photos already moved to separate storage. LINE group id cleared so nothing can push to the real group. | Your admin PIN, and each crew member's own PIN (first login upgrades the PIN to a hash, local copy only) |
+| **http://localhost:8770** | A **migrated copy of your real prod data** (pulled 2026-09-16, `~/psr-backups/2026-09-16_pre-theme/`). Photos already moved to separate storage. LINE group id cleared so nothing can push to the real group. Crew **profiles are not in the copy** (bank details, positions, ID cards live under separate keys the data pull did not include), so crew Profile tabs start empty here. | Your admin PIN, and each crew member's own PIN (first login upgrades the PIN to a hash, local copy only) |
 | **http://localhost:8771** | The reviewers' demo scenario "Lucky Cam Rental": overdue FX6, pending approvals, gear request, damage report | Admin **9999**, crew Nong **1111** / Arthit **2222** / Ploy **3333** |
 
 Restart later: `cd ~/PickShootReturn && export PATH=~/.local/node/bin:$PATH && node tests/local-server.mjs 8770 ./.wrangler-local --session koon && node tests/seed.mjs 8770 prod-copy` (or `node tests/seed.mjs 8770` for the demo). Everything is in `tests/README.md` (boot, seed, smoke, the per-area walk-through scripts, stop).
