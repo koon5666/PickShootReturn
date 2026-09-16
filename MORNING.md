@@ -1,6 +1,6 @@
 # Good morning. Here is what happened overnight (2026-09-17)
 
-Branch **`fix/review-2026-09`** in `~/PickShootReturn`, 51 commits on top of `main` (be05373).
+Branch **`fix/review-2026-09`** in `~/PickShootReturn`, 50+ commits on top of `main` (be05373).
 **Nothing pushed, nothing deployed, prod untouched.** Deploy only when you're happy, with `/pcd`, after the secrets in "Before deploying".
 
 Verification on the final branch: `npm run build` ✓, `npx vitest run` 323/323 ✓, `npm run i18n:check` 1,129 EN / 1,129 TH ✓, smoke tour ✓, 7 merges green, acceptance QA: every P0 and P1 item confirmed fixed on a running build; two P3 items partially done (listed below).
