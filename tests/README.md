@@ -108,6 +108,25 @@ Pure logic belongs in `src/logic/*.js` (client) or `functions/_lib/*.js` (server
 test beside it. Never put a `*.test.js` under `functions/api/` (every file there is a route).
 New UI strings go in `src/i18n/tracks/<track>.js` (see `src/i18n/tracks/README.md`).
 
+## 9. Review fix-up track walk-through (acceptance pass)
+
+```sh
+node tests/walk-review-fixups.mjs $PORT   # API-level, needs a FRESH default seed
+```
+
+Server-side pieces that have no UI of their own: the per-user LINE link (code ->
+webhook pairing -> the identity never reaches a client -> survives an admin
+`employees` save), the overdue digest (preview, one send per tenant day, cron
+token gate), server-side document-number allocation (two devices minting one
+number), the `roleList` field (owner writes it, crew 403, backups carry it),
+crew report ownership + invoice share tokens, and the 20 h auto-backup gate.
+
+Two extra secrets in `.dev.vars` (any value locally, both are Pages secrets in
+production): `LINE_CHANNEL_SECRET` (the webhook refuses to run without it) and
+`DIGEST_TOKEN` (the cron worker's key for POST /api/overdue-digest). Without a
+`LINE_CHANNEL_ACCESS_TOKEN` nothing is pushed locally and the digest refuses to
+mark the day as sent, which the walk asserts.
+
 ## Before you finish a track
 
 `npm run build && npm test && npm run i18n:check && npm run smoke -- $PORT`, then stop your
