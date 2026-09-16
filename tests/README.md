@@ -205,3 +205,27 @@ bottom nav. Crew Nong / Arthit (390x844): my jobs first with pickup + call time,
 crews' jobs collapsed, Invoice tab my jobs + show all. Offline (P1-14): boot from the
 cache with `/api/data` blocked, create a job, reconnect -> the job reaches KV; a crew
 profile save made offline is queued and drained. Screenshots in `tests/.walk-roster-shots/`.
+
+## 10. Hardening walks (security re-review + P3-8 code split)
+
+```sh
+node tests/walk-dedupe.mjs $PORT   # API-level, seeded server (adds a few records: use a throw-away state)
+node tests/walk-split.mjs $PORT    # headless Chrome, seeded server; screenshots in tests/.split-shots/
+```
+
+`walk-dedupe` reproduces the reviewer's attack as crew Nong: 300 copies of another
+crew's report / pick event / a shared house, and of her own invoice / report, in one
+`PUT /api/data` -> KV keeps one record per id, as it had it; more than
+`CREW_MAX_NEW_RECORDS` (200) new ids in one field -> 413 `too many new records`, nothing
+written; two REAL returns that share an id (one per loan, same millisecond) both survive,
+the second re-keyed `<id>#1`, its photo served, and a GET -> PUT round trip leaves the ids
+alone. Rules live in `functions/_lib/merge.js` (`uniqueIds`) and `roles.js`
+(`newRecordCount`); the client counters (`src/logic/checkoutState.js` `uniqueEvents`)
+count each event id once.
+
+`walk-split` checks the lazy view chunks: an admin session fetches `admin` / `invoice` /
+`settings` (prefetched when idle) and never `crew`; a crew session fetches `crew` (+
+`invoice`, imported by it) and never `admin` / `settings`; every page renders with no
+"Loading…" left; with the settings chunk blocked at the network the first open reloads the
+page once (`vite:preloadError` hook in `src/main.jsx`), the second shows the view boundary
+card with a Reload button, and Reload recovers once the chunk is reachable again.

@@ -104,6 +104,21 @@ OVERDUE badge) even after the job record is deleted.
 - Crew can **fill in an EMPTY billing address / tax id / branch** on a
   house-registered company again (existing values and the name stay locked),
   client and server.
+- **One id, one record** (security re-review). A crew PUT could repeat one
+  record 300 times and every id-merge kept a copy per occurrence, so the shared
+  fields grew per request (until the 20 MiB limit 413'd every device) and a
+  duplicated pick event doubled "still out" for the whole shop. Every id-keyed
+  array now goes through `merge.uniqueIds` on the way in, on the KV copy it is
+  merged with (an already duplicated field heals on its next write) and on the
+  way out: identical copies of an id collapse to one (the copy that still
+  carries its photo wins), copies that differ are re-keyed `<id>#n` and never
+  dropped. That second rule matters on the real data: the prod copy holds four
+  checkout ids shared by two REAL returns (one per loan request, same
+  millisecond, `co<ts><eqId>` carries no loan), so "last copy wins" would have
+  dropped a return on one loan. A crew PUT that would add more than 200 new ids
+  to one field is refused (413 `too many new records`, own toast, no retry
+  loop). Client counters (`checkoutState.uniqueEvents`) count each event id
+  once. `tests/walk-dedupe.mjs` reproduces the attack and the collision.
 
 ## Admin-owned crew roles (P3-4 F18)
 
@@ -138,9 +153,21 @@ SAVE_FIELDS / VERSIONED, so it syncs, version-checks and is in every backup).
   its Approve / Reject reachable.
 - The crew gear-out card at 390px: "Request early return" is a full-width row
   under the job title, which no longer wraps one word per line.
-- Bundle: jsQR is a dynamic import (loaded when a scanner opens) and React, the
-  i18n dictionary and the QR encoder are their own chunks: one 1,090 KB file
-  became a 689 KB app chunk plus cached vendor chunks.
+- Bundle (P3-8): jsQR is a dynamic import (loaded when a scanner opens) and
+  React, the i18n dictionary and the QR encoder are their own chunks; the views
+  are now split by route as well. `src/App.jsx` keeps the login screen, the
+  admin shell and the app state; the shared UI kernel (api client, icons, `S`,
+  Modal, QRScanner, availability wrappers) lives in `src/ui/shared.jsx`, and the
+  crew portal, the admin pages, the document views, the settings panel and the
+  calendar are `React.lazy` chunks in `src/views/`. The main chunk went from 691
+  KB to 132 KB; a crew session never downloads the admin pages (crew 112 KB +
+  invoice 251 KB, mostly the logo base64) and an admin never downloads the crew
+  portal (admin 146 KB, settings 43 KB, calendar 11 KB, prefetched when idle so
+  navigation and the offline path never wait). A chunk that cannot be fetched
+  reloads the page once (a deploy replaced the hashed files under an open tab),
+  never while offline, and otherwise lands in a view boundary card with a
+  Reload button instead of a blank screen. `tests/walk-split.mjs` checks the
+  per-role chunk isolation and the failure path.
 
 ## Not done
 
@@ -162,6 +189,8 @@ node tests/smoke.mjs 8770
 node tests/walk-review-fixups.mjs 8770     # this pass, API level
 node tests/checkout-flows.mjs 8770         # P0-4 lost / receive, None mode
 node tests/walk-documents.mjs 8770         # numbers, receipts, company fill-in
+node tests/walk-dedupe.mjs 8770            # one id, one record + crew cap (API level)
+node tests/walk-split.mjs 8770             # lazy view chunks per role + failed-chunk card
 ```
 
 `.dev.vars` needs `LINE_CHANNEL_SECRET` and `DIGEST_TOKEN` (any value locally)
