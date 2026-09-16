@@ -85,6 +85,29 @@ export function rtxNoFromInv(invoiceNo) {
   return String(invoiceNo || "").replace(/^INV-/, "RTX-");
 }
 
+// Parse "<CODE>-[<PREFIX>-]<YY>-<seq>" into its parts (null when it is not a
+// document number the app minted).
+export function parseDocNo(no) {
+  const m = String(no || "").match(/^([A-Z]{3})-(?:([A-Z0-9]{1,6})-)?(\d{2})-(\d+)$/);
+  if (!m) return null;
+  return { code: m[1], prefix: m[2] || "", yy: m[3], seq: parseInt(m[4], 10) || 0 };
+}
+
+// The number a NEW receipt for `inv` gets. It mirrors the invoice (INV- swapped
+// for RTX-) the first time; once that string exists in the list (a voided or
+// deleted receipt burned it, P0-8 "its number is not reused") the receipt takes
+// the next free number of the issuer's RTX series for the invoice's prefix and
+// year, so a re-issued receipt never repeats a voided one.
+export function receiptNoFor(inv, invoices) {
+  const mirror = rtxNoFromInv(inv && inv.invoiceNo);
+  const taken = new Set((invoices || []).map(i => i && i.invoiceNo).filter(Boolean));
+  if (mirror && mirror !== (inv && inv.invoiceNo) && !taken.has(mirror)) return mirror;
+  const parts = parseDocNo(inv && inv.invoiceNo);
+  const prefix = parts ? parts.prefix : "";
+  const year = parts ? "20" + parts.yy : undefined;
+  return nextDocNo({ docType: "receipt", prefix, year, issuerId: inv ? inv.employeeId : undefined, invoices });
+}
+
 // Revision letter (INV-NG-26-0001A for the first edit). Same as the old
 // fmtInvoiceNo in App.jsx.
 export function fmtDocNo(inv) {

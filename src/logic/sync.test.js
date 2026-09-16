@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { rebase, rebasePayload, versionsFor, VERSIONED_FIELDS } from "./sync.js";
+import { rebase, rebasePayload, versionsFor, VERSIONED_FIELDS, pendingSave, adoptRemote } from "./sync.js";
+import { isStale } from "../../functions/_lib/versions.js";
 
 describe("rebase (three-way, per field)", () => {
   const base = [{ id: "a", n: 1 }, { id: "b", n: 1 }, { id: "c", n: 1 }];
@@ -50,5 +51,54 @@ describe("rebasePayload + versionsFor", () => {
     expect(next.jobs).toBe(merged.jobs);
     expect(next.companyName).toBe("Lucky");
     expect(next._v).toEqual({ jobs: "v2", companyName: "c0" });
+  });
+});
+
+describe("failed-save retry after a cross-device sync (data-safety finding)", () => {
+  const j1 = { id: "j1", name: "Toyota" };
+  const jA = { id: "jA", name: "A's new job" };
+  const jB = { id: "jB", name: "B's new job" };
+  it("pending payload older than the refreshed versions: the retry still 409s and rebases onto B's write", () => {
+    // Device A: loaded jobs [j1] at version v3, adds jA, PUT fails on the network.
+    const lastSaved = { jobs: [j1] };
+    const versions = { jobs: "v3" };
+    const payload = { jobs: [j1, jA] };
+    const pending = pendingSave(payload, versions, lastSaved);
+    expect(pending.versions).toEqual({ jobs: "v3" });
+    expect(pending.bases.jobs).toBe(lastSaved.jobs);
+    // Device B writes jobs [j1, jB] -> KV version v4; A re-GETs it (WS data_saved)
+    // and its versionsRef / lastSavedRef now say v4 / [j1, jB].
+    const kvJobs = [j1, jB];
+    versions.jobs = "v4"; lastSaved.jobs = kvJobs;
+    // OLD behaviour: retry built from the refreshed refs passes the stale check and
+    // overwrites B's job with A's stale list.
+    expect(isStale("jobs", versionsFor(payload, versions), "v4")).toBe(false);
+    // NEW: the retry carries the attempt's versions -> the server answers 409 ...
+    expect(isStale("jobs", pending.versions, "v4")).toBe(true);
+    // ... and the client rebases with the attempt's bases: both new jobs survive.
+    const { payload: retry, merged } = rebasePayload({ ...pending.payload, _v: pending.versions }, pending.bases, { jobs: kvJobs, _v: { jobs: "v4" } }, ["jobs"]);
+    expect(merged.jobs.map(j => j.id)).toEqual(["j1", "jB", "jA"]);
+    expect(retry._v).toEqual({ jobs: "v4" });
+  });
+  it("adoptRemote keeps unsaved local edits on top of a remote snapshot instead of clobbering them", () => {
+    const base = [j1];
+    const local = [j1, jA];          // A's unsaved addition
+    const server = [j1, jB];         // B's snapshot arriving over the wire
+    expect(adoptRemote({ base, local, server }).map(j => j.id)).toEqual(["j1", "jB", "jA"]);
+    // clean field (state ref === base) takes the server copy as-is
+    expect(adoptRemote({ base, local: base, server })).toBe(server);
+    // never loaded before (no base): server copy
+    expect(adoptRemote({ base: undefined, local, server })).toBe(server);
+    // dirty but the rebase adds nothing new: the server copy itself (field reads clean)
+    expect(adoptRemote({ base, local: [j1, jB], server })).toBe(server);
+    // scalars: a changed local value survives, an unchanged one takes the server value
+    expect(adoptRemote({ base: "Lucky", local: "Lucky Cam", server: "Lucky Cam Rental" })).toBe("Lucky Cam");
+    expect(adoptRemote({ base: "Lucky", local: "Lucky", server: "Lucky Cam Rental" })).toBe("Lucky Cam Rental");
+  });
+  it("an unsaved checkout event survives a remote snapshot (id-merged arrays too)", () => {
+    const base = [{ id: "c1", type: "pick" }];
+    const local = [{ id: "c1", type: "pick" }, { id: "c2", type: "return" }];
+    const server = [{ id: "c1", type: "pick" }, { id: "c9", type: "pick" }];
+    expect(adoptRemote({ base, local, server }).map(c => c.id)).toEqual(["c1", "c9", "c2"]);
   });
 });

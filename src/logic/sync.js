@@ -73,3 +73,30 @@ export function rebasePayload(payload, bases, serverData, conflicts) {
   next._v = versionsFor(next, serverData._v || {});
   return { payload: next, merged };
 }
+
+// ── Failed-save snapshot ─────────────────────────────────────────────────────
+// A PUT that failed (network blip) is retried later. The retry must carry the
+// versions and the bases OF THE FAILED ATTEMPT, not whatever the client holds by
+// then: a remote sync in between refreshes versionsRef / lastSavedRef, and a
+// retry built from those would pass the server's stale check with a payload
+// that predates the other device's write, silently erasing it.
+export function pendingSave(payload, versions, lastSaved) {
+  const bases = {};
+  for (const f of Object.keys(payload || {})) {
+    if (f === "_v" || f === "_invoiceEmployeeId") continue;
+    bases[f] = lastSaved ? lastSaved[f] : undefined;
+  }
+  return { payload, versions: versionsFor(payload || {}, versions || {}), bases };
+}
+
+// ── Remote copy arriving over a dirty field ──────────────────────────────────
+// When another device's snapshot lands (WebSocket data_saved, BroadcastChannel,
+// the 409 re-GET) a field this client has edited but not yet saved must not be
+// replaced wholesale: the local edits are re-applied on top of the server copy
+// (rebase). Returns the value to put in state; when the rebase adds nothing the
+// server copy itself is returned so the field reads as clean.
+export function adoptRemote({ base, local, server }) {
+  if (base === undefined || local === base) return server;
+  const merged = rebase(base, local, server);
+  return same(merged, server) ? server : merged;
+}

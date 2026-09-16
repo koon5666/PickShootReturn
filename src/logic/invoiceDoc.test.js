@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { printableItems, validateDocument, docTotals, snapshotBillTo, resolveBillTo, canEditCompany, dateInTz, dueDateFrom, canMarkPaid, embedFlags, docTitle } from "./invoiceDoc.js";
+import { printableItems, validateDocument, docTotals, snapshotBillTo, resolveBillTo, canEditCompany, dateInTz, dueDateFrom, canMarkPaid, embedFlags, docTitle, fillableCompanyFields } from "./invoiceDoc.js";
 
 const items = [
   { id: "a", description: "1st AC (12hr)", qty: 2, rate: "3500", vat: true },
@@ -106,5 +106,16 @@ describe("dates / paid rules", () => {
   it("docTitle is bilingual", () => {
     expect(docTitle("quotation")).toEqual({ th: "ใบเสนอราคา", en: "QUOTATION" });
     expect(docTitle(undefined).en).toBe("INVOICE");
+  });
+});
+
+describe("fillableCompanyFields (crew fill-in of empty billing fields on a shared company)", () => {
+  const me = { id: "e1", role: "employee" };
+  it("own company: everything; house company: only the blank billing fields; nothing blank: locked", () => {
+    expect(fillableCompanyFields({ id: "p", name: "Mine", addedBy: "e1" }, me)).toEqual(["name", "address", "taxId", "branch"]);
+    expect(fillableCompanyFields({ id: "p", name: "House", address: "" }, me)).toEqual(["address", "taxId", "branch"]);
+    expect(fillableCompanyFields({ id: "p", name: "House", address: "12 Rama IV", taxId: " " }, me)).toEqual(["taxId", "branch"]);
+    expect(fillableCompanyFields({ id: "p", name: "House", address: "A", taxId: "1", branch: "HQ", addedBy: "e2" }, me)).toEqual([]);
+    expect(fillableCompanyFields({ id: "p", name: "House" }, { id: "admin", role: "admin" })).toEqual(["name", "address", "taxId", "branch"]);
   });
 });

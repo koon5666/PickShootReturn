@@ -72,6 +72,16 @@ export function canEditCompany(company, actor) {
   if (actor.role === "admin" || actor.id === "admin") return true;
   return !!company.addedBy && company.addedBy === actor.id;
 }
+// Billing fields a crew member may still FILL IN on a company they cannot edit:
+// the ones that are empty (a house auto-registered from a booking has no
+// address; the crew invoicing it needs one). Mirrors the server rule
+// (functions/_lib/roles.js COMPANY_FILLABLE): existing values never change.
+export const COMPANY_FILLABLE = ["address", "taxId", "branch"];
+export function fillableCompanyFields(company, actor) {
+  if (!company) return [];
+  if (canEditCompany(company, actor)) return ["name", ...COMPANY_FILLABLE];
+  return COMPANY_FILLABLE.filter(f => company[f] == null || String(company[f]).trim() === "");
+}
 
 // YYYY-MM-DD for a timestamp in the app timezone (paidDate stamping, P0-8).
 export function dateInTz(ts = Date.now(), tz = "Asia/Bangkok") {

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   availability, availabilitySpan, stillOutUnits, stillOutList, jobConflicts, jobHoldDates, jobHoldsOn,
   effPickupDate, effReturnDate, addDays, daysBetween, unitsOutForEquipment, unitsOutForJob, buildReceiveEvents,
+  lostUnitsByEquipment, unreconciledLost, reconcileLost,
 } from "./availability.js";
 
 // Mirrors tests/seed.mjs (default profile) with a fixed "today" so the numbers are stable.
@@ -112,7 +113,7 @@ describe("availability: the seeded scenario", () => {
   it("FX6 reads 0 of 2 free today: 1 overdue on job1, 1 booked by job2", () => {
     const fx6 = byId(availability(equipment, T, ctx), "eq_fx6");
     expect(fx6.available).toBe(0);
-    expect(fx6.hard).toEqual({ jobs: 1, out: 1, loans: 0, damage: 0 });
+    expect(fx6.hard).toEqual({ jobs: 1, out: 1, loans: 0, damage: 0, lost: 0 });
     const kinds = fx6.reasons.map(r => r.kind).sort();
     expect(kinds).toEqual(["job", "out"]);
     const outReason = fx6.reasons.find(r => r.kind === "out");
@@ -156,7 +157,7 @@ describe("availability: the seeded scenario", () => {
   it("does not double count a job whose gear is both assigned in-window and picked", () => {
     const c = { ...ctx, jobs: [{ ...job1, dates: [day(0)], pickupDate: "" }] };
     const fx6 = byId(availability(equipment, T, c), "eq_fx6");
-    expect(fx6.hard).toEqual({ jobs: 1, out: 0, loans: 0, damage: 0 });
+    expect(fx6.hard).toEqual({ jobs: 1, out: 0, loans: 0, damage: 0, lost: 0 });
   });
   it("a picked unit on a job whose assignment was later removed still counts", () => {
     const c = { ...ctx, jobs: [{ ...job1, dates: [day(0)], assignedEquipment: [] }] };
@@ -200,7 +201,7 @@ describe("availability: loans, pencil, gone jobs, cancelled jobs", () => {
   it("a Cancelled job holds no assignment but its unreturned gear still counts", () => {
     const c = { ...ctx, jobs: [{ ...job1, status: "Cancelled", dates: [day(0)] }, job2, job3] };
     const fx6 = byId(availability(equipment, T, c), "eq_fx6");
-    expect(fx6.hard).toEqual({ jobs: 1, out: 1, loans: 0, damage: 0 });
+    expect(fx6.hard).toEqual({ jobs: 1, out: 1, loans: 0, damage: 0, lost: 0 });
   });
   it("damage report qty > 1 takes that many units out of service", () => {
     const c = { ...ctx, reports: [{ id: "r", eqId: "eq_vmount", status: "open", qty: 3 }] };
@@ -307,5 +308,46 @@ describe("buildReceiveEvents (dashboard Receive)", () => {
     const a = stillOutUnits(checkouts), b = stillOutUnits(checkouts);
     expect(a).toBe(b);
     expect(stillOutUnits([...checkouts])).not.toBe(a);
+  });
+});
+
+describe("lost / written-off units keep reducing availability until reconciled (P0-4)", () => {
+  const lostEvt = { id: "lost1", jobId: "job1", requestId: null, jobName: job1.name, eqId: "eq_vmount", qty: 1, employeeId: "admin", employeeName: "Owner", type: "lost", condition: "lost", note: "left on location", ts: at(0, 10), adminApproved: true };
+  const withLost = { ...ctx, checkouts: [...checkouts, lostEvt] };
+  it("4 out, 1 marked lost: 3 still out + 1 lost = 4 of 8 free, never 5", () => {
+    const vm = byId(availability(equipment, T, withLost), "eq_vmount");
+    expect(vm.hard.out).toBe(3);
+    expect(vm.hard.lost).toBe(1);
+    expect(vm.available).toBe(4);
+    expect(vm.reasons.find(r => r.kind === "lost")).toMatchObject({ qty: 1, jobId: "job1", label: "TVC Toyota", lost: 1, writtenOff: 0 });
+    expect(unreconciledLost(equipment[2], withLost.checkouts)).toBe(1);
+    expect(lostUnitsByEquipment(withLost.checkouts).eq_vmount).toMatchObject({ total: 1, lost: 1, written_off: 0, byHolder: { job1: 1 } });
+  });
+  it("inside the job window the lost unit is not counted twice (hold shrinks by what the job lost)", () => {
+    const c = { ...withLost, jobs: [{ ...job1, dates: [day(0)], pickupDate: "" }, job2, job3] };
+    const vm = byId(availability(equipment, T, c), "eq_vmount");
+    expect(vm.hard).toEqual({ jobs: 3, out: 0, loans: 0, damage: 0, lost: 1 });
+    expect(vm.available).toBe(4);
+  });
+  it("remove from stock: total 8 -> 7, the lost unit no longer subtracts (still 4 free)", () => {
+    const eq = reconcileLost(equipment[2], withLost.checkouts, "remove", 1);
+    expect(eq).toMatchObject({ total: 7, lostAdjusted: 1 });
+    const vm = byId(availability([eq], T, withLost), "eq_vmount");
+    expect(vm.hard.lost).toBe(0);
+    expect(vm.available).toBe(4);
+    expect(unreconciledLost(eq, withLost.checkouts)).toBe(0);
+    // nothing left to reconcile: a second call is a no-op
+    expect(reconcileLost(eq, withLost.checkouts, "remove", 1)).toBe(eq);
+  });
+  it("found: total stays 8, the unit is back on the shelf (5 free)", () => {
+    const eq = reconcileLost(equipment[2], withLost.checkouts, "found", 1);
+    expect(eq).toMatchObject({ total: 8, lostAdjusted: 1 });
+    expect(byId(availability([eq], T, withLost), "eq_vmount").available).toBe(5);
+  });
+  it("a written-off unit is split from a lost one in the counts", () => {
+    const wo = { ...lostEvt, id: "lost2", condition: "written_off", ts: at(0, 11) };
+    const l = lostUnitsByEquipment([...checkouts, lostEvt, wo]).eq_vmount;
+    expect(l).toMatchObject({ total: 2, lost: 1, written_off: 1 });
+    expect(byId(availability(equipment, T, { ...ctx, checkouts: [...checkouts, lostEvt, wo] }), "eq_vmount").available).toBe(4); // 2 out + 2 lost
   });
 });

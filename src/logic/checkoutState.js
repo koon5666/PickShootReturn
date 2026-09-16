@@ -60,7 +60,7 @@ export function itemCounts(events, { todayKey, dayOf } = {}) {
   const per = {};
   const get = (eqId) => per[eqId] || (per[eqId] = {
     photoPicked: 0, barcodePicked: 0, photoReturned: 0, barcodeReturned: 0,
-    photoPickedToday: 0, barcodePickedToday: 0, lost: 0,
+    photoPickedToday: 0, barcodePickedToday: 0, lost: 0, lostBy: { lost: 0, written_off: 0 },
     missingFlag: false, lastPick: null, lastPickTs: 0,
   });
   for (const c of events || []) {
@@ -77,6 +77,7 @@ export function itemCounts(events, { todayKey, dayOf } = {}) {
       if (c.condition === "missing") it.missingFlag = true;
     } else if (isLostEvt(c.type)) {
       it.lost += q;
+      it.lostBy[c.condition === "written_off" ? "written_off" : "lost"] += q;
     }
   }
   const out = {};
@@ -86,7 +87,7 @@ export function itemCounts(events, { todayKey, dayOf } = {}) {
     const pickedToday = Math.max(it.photoPickedToday, it.barcodePickedToday);
     const outQty = Math.max(0, picked - returned - it.lost);
     out[eqId] = {
-      picked, returned, lost: it.lost, out: outQty, pickedToday,
+      picked, returned, lost: it.lost, lostBy: it.lostBy, out: outQty, pickedToday,
       // partially back (or a return explicitly flagged some units missing) and still short
       missing: outQty > 0 && (returned > 0 || it.lost > 0 || it.missingFlag),
       owner: it.lastPick ? { employeeId: it.lastPick.employeeId, employeeName: it.lastPick.employeeName, ts: it.lastPick.ts, jobName: it.lastPick.jobName || null } : null,

@@ -10,6 +10,11 @@
 //       even when the job record is gone or Cancelled)
 //     - units on approved gear-request loans covering `date`
 //     - units in OPEN damage reports (out of service until the report is resolved)
+//     - units marked LOST / WRITTEN OFF by the admin that are not yet taken out of
+//       the stock count (P0-4): a lost unit leaves the still-out list but it is
+//       still not on the shelf, so it keeps reducing availability until the admin
+//       reconciles it (equipment.lostAdjusted = units already removed from total,
+//       or booked back in when found; see reconcileLost)
 //   Pencil jobs are SOFT holds: reported separately, never subtracted.
 //   The result is NOT clamped: a negative number is an over-booking the UI must show.
 //
@@ -141,6 +146,47 @@ export function stillOutList({ checkouts, jobs = [], equipment = [], equipmentRe
 
 export const isOpenReport = (r) => !!r && r.status === "open";
 
+// ── Lost / written-off units (P0-4) ──────────────────────────────────────────
+// Every "lost" event in the log, per eqId, split by condition. The log is
+// append-only, so this is the lifetime total; `equipment.lostAdjusted` says how
+// many of them the admin has already reconciled (removed from `total`, or found).
+const lostCache = new WeakMap();
+export function lostUnitsByEquipment(checkouts) {
+  if (checkouts && typeof checkouts === "object" && lostCache.has(checkouts)) return lostCache.get(checkouts);
+  const out = {};
+  for (const c of checkouts || []) {
+    if (!c || !c.eqId || !isLostEvt(c.type) || isVoidEvt(c.type)) continue;
+    const q = (c.qty === undefined || c.qty === null) ? 1 : Math.max(0, Number(c.qty) || 0);
+    if (!q) continue;
+    const it = out[c.eqId] || (out[c.eqId] = { total: 0, lost: 0, written_off: 0, last: null, byHolder: {} });
+    it.total += q;
+    it[c.condition === "written_off" ? "written_off" : "lost"] += q;
+    const holder = c.jobId || (c.requestId ? `req:${c.requestId}` : null);
+    if (holder) it.byHolder[holder] = (it.byHolder[holder] || 0) + q;
+    if (!it.last || (c.ts || 0) >= (it.last.ts || 0)) it.last = c;
+  }
+  if (checkouts && typeof checkouts === "object") lostCache.set(checkouts, out);
+  return out;
+}
+// Units of `eq` written off in the log but still counted in `eq.total`
+// (= what availability must keep subtracting).
+export function unreconciledLost(eq, checkouts) {
+  const l = lostUnitsByEquipment(checkouts)[eq && eq.id];
+  if (!l) return 0;
+  return Math.max(0, l.total - Math.max(0, (eq && +eq.lostAdjusted) || 0));
+}
+// Admin reconciliation of lost units (returns the updated equipment record):
+//   mode "remove" = the units are gone for good: total -= n, lostAdjusted += n
+//   mode "found"  = they turned up: lostAdjusted += n, total unchanged (back on the shelf)
+export function reconcileLost(eq, checkouts, mode, n = 1) {
+  const open = unreconciledLost(eq, checkouts);
+  const q = Math.max(0, Math.min(open, Math.floor(+n || 0)));
+  if (!q) return eq;
+  const next = { ...eq, lostAdjusted: Math.max(0, (+eq.lostAdjusted || 0)) + q };
+  if (mode === "remove") next.total = Math.max(0, (+eq.total || 0) - q);
+  return next;
+}
+
 // ── The availability function ────────────────────────────────────────────────
 // ctx = { jobs, checkouts, equipmentRequests, reports, today }
 // opts = { excludeJobId, excludeRequestId, pickupBuffer, returnBuffer }
@@ -153,10 +199,11 @@ export function availability(equipment, date, ctx = {}, opts = {}) {
   const out = stillOutUnits(checkouts);
   const outBy = new Map(); // holder -> Map(eqId -> unit)
   for (const u of out) { if (!outBy.has(u.holder)) outBy.set(u.holder, new Map()); outBy.get(u.holder).set(u.eqId, u); }
+  const lostBy = lostUnitsByEquipment(checkouts);
 
   return (equipment || []).map(eq => {
     const reasons = [];
-    let hardJobs = 0, hardOut = 0, hardLoans = 0, hardDamage = 0, pencil = 0;
+    let hardJobs = 0, hardOut = 0, hardLoans = 0, hardDamage = 0, hardLost = 0, pencil = 0;
     const seenHolders = new Set();
 
     for (const job of jobs) {
@@ -165,7 +212,9 @@ export function availability(equipment, date, ctx = {}, opts = {}) {
       if (job.id === opts.excludeJobId) continue;
       const assigned = (job.assignedEquipment || []).filter(ae => ae.eqId === eq.id).reduce((s, ae) => s + (+ae.qty || 0), 0);
       const holds = jobHoldsOn(job, d, buf);
-      const held = job.status === "Confirmed" && holds ? assigned : 0;
+      // Units this job lost are gone from its hold (they are counted once, under "lost").
+      const lostHere = (lostBy[eq.id] && lostBy[eq.id].byHolder[job.id]) || 0;
+      const held = job.status === "Confirmed" && holds ? Math.max(0, assigned - lostHere) : 0;
       const u = future ? outBy.get(job.id)?.get(eq.id) : null;
       const outQty = u ? u.qty : 0;
       if (held > 0) { hardJobs += held; reasons.push({ kind: "job", qty: held, jobId: job.id, label: job.name, since: effPickupDate(job), dueDate: effReturnDate(job), status: job.status }); }
@@ -198,10 +247,17 @@ export function availability(equipment, date, ctx = {}, opts = {}) {
         hardDamage += q;
         reasons.push({ kind: "damage", qty: q, reportId: r.id, label: r.description || "", jobId: r.jobId || null, since: r.ts, employeeName: (r.reportedBy && r.reportedBy.name) || (typeof r.reportedBy === "string" ? r.reportedBy : null) });
       }
+      // Lost / written off and not yet reconciled: not on the shelf, still in total.
+      const lostRec = lostBy[eq.id];
+      const lostOpen = lostRec ? Math.max(0, lostRec.total - Math.max(0, +eq.lostAdjusted || 0)) : 0;
+      if (lostOpen > 0) {
+        hardLost += lostOpen;
+        reasons.push({ kind: "lost", qty: lostOpen, label: lostRec.last ? lostRec.last.jobName || "" : "", jobId: lostRec.last ? lostRec.last.jobId || null : null, since: lostRec.last ? lostRec.last.ts : null, writtenOff: lostRec.written_off, lost: lostRec.lost });
+      }
     }
     const total = +eq.total || 0;
-    const taken = hardJobs + hardOut + hardLoans + hardDamage;
-    return { ...eq, total, taken, available: total - taken, hard: { jobs: hardJobs, out: hardOut, loans: hardLoans, damage: hardDamage }, pencil, reasons, date: d };
+    const taken = hardJobs + hardOut + hardLoans + hardDamage + hardLost;
+    return { ...eq, total, taken, available: total - taken, hard: { jobs: hardJobs, out: hardOut, loans: hardLoans, damage: hardDamage, lost: hardLost }, pencil, reasons, date: d };
   });
 }
 
@@ -218,7 +274,7 @@ export function availabilitySpan(equipment, dates, ctx = {}, opts = {}) {
       if (!worst || a.available < worst.available) worst = a;
       if (a.pencil > pencil) pencil = a.pencil;
     }
-    return worst ? { ...worst, worstDate: worst.date, pencil } : { ...eq, total: +eq.total || 0, taken: 0, available: +eq.total || 0, hard: { jobs: 0, out: 0, loans: 0, damage: 0 }, pencil: 0, reasons: [], worstDate: null };
+    return worst ? { ...worst, worstDate: worst.date, pencil } : { ...eq, total: +eq.total || 0, taken: 0, available: +eq.total || 0, hard: { jobs: 0, out: 0, loans: 0, damage: 0, lost: 0 }, pencil: 0, reasons: [], worstDate: null };
   });
 }
 

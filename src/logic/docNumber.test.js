@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizePrefix, derivePrefix, nextDocNo, maxSeq, rtxNoFromInv, fmtDocNo, docCode } from "./docNumber.js";
+import { sanitizePrefix, derivePrefix, nextDocNo, maxSeq, rtxNoFromInv, fmtDocNo, docCode, receiptNoFor, parseDocNo } from "./docNumber.js";
 
 const inv = (employeeId, invoiceNo, extra = {}) => ({ id: invoiceNo + employeeId, employeeId, invoiceNo, ...extra });
 
@@ -83,5 +83,36 @@ describe("helpers", () => {
   it("docCode defaults to INV", () => {
     expect(docCode("receipt")).toBe("RTX");
     expect(docCode(undefined)).toBe("INV");
+  });
+});
+
+describe("receiptNoFor: a voided receipt burns its number (P0-6 / P0-8)", () => {
+  const paidInv = { id: "i1", employeeId: "admin", invoiceNo: "INV-LCR-26-0001", status: "Paid", docType: "invoice" };
+  it("mirrors the invoice number the first time", () => {
+    expect(receiptNoFor(paidInv, [paidInv])).toBe("RTX-LCR-26-0001");
+  });
+  it("after Undo paid voided the mirror, the re-issued receipt takes the next free RTX number", () => {
+    const voided = { id: "r1", employeeId: "admin", invoiceNo: "RTX-LCR-26-0001", status: "Void", docType: "receipt", linkedInvId: "i1" };
+    expect(receiptNoFor(paidInv, [paidInv, voided])).toBe("RTX-LCR-26-0002");
+    const second = { id: "r2", employeeId: "admin", invoiceNo: "RTX-LCR-26-0002", status: "Void", docType: "receipt", linkedInvId: "i1" };
+    expect(receiptNoFor(paidInv, [paidInv, voided, second])).toBe("RTX-LCR-26-0003");
+  });
+  it("a soft-deleted receipt burns the mirror too, and the fallback skips another issuer's string", () => {
+    const deleted = { id: "r1", employeeId: "admin", invoiceNo: "RTX-LCR-26-0001", docType: "receipt", _deleted: true };
+    const other = { id: "x", employeeId: "e1", invoiceNo: "RTX-LCR-26-0002", docType: "receipt" };
+    expect(receiptNoFor(paidInv, [paidInv, deleted, other])).toBe("RTX-LCR-26-0003");
+  });
+  it("crew receipts follow the crew prefix series (legacy house numbers have no prefix)", () => {
+    const crewInv = { id: "c1", employeeId: "e1", invoiceNo: "INV-NG-26-0004", status: "Paid" };
+    const voided = { id: "r", employeeId: "e1", invoiceNo: "RTX-NG-26-0004", status: "Void", docType: "receipt" };
+    expect(receiptNoFor(crewInv, [crewInv, voided])).toBe("RTX-NG-26-0005");
+    const legacyInv = { id: "l1", employeeId: "admin", invoiceNo: "INV-26-0002", status: "Paid" };
+    const legacyVoid = { id: "lr", employeeId: "admin", invoiceNo: "RTX-26-0002", status: "Void", docType: "receipt" };
+    expect(receiptNoFor(legacyInv, [legacyInv, legacyVoid])).toBe("RTX-26-0003");
+  });
+  it("parseDocNo reads prefix, year and sequence", () => {
+    expect(parseDocNo("INV-LCR-26-0007")).toEqual({ code: "INV", prefix: "LCR", yy: "26", seq: 7 });
+    expect(parseDocNo("QUO-26-0010")).toEqual({ code: "QUO", prefix: "", yy: "26", seq: 10 });
+    expect(parseDocNo("garbage")).toBeNull();
   });
 });
