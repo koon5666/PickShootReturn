@@ -5,6 +5,7 @@ import { isStale, VERSIONED } from "../_lib/versions.js";
 import { requireSession, stripCredentials } from "../_lib/auth.js";
 import { protectEmployees, protectRequests, adoptPlainAdminPin } from "../_lib/accounts.js";
 import { forbiddenFields, restrictOwn, mergeOwnedWhole, ownInvoices, OWNER_KEY, SERVER_OWNED_FIELDS, COMPANY_FILLABLE } from "../_lib/roles.js";
+import { allocateNumbers } from "../_lib/docalloc.js";
 
 // Same-origin API: no Access-Control-Allow-* headers on purpose (P0-2).
 const CORS = {};
@@ -22,6 +23,12 @@ const CORS = {};
 // renders immediately (equipment, reports, pending admin requests) and keeps
 // checkouts + resolved admin requests lean; those are fetched lazily through
 // /api/photo. POST /api/migrate-photos moves the existing inline photos out.
+//
+// ── Document numbers (P0-6) ──────────────────────────────────────────────────
+// A new invoice / quotation / receipt keeps the number the client reserved only
+// if nobody else holds it; otherwise the server mints the next free one in that
+// document's own series and reports it back as `renumbered` (functions/_lib/
+// docalloc.js). A number KV already knows for that id never changes.
 //
 // ── Versions (P1-13) ─────────────────────────────────────────────────────────
 // Every field value carries a version in its KV metadata. GET returns
@@ -122,6 +129,7 @@ export async function onRequestPut(context) {
   const prepared = [];
   const deletes = [];
   const conflicts = [];
+  const renumbered = []; // documents the server had to re-number (P0-6)
   const currentV = {};
   const metaByField = {};
   for (const k of FIELDS) {
@@ -145,6 +153,11 @@ export async function onRequestPut(context) {
         // Employee sessions: ownership is the SESSION, never a client-declared id.
         const owner = isAdmin ? "admin" : session.id;
         if (!isAdmin) value = ownInvoices(value, existing, owner);
+        // The server has the last word on a NEW document's number (P0-6): two
+        // devices minting at the same instant cannot both keep it.
+        const alloc = allocateNumbers(value, existing);
+        value = alloc.invoices;
+        if (alloc.renumbered.length) renumbered.push(...alloc.renumbered);
         value = mergeInvoices(value, existing, owner, { restoredAt: cur.meta.restoredAt || 0 });
       } else {
         if (!isAdmin) value = restrictOwn(value, existing, session.id, OWNER_KEY[k]);
@@ -180,5 +193,5 @@ export async function onRequestPut(context) {
   // Phase 2: write photo keys, then values (fresh versions), then deletes.
   const written = await commitWrites(env.KV, prepared, metaByField);
   await Promise.all(deletes.map(k => env.KV.delete(k)));
-  return Response.json({ ok: true, _v: written }, { headers: CORS });
+  return Response.json({ ok: true, _v: written, ...(renumbered.length ? { renumbered } : {}) }, { headers: CORS });
 }

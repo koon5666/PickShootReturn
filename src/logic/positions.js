@@ -47,12 +47,36 @@ export const DEPARTMENTS = [
 
 // Flat list of role names for a select / datalist. `lang` picks the label;
 // the stored value is always the English name so invoices stay consistent.
-export function roleOptions(lang = "en") {
+//
+// `custom` (KV field `roleList`, admin-managed, P3-4 F18) REPLACES the built-in
+// department list when it holds anything: a house that hires only its own set of
+// roles sees exactly that list everywhere (crew profile, admin positions, job
+// roster, invoice position picker). One entry per line in Settings, optionally
+// "Role Name | Department"; a Thai label can follow the English name after a
+// slash ("Gaffer / หัวหน้าไฟ | Lighting").
+export function parseRoleList(list) {
+  const rows = Array.isArray(list) ? list : String(list || "").split("\n");
+  const out = [];
+  for (const row of rows) {
+    const line = String(row == null ? "" : row).trim();
+    if (!line) continue;
+    const [namePart, deptPart] = line.split("|").map(x => (x || "").trim());
+    const [en, th] = namePart.split("/").map(x => (x || "").trim());
+    if (!en) continue;
+    out.push({ en, th: th || en, dept: deptPart || "" });
+  }
+  return out;
+}
+export function roleOptions(lang = "en", custom = null) {
+  const rows = parseRoleList(custom);
+  if (rows.length) return rows.map(r => ({ value: r.en, label: lang === "th" ? r.th : r.en, dept: r.dept, deptId: "house", custom: true }));
   const out = [];
   for (const d of DEPARTMENTS) {
     for (const r of d.roles) out.push({ value: r.en, label: lang === "th" ? r.th : r.en, dept: lang === "th" ? d.th : d.en, deptId: d.id });
   }
   return out;
 }
+// Text the Settings editor shows for the saved list (round-trips through parseRoleList).
+export const roleListText = (list) => parseRoleList(list).map(r => `${r.en}${r.th && r.th !== r.en ? ` / ${r.th}` : ""}${r.dept ? ` | ${r.dept}` : ""}`).join("\n");
 
 export const DEFAULT_POSITION_NAMES = roleOptions("en").map(r => r.value);

@@ -16,7 +16,7 @@
 // Pure; unit-tested in offline.test.js.
 import { EMPLOYEE_PUT_FIELDS } from "../../functions/_lib/roles.js";
 
-export const SAVE_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled", "theme"];
+export const SAVE_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled", "theme", "roleList"];
 
 // state: { field: value } (may include lineGroupId). Returns { payload, sent }:
 // payload is what to PUT, sent the per-field values to record in lastSaved once

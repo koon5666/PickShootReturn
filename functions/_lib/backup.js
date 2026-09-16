@@ -213,6 +213,31 @@ export async function restoreBackup(kv, id, { safety = true } = {}) {
   return { ok: true, id, savedAt: meta.savedAt, safetyId, versions, orphanPhotosRemoved: orphans };
 }
 
+// ── off-site export (P2-7) ──────────────────────────────────────────────────
+// Optional: with an R2 bucket bound as BACKUPS (wrangler.toml / Pages settings)
+// every version is also written there as one JSON object, photos inline, under
+//   psr/<kind>/<YYYY-MM-DD>/<id>.json
+// so a KV-wide accident is recoverable from outside KV. No binding = no-op, so
+// nothing here can fail a backup; the result says which happened.
+export function exportKey(meta) {
+  const day = new Date(meta.savedAt || Date.now()).toISOString().slice(0, 10);
+  return `psr/${meta.kind || "manual"}/${day}/${meta.id}.json`;
+}
+export async function exportBackup(env, kv, id) {
+  const bucket = env && env.BACKUPS;
+  if (!bucket || typeof bucket.put !== "function") return { ok: false, skipped: "no R2 binding" };
+  const snap = await getBackup(kv, id);
+  if (!snap) return { ok: false, error: "backup not found" };
+  const key = exportKey({ id, kind: snap.kind || "manual", savedAt: snap.savedAt || Date.now() });
+  const body = JSON.stringify(snap);
+  try {
+    await bucket.put(key, body, { httpMetadata: { contentType: "application/json" } });
+    return { ok: true, key, bytes: body.length };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  }
+}
+
 // ── retention + blob GC ─────────────────────────────────────────────────────
 export async function pruneBackups(kv) {
   const names = (await listAll(kv, PREFIX)).filter(n => n.endsWith(":meta"));

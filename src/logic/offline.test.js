@@ -70,3 +70,11 @@ describe("profile queue", () => {
     expect(await drainProfileQueue(rest, async () => { throw new Error("net"); })).toEqual(rest);
   });
 });
+
+describe("SAVE_FIELDS covers every client-writable field", () => {
+  it("mirrors the app's DATA_FIELDS (a field missing here silently never persists)", () => {
+    for (const f of ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled", "theme", "roleList"]) {
+      expect(SAVE_FIELDS).toContain(f);
+    }
+  });
+});

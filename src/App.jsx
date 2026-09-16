@@ -11,7 +11,7 @@ import { filterHistory, historyCsv, downloadText } from "./logic/history.js";
 import { isPickEvt, isReturnEvt, isLostEvt, isVoidEvt, jobCheckoutState, outstandingQty, latestOpenPick, laneDone, stillOutAcrossJobs, geoGate, voidEvent, conditionKey, DEFAULT_DAY_START_HOUR, DEFAULT_GEO_THRESHOLD_M } from "./logic/checkoutState.js";
 import { derivePrefix, sanitizePrefix, nextDocNo, rtxNoFromInv, receiptNoFor, fmtDocNo } from "./logic/docNumber.js";
 import { printableItems, validateDocument, docTotals, snapshotBillTo, resolveBillTo, canEditCompany, fillableCompanyFields, dateInTz, dueDateFrom, canMarkPaid, embedFlags, docTitle, WHT_DEFAULT_RATE } from "./logic/invoiceDoc.js";
-import { roleOptions, DEFAULT_POSITION_NAMES } from "./logic/positions.js";
+import { roleOptions, parseRoleList, roleListText, DEFAULT_POSITION_NAMES } from "./logic/positions.js";
 import { ToastProvider, useToast } from "./components/toast.jsx";
 import { Dialog } from "./components/dialog.jsx";
 import { formatDate, formatDateTime, formatDay, formatLongDay, setFormatLang, tCount, shootTimeLabel, locationLabel, statusLabel } from "./i18n/format.js";
@@ -99,7 +99,7 @@ const CACHE_KEY = "psr_cache"; // localStorage key for offline fallback cache
 // Top-level fields the client persists to KV (the server FIELDS list in
 // functions/_lib/store.js also holds the server-owned adminPinHash / staff /
 // calendarToken / auditLog, which the client only reads).
-const DATA_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled", "theme"];
+const DATA_FIELDS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "companyName", "equipmentRequests", "adminRequests", "lineGroupId", "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents", "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled", "theme", "roleList"];
 
 // Admin theme (P3-8): saved per tenant in KV as { style, palette }; localStorage
 // only caches it so the first paint after a reload already has the right look.
@@ -680,6 +680,12 @@ function QRScanner({ onScan, onClose, label }) {
 // and src/i18n/index.js merges them (see src/i18n/tracks/README.md).
 
 const LangCtx = createContext("en");
+// The house's own crew-role list (KV `roleList`, P3-4 F18). Empty = the built-in
+// department list. Context so every picker (crew profile, admin positions, job
+// roster, invoice position) reads one source without threading a prop through
+// ten components.
+const RolesCtx = createContext(null);
+const useRoleList = (lang) => roleOptions(lang, useContext(RolesCtx));
 const useT = () => {
   const lang = useContext(LangCtx);
   return (key) => LANG[lang]?.[key] ?? LANG.en[key] ?? key;
@@ -1557,7 +1563,7 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
 
   // Position list: the profile's own roles first, then the department list (P3-4).
   const ownPositionNames = [...new Set(positions.map(p => p.name).filter(Boolean))];
-  const deptRoles = roleOptions(lang).filter(r => !ownPositionNames.includes(r.value));
+  const deptRoles = useRoleList(lang).filter(r => !ownPositionNames.includes(r.value));
   const selectedPos = positions.find(p => p.name === position);
   const knownNames = new Set([...ownPositionNames, ...deptRoles.map(r => r.value)]);
   // Only auto-manage line items for new invoices, or older ones already built with auto rows.
@@ -2076,7 +2082,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
   const EMPTY = { name: "", production: "", dates: [], status: "Pencil", shootTime: "Day", location: "Local (Bangkok)", locationCity: "", contactPerson: "", contactPlatform: "Line", dateOverrides: {}, pickupDate: "", returnDate: "", crew: [] };
   const [form, setForm] = useState(editTarget ? { ...editTarget, dateOverrides: editTarget.dateOverrides || {}, crew: Array.isArray(editTarget.crew) ? editTarget.crew.map(r => ({ ...EMPTY_CREW_ROW, ...r })) : [] } : EMPTY);
   const lang = useContext(LangCtx);
-  const roleList = roleOptions(lang);
+  const roleList = useRoleList(lang);
   // Crew roster rows (P1-10): employee + role + pickup / call time. Rows are kept
   // loose while editing; normalizeCrew() drops blank / duplicate ones on save.
   const setCrewRow = (idx, patch) => setForm(p => ({ ...p, crew: (p.crew || []).map((r, i) => i === idx ? { ...r, ...patch } : r) }));
@@ -3738,6 +3744,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const [promptPayQR, setPromptPayQR] = useState(null);
   const [signature, setSignature] = useState(null);
   const [positions, setPositions] = useState([]); // [{ id, name, dayRate, hoursPerDay, variableOT, otMultiplier, otTiers }]
+  const houseRoles = useRoleList(lang); // house list when the admin set one, departments otherwise (P3-4)
   const [lineLink, setLineLink] = useState(null); // { linked, code, expiresAt } from /api/line-link (P3-6)
   useEffect(() => { if (tab === "profile" && !offlineMode) api.lineLink().then(r => { if (r && r.ok) setLineLink(r); }).catch(() => {}); }, [tab]); // eslint-disable-line
   const [profileLoaded, setProfileLoaded] = useState(false);
@@ -5394,7 +5401,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                   </div>
                   {signature && consentLine("signature")}
                 </div>
-                <datalist id="psr-role-list">{roleOptions(lang).map(r => <option key={r.value} value={r.value}>{lang === "th" ? `${r.label} · ${r.dept}` : r.dept}</option>)}</datalist>
+                <datalist id="psr-role-list">{houseRoles.map(r => <option key={r.value} value={r.value}>{lang === "th" ? `${r.label} · ${r.dept}` : r.dept}</option>)}</datalist>
               </div>
             </div>
 
@@ -6711,9 +6718,10 @@ function TeamPage({ employees, setEmployees, setEmployeePin, equipmentRequests, 
 // a local run points at the local server.
 const calendarUrl = (token) => `${window.location.origin}/api/calendar${token ? `?token=${encodeURIComponent(token)}` : ""}`;
 
-function SettingsPage({ companyName, setCompanyName, user, onUserUpdate, staff, setStaff, calendarToken, setCalendarToken, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, clearHistory, migratePhotos, timezone, setTimezone, timeFormat, setTimeFormat, saveSettingsNow, verificationConfig, setVerificationConfig, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, navOrder, setNavOrder, checkoutsCount, setCheckouts, invoicePresets, setInvoicePresets, chatEnabled, setChatEnabled, onClose }) {
+function SettingsPage({ companyName, setCompanyName, roleList, setRoleList, user, onUserUpdate, staff, setStaff, calendarToken, setCalendarToken, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, clearHistory, migratePhotos, timezone, setTimezone, timeFormat, setTimeFormat, saveSettingsNow, verificationConfig, setVerificationConfig, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, navOrder, setNavOrder, checkoutsCount, setCheckouts, invoicePresets, setInvoicePresets, chatEnabled, setChatEnabled, onClose }) {
   useEffect(() => { document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, []);
   const t = useT();
+  const [rolesText, setRolesText] = useState(() => roleListText(roleList)); // edited as text, saved as lines (P3-4)
   const [apForm, setApForm] = useState({ oldPin: "", newPin: "", confirmPin: "" });
   const [apMsg, setApMsg] = useState(null);
   const [apBusy, setApBusy] = useState(false);
@@ -6864,6 +6872,26 @@ function SettingsPage({ companyName, setCompanyName, user, onUserUpdate, staff, 
           )}
         </div>
         <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", marginTop: 6 }}>{t("settingsCompanyHint")}</p>
+      </div>
+
+      {/* Crew roles (P3-4 F18): the house's own list replaces the built-in departments everywhere. */}
+      <div style={{ ...S.card, marginBottom: 20 }} data-testid="settings-roles">
+        <p style={S.sectionTitle}>{t("settingsRoles")}</p>
+        <p style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", margin: "0 0 8px", lineHeight: 1.6 }}>{t("settingsRolesHint")}</p>
+        <textarea
+          style={{ ...S.input, height: 140, resize: "vertical", lineHeight: 1.6 }}
+          data-testid="roles-input"
+          value={rolesText}
+          onChange={e => setRolesText(e.target.value)}
+          onBlur={() => setRoleList(parseRoleList(rolesText).map(r => `${r.en}${r.th && r.th !== r.en ? " / " + r.th : ""}${r.dept ? " | " + r.dept : ""}`))}
+          placeholder={"Gaffer / \u0e2b\u0e31\u0e27\u0e2b\u0e19\u0e49\u0e32\u0e44\u0e1f | Lighting\n1st AC | Camera\nDriver"}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)" }} data-testid="roles-count">{parseRoleList(rolesText).length ? tCount(t, "countRoles", parseRoleList(rolesText).length) : t("settingsRolesDefault")}</span>
+          {parseRoleList(rolesText).length > 0 && (
+            <button style={{ ...S.btn("ghost"), padding: "4px 10px", fontSize: 11 }} onClick={() => { setRolesText(""); setRoleList([]); }}>{t("settingsRolesReset")}</button>
+          )}
+        </div>
       </div>
 
       <div style={{ ...S.card, marginBottom: 20 }}>
@@ -7420,6 +7448,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
   const [adminDraft, setAdminDraft] = useState(null); // pre-filled new house document (explicit create, P0-8)
   const toast = useToast();
   const lang = useContext(LangCtx);
+  const houseRoles = useRoleList(lang); // house list when the admin set one, departments otherwise (P3-4)
   const [adminPositions, setAdminPositions] = useState([]);
   const [adminPromptPayQR, setAdminPromptPayQR] = useState(null);
   const [adminSignature, setAdminSignature] = useState(null);
@@ -8138,7 +8167,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
       {adminPosOpen && (
         <Modal title={t("positionsTitle")} onClose={() => setAdminPosOpen(false)}>
           <div style={S.col}>
-            <datalist id="psr-role-list-admin">{roleOptions(lang).map(r => <option key={r.value} value={r.value}>{lang === "th" ? `${r.label} · ${r.dept}` : r.dept}</option>)}</datalist>
+            <datalist id="psr-role-list-admin">{houseRoles.map(r => <option key={r.value} value={r.value}>{lang === "th" ? `${r.label} · ${r.dept}` : r.dept}</option>)}</datalist>
             <p style={{ fontSize: 11, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.6 }}>{t("positionsDesc")}</p>
             {adminPositions.length < 5 && <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 12, alignSelf: "flex-start" }} onClick={addAdminPosition}><Icon d={icons.plus} size={12} /> {t("addRoleBtn")}</button>}
             {adminPositions.length === 0 && <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0 }}>{t("positionsEmpty")}</p>}
@@ -9871,6 +9900,7 @@ export default function App() {
   const pendingSaveRef = useRef(null);
   const [lang, setLang] = useState(() => { try { return localStorage.getItem("psr_lang") || "en"; } catch { return "en"; } });
   setFormatLang(lang); // date helpers follow the UI language in this same render pass (P1-6)
+  const [roleList, setRoleList] = useState([]); // house's own crew roles (P3-4 F18), KV `roleList`
   const [theme, setTheme] = useState(readCachedTheme);
   const themeStyle = theme.style, themePalette = theme.palette;
   const setThemeStyle = (style) => setTheme(t => normalizeTheme({ ...t, style }));
@@ -10165,6 +10195,7 @@ export default function App() {
     }
     if (d.invoicePresets != null) { setInvoicePresets(pick("invoicePresets")); kl.add("invoicePresets"); }
     if (d.chatEnabled != null) { setChatEnabled(pick("chatEnabled")); kl.add("chatEnabled"); }
+    if (d.roleList != null) { setRoleList(pick("roleList")); kl.add("roleList"); }
     if (d.theme && typeof d.theme === "object") {
       // Keep KV's own object when it is already valid, so the reference matches
       // lastSavedRef and the loaded theme is not re-uploaded as a "change".
@@ -10296,13 +10327,13 @@ export default function App() {
   useEffect(() => {
     if (!loaded || !cloudSynced || snapTakenRef.current) return;
     snapTakenRef.current = true;
-    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme };
+    postLoadSnapRef.current = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme, roleList };
   }, [loaded, cloudSynced]); // intentionally omits data deps — captures post-load state once
 
   // Everything the save rules look at, as one object. latestStateRef mirrors it
   // every render so the offline reconnect (an effect with no data deps) can read
   // the current edits instead of a stale closure.
-  const dataState = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme };
+  const dataState = { equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme, roleList };
   const latestStateRef = useRef(dataState);
   latestStateRef.current = dataState;
   const userRef = useRef(user);
@@ -10472,7 +10503,7 @@ export default function App() {
             .catch(onFail))
         .finally(() => { saveInFlightRef.current = null; });
     }, 1500);
-  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme, loaded, cloudSynced]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme, roleList, loaded, cloudSynced]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Leaving the page inside the debounce window (tab closed / app switched right
   // after a tap) used to lose the edit. On pagehide the pending delta is flushed
@@ -10523,7 +10554,7 @@ export default function App() {
   }, [saveErr]);
 
   // Setters the conflict path needs to drop a merged field back into state.
-  const FIELD_SETTERS = { equipment: setEquipment, jobs: setJobs, employees: setEmployees, reports: setReports, productionCompanies: setProductionCompanies, companyName: setCompanyName, timezone: setTimezone, timeFormat: setTimeFormat, kpiConfig: setKpiConfig, punishments: setPunishments, kpiEvents: setKpiEvents, photoVerification: setPhotoVerification, navOrder: setNavOrder, verificationConfig: setVerificationConfig, invoicePresets: setInvoicePresets, chatEnabled: setChatEnabled, theme: setTheme };
+  const FIELD_SETTERS = { roleList: setRoleList, equipment: setEquipment, jobs: setJobs, employees: setEmployees, reports: setReports, productionCompanies: setProductionCompanies, companyName: setCompanyName, timezone: setTimezone, timeFormat: setTimeFormat, kpiConfig: setKpiConfig, punishments: setPunishments, kpiEvents: setKpiEvents, photoVerification: setPhotoVerification, navOrder: setNavOrder, verificationConfig: setVerificationConfig, invoicePresets: setInvoicePresets, chatEnabled: setChatEnabled, theme: setTheme };
 
   // PUT with optimistic versions (P1-13). Sends `_v` for the whole-value fields in
   // the payload; on 409 (another device wrote one of them first) it re-GETs, keeps
@@ -10567,6 +10598,14 @@ export default function App() {
     }
     const jr = await res.json().catch(() => ({}));
     if (jr && jr._v) Object.assign(versionsRef.current, jr._v);
+    // The server re-numbered a document that collided with another device's
+    // (P0-6). Adopt its number locally so the screen and KV agree.
+    if (jr && Array.isArray(jr.renumbered) && jr.renumbered.length) {
+      const map = new Map(jr.renumbered.map(r => [r.id, r.to]));
+      setInvoices(prev => prev.map(i => map.has(i.id) ? { ...i, invoiceNo: map.get(i.id) } : i));
+      const first = jr.renumbered[0];
+      showToast("info", "docRenumbered", { from: first.from || "?", to: first.to, n: jr.renumbered.length });
+    }
     return { ok: true, sent: sent || undefined };
   };
 
@@ -10846,6 +10885,7 @@ export default function App() {
 
   return (
     <LangCtx.Provider value={lang}>
+    <RolesCtx.Provider value={roleList}>
     <ToastProvider bottom={isMobile ? 92 : 24}>
       {!booted || (user && !loaded) ? (
         <div style={{ minHeight: "100vh", background: "var(--bg,#F4F7FB)", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 32 }}>
@@ -10955,7 +10995,7 @@ export default function App() {
             {activePage === "reports" && <ReportsPage equipment={equipment} checkouts={checkouts} jobs={jobs} equipmentRequests={equipmentRequests} productionCompanies={productionCompanies} invoices={invoices} employees={employees} />}
           </main>
           {isMobile && <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} navOrder={navOrder} />}
-          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} user={user} onUserUpdate={setUser} staff={staff} setStaff={setStaff} calendarToken={calendarToken} setCalendarToken={setCalendarToken} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} clearHistory={clearHistory} migratePhotos={migratePhotos} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} chatEnabled={chatEnabled} setChatEnabled={setChatEnabled} onClose={() => setSettingsPanelOpen(false)} />}
+          {settingsPanelOpen && <SettingsPage companyName={companyName} setCompanyName={setCompanyName} roleList={roleList} setRoleList={setRoleList} user={user} onUserUpdate={setUser} staff={staff} setStaff={setStaff} calendarToken={calendarToken} setCalendarToken={setCalendarToken} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} clearHistory={clearHistory} migratePhotos={migratePhotos} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} chatEnabled={chatEnabled} setChatEnabled={setChatEnabled} onClose={() => setSettingsPanelOpen(false)} />}
         </div>
       )}
       {/* Global chat window — visible across admin and employee views */}
@@ -11024,6 +11064,7 @@ export default function App() {
         </div>
       )}
     </ToastProvider>
+    </RolesCtx.Provider>
     </LangCtx.Provider>
   );
 }

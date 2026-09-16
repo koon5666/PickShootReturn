@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { fakeKV } from "../../tests/fakekv.js";
-import { createBackup, listBackups, getBackup, restoreBackup, pruneBackups, RETENTION, autoBackupDue, AUTO_MIN_GAP_MS } from "./backup.js";
+import { createBackup, listBackups, getBackup, restoreBackup, pruneBackups, RETENTION, autoBackupDue, AUTO_MIN_GAP_MS, exportBackup, exportKey } from "./backup.js";
 import { writeField, readField, getPhoto, readAllFields } from "./store.js";
 
 const P = (i) => "data:image/jpeg;base64," + "Z".repeat(40) + i;
@@ -120,5 +120,25 @@ describe("daily auto-backup gate is server-side (P2-7 follow-up)", () => {
     expect(r.due).toBe(false);
     expect(r.latest.id).toBe("auto_new");
     expect(autoBackupDue(list, now + AUTO_MIN_GAP_MS).due).toBe(true);
+  });
+});
+
+describe("off-site export (P2-7): optional R2 copy", () => {
+  it("writes the whole version as one JSON object, and is a no-op without the binding", async () => {
+    const kv = fakeKV({ jobs: [{ id: "j1", name: "TVC" }], equipment: [] });
+    const meta = await createBackup(kv, { kind: "manual", label: "test" });
+    expect(await exportBackup({}, kv, meta.id)).toMatchObject({ ok: false, skipped: "no R2 binding" });
+    const bucket = { objects: new Map(), async put(key, body, opts) { this.objects.set(key, { body, opts }); } };
+    const r = await exportBackup({ BACKUPS: bucket }, kv, meta.id);
+    expect(r.ok).toBe(true);
+    expect(r.key).toBe(exportKey({ id: meta.id, kind: "manual", savedAt: meta.savedAt }));
+    expect(r.key).toMatch(/^psr\/manual\/\d{4}-\d{2}-\d{2}\/manual_/);
+    const stored = JSON.parse(bucket.objects.get(r.key).body);
+    expect(stored.jobs).toEqual([{ id: "j1", name: "TVC" }]);
+    expect(stored.id).toBe(meta.id);
+    // an R2 failure never throws at the caller
+    const bad = { put() { throw new Error("R2 down"); } };
+    expect(await exportBackup({ BACKUPS: bad }, kv, meta.id)).toMatchObject({ ok: false });
+    expect(await exportBackup({ BACKUPS: bucket }, kv, "nope")).toMatchObject({ ok: false, error: "backup not found" });
   });
 });

@@ -17,6 +17,7 @@ export const FIELDS = [
   // auth track (P0-2 / P2-6): server-owned, never sent by the client, backed up like the rest
   "adminPinHash", "staff", "calendarToken", "auditLog",
   "theme", // { style, palette } per tenant (P3-8)
+  "roleList", // house's own crew roles, one per line (P3-4 F18); empty/absent = the built-in department list
 ];
 
 // Fields whose photos the client renders immediately on boot, so GET re-inlines

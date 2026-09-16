@@ -34,6 +34,12 @@ export default {
     markPaid: "Mark Paid",
     // P3-4 OT mode labels (two different "flat" toggles sat side by side)
     flatOT: "Same rate every OT hour", variableOT: "Tiered by hour",
+    // P3-4 F18: the house's own crew-role list
+    settingsRoles: "Crew roles",
+    settingsRolesHint: "One role per line. Add a Thai name after a slash and a department after a bar: Gaffer / หัวหน้าไฟ | Lighting. Leave this empty to use the built-in department list.",
+    settingsRolesDefault: "using the built-in department list",
+    settingsRolesReset: "Use the built-in list",
+    countRoles: "{n} roles", countRolesOne: "{n} role",
     // P3-6 per-user LINE
     requestSentPending: "Sent to {house}. You will get a LINE message when it is approved once your LINE is linked, or check back here.",
     requestSentPendingLinked: "Sent to {house}, you will get a LINE message when approved.",
@@ -50,6 +56,7 @@ export default {
     // P1-11 overdue digest
     overdueDigestTitle: "Overdue gear digest",
     overdueDigestHint: "Every morning at 09:00 the house group (and each linked crew member) gets a LINE list of gear past its due date. Sent by the cron worker, nothing to do here.",
+    docRenumbered: "Another device had taken {from}. This document is now {to}.",
     // Sync
     syncFlushing: "Saving before you leave",
     // Em-dash sweep of base strings that are still on screen (copy rule 5)
@@ -102,6 +109,11 @@ export default {
     crewReturnToday: "คืนวันนี้ · แตะเพื่อคืน",
     markPaid: "บันทึกรับเงินแล้ว",
     flatOT: "โอทีอัตราเดียวทุกชั่วโมง", variableOT: "โอทีแบ่งช่วงตามชั่วโมง",
+    settingsRoles: "ตำแหน่งทีมงาน",
+    settingsRolesHint: "บรรทัดละหนึ่งตำแหน่ง ใส่ชื่อไทยหลังเครื่องหมาย / และแผนกหลังเครื่องหมาย | เช่น Gaffer / หัวหน้าไฟ | Lighting ปล่อยว่างไว้เพื่อใช้รายการแผนกมาตรฐาน",
+    settingsRolesDefault: "ใช้รายการแผนกมาตรฐาน",
+    settingsRolesReset: "กลับไปใช้รายการมาตรฐาน",
+    countRoles: "{n} ตำแหน่ง", countRolesOne: "{n} ตำแหน่ง",
     requestSentPending: "ส่งให้ {house} แล้ว ถ้าผูก LINE ไว้จะได้ข้อความตอนอนุมัติ หรือกลับมาดูที่นี่",
     requestSentPendingLinked: "ส่งให้ {house} แล้ว จะได้ข้อความ LINE เมื่ออนุมัติ",
     lineLinkTitle: "แจ้งเตือนทาง LINE",
@@ -116,6 +128,7 @@ export default {
     notifyGearApproved: "อนุมัติคำขอยืมของแล้ว", notifyGearDenied: "คำขอยืมของไม่ผ่าน",
     overdueDigestTitle: "สรุปของเกินกำหนด",
     overdueDigestHint: "ทุกเช้า 09:00 กลุ่มร้าน (และทีมงานที่ผูก LINE ไว้) จะได้รายการของที่เลยกำหนดคืนทาง LINE ส่งโดย cron worker ไม่ต้องทำอะไรตรงนี้",
+    docRenumbered: "เครื่องอื่นใช้เลข {from} ไปแล้ว เอกสารนี้เปลี่ยนเป็น {to}",
     syncFlushing: "กำลังบันทึกก่อนออก",
     dashApprovalsWaiting: "รายการรออนุมัติ ตรวจสอบ",
     coOfflineNoCapture: "ไม่มีการเชื่อมต่อ ยังบันทึกการยืม/คืนไม่ได้ตอนนี้",

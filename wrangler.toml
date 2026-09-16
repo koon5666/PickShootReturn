@@ -15,3 +15,10 @@ script_name = "pickshootreturn-presence"
 name = "CHAT"
 class_name = "ChatDO"
 script_name = "pickshootreturn-presence"
+
+# Optional off-site backup copies (P2-7): bind an R2 bucket as BACKUPS and every
+# manual / daily version is also written there as psr/<kind>/<date>/<id>.json.
+# Without the binding the export is a no-op and backups stay KV-only.
+# [[r2_buckets]]
+# binding = "BACKUPS"
+# bucket_name = "pickshootreturn-backups"

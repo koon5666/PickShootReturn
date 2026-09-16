@@ -2,11 +2,12 @@
 //   GET  /api/backup?list=1      -> { backups: [meta...] } newest first (manual/auto/safety + legacy)
 //   GET  /api/backup?id=<id>     -> the whole dataset of that version (photos inline, _profiles)
 //   GET  /api/backup             -> latest manual version (compat with the old single slot)
-//   PUT  /api/backup { label? }  -> create a manual version (snapshots full KV server-side)
+//   PUT  /api/backup { label? }  -> create a manual version (snapshots full KV server-side;
+//                                   also written to R2 when a BACKUPS bucket is bound)
 //   POST /api/backup { id }       -> restore that version (safety snapshot first; owner only)
 // Storage + rules: functions/_lib/backup.js. Admin session required (P0-2);
 // the actor is stamped on the backup label and in the audit log (P2-6).
-import { createBackup, listBackups, getBackup, restoreBackup } from "../_lib/backup.js";
+import { createBackup, listBackups, getBackup, restoreBackup, exportBackup } from "../_lib/backup.js";
 import { requireAdmin, requireOwner, readJson } from "../_lib/auth.js";
 import { appendAudit } from "../_lib/audit.js";
 
@@ -44,7 +45,9 @@ export async function onRequestPut(context) {
     const by = auth.session.name || "Admin";
     const meta = await createBackup(env.KV, { kind: "manual", label: (body.label ? String(body.label) + " " : "") + `(by ${by})` });
     await appendAudit(env.KV, auth.session, { action: "backup.create", recordId: meta.id, name: body.label || "" });
-    return Response.json({ ok: true, savedAt: meta.savedAt, id: meta.id, backup: meta }, { headers: CORS });
+    // Off-site copy when an R2 bucket is bound (P2-7); a no-op otherwise.
+    const off = await exportBackup(env, env.KV, meta.id);
+    return Response.json({ ok: true, savedAt: meta.savedAt, id: meta.id, backup: meta, ...(off.ok ? { exported: off.key } : {}) }, { headers: CORS });
   } catch (err) {
     return Response.json({ ok: false, error: String(err) }, { status: 500, headers: CORS });
   }

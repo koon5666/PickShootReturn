@@ -13,7 +13,7 @@ export const VERSIONED_FIELDS = [
   "equipment", "jobs", "employees", "reports", "productionCompanies", "companyName",
   "timezone", "timeFormat", "kpiConfig", "punishments", "kpiEvents",
   "photoVerification", "navOrder", "verificationConfig", "invoicePresets", "chatEnabled",
-  "theme",
+  "theme", "roleList",
 ];
 
 // { field: version } for the fields present in `payload` (only those the server
