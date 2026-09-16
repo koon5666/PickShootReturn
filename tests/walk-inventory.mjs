@@ -255,17 +255,19 @@ try {
   await expectText("overdue on TVC Toyota since");
   await shot("crew-gear");
   await clickText("button", "New Report", { wait: 500 });
-  await page.select("select", "eq_vmount");
+  // The report modal is portal-rendered (dialog primitive) and the Gear page now
+  // has its own sort <select>: scope every selector to the open dialog.
+  await page.select("[role=dialog] select", "eq_vmount");
   await sleep(200);
   await expectText("Units affected");
   await expectText("held out of service");
   await expectText("Not on a job");
-  await page.evaluate(() => { const i = document.querySelector('input[type="number"]'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(i, "2"); i.dispatchEvent(new Event("input", { bubbles: true })); });
-  const sels = await page.$$("select");
+  await page.evaluate(() => { const i = document.querySelector('[role=dialog] input[type="number"]'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(i, "2"); i.dispatchEvent(new Event("input", { bubbles: true })); });
+  const sels = await page.$$("[role=dialog] select");
   await sels[1].select("job1");
-  await page.type("textarea", "Two batteries swollen");
+  await page.type("[role=dialog] textarea", "Two batteries swollen");
   await shot("crew-report");
-  await clickText("button", "Submit", { wait: 800 });
+  await clickText("[role=dialog] button", "Submit", { wait: 800 });
   await clickText("button", "Back", { wait: 500 }).catch(() => {});
   await sleep(2500);
   await clickText("button", "Today", { wait: 600 });

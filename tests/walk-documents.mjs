@@ -360,7 +360,7 @@ try {
     await sleep(400);
     await clickText("INV-NG-26-0001", "p", false);
     await sleep(300);
-    await clickText("Edit", "button", false);
+    await clickText("แก้ไข", "button", false);
     await waitText("แก้ไขเอกสาร");
     if (!(await hasText("หัก ณ ที่จ่าย 3%"))) fail("Thai WHT toggle missing");
     await shot("crew-doc-modal-th");
