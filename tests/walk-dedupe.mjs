@@ -124,4 +124,51 @@ const soCrew = JSON.stringify(Object.fromEntries(cd.jobs.map(j => [j.id, jobChec
 if (soOwner !== soCrew) fail("owner and crew disagree on still-out");
 console.log("  ok  outUnits", soOwner);
 
+step("6. browser: the owner dashboard after the twins exist (real Chrome, no console errors)");
+{
+  const PUPPETEER = process.env.PUPPETEER_CORE
+    || "/private/tmp/claude-501/-Users-koonya-inta/bd16a78f-33be-43a8-91b5-db242cf9f6df/scratchpad/puptest/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
+  const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+  const { default: puppeteer } = await import(PUPPETEER);
+  const { mkdirSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const { dirname, resolve } = await import("node:path");
+  const SHOTS = resolve(dirname(fileURLToPath(import.meta.url)), ".dedupe-shots") + "/"; // (URL above is the server base)
+  mkdirSync(SHOTS, { recursive: true });
+  const ALLOW = [/ws:\/\/[^']*\/api\/(session|chat)/i, /\/api\/profile\/[^ ]* .*404/i, /Failed to load resource: the server responded with a status of (404|503)/i];
+  const errors = [];
+  const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ["--use-gl=angle", "--use-angle=swiftshader", "--no-sandbox"] });
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 900 });
+    page.on("pageerror", e => errors.push("pageerror: " + e.message));
+    page.on("console", m => { if (m.type() === "error" && !ALLOW.some(re => re.test(m.text()))) errors.push("console: " + m.text()); if (m.type() === "warning" && /same key|duplicate key/i.test(m.text())) errors.push("react: " + m.text()); });
+    await page.evaluateOnNewDocument(() => { try { localStorage.clear(); } catch {} });
+    await page.goto(URL, { waitUntil: "networkidle0", timeout: 60_000 });
+    const text = () => page.evaluate(() => document.body.innerText);
+    const wait = async (t, ms = 15_000) => { try { await page.waitForFunction(x => document.body.innerText.toLowerCase().includes(x), { timeout: ms }, t.toLowerCase()); } catch { await page.screenshot({ path: SHOTS + "fail.png" }); fail(`"${t}" never appeared`); } };
+    const click = async (txt, tag = "button", exact = true) => {
+      const pos = await page.evaluate((txt, tag, exact) => { const norm = s => s.replace(/\s+/g, " ").trim().toLowerCase(); const el = [...document.querySelectorAll(tag)].find(e => exact ? norm(e.textContent) === norm(txt) : norm(e.textContent).includes(norm(txt))); if (!el) return null; el.scrollIntoView({ block: "center" }); const r = el.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }, txt, tag, exact);
+      if (!pos) { await page.screenshot({ path: SHOTS + "fail.png" }); fail(`no <${tag}> "${txt}"`); }
+      await page.mouse.click(pos[0], pos[1]);
+    };
+    await wait("Crew / ทีมงาน");
+    await click("Rental house admin", "button", false); await wait("Enter PIN");
+    for (const d of "9999") await click(d);
+    await click("Unlock", "button", false);
+    await wait("Overview");
+    await new Promise(r => setTimeout(r, 800));
+    const body = await text();
+    // Not returned = the 4 batteries on job1 (FX6 came back through twin A, counted
+    // once) + Arthit's RS3 on job2 from the setup -> "5 units · 2 items", no FX6 row
+    const card = (body.match(/NOT RETURNED([\s\S]*?)GEAR REQUESTS/i) || ["", ""])[1];
+    if (!/5 units\s*·\s*2 items/i.test(card) || /Sony FX6/i.test(card)) { await page.screenshot({ path: SHOTS + "fail.png" }); fail("dashboard Not returned should read 5 units · 2 items without an FX6 row, got: " + card.replace(/\s+/g, " ").slice(0, 200)); }
+    await page.screenshot({ path: SHOTS + "01-dashboard.png" });
+    for (const [nav, expect] of [["Equipment", "Equipment Library"], ["Checkout", "Active Jobs"], ["Insights", "Utilisation"]]) { await click(nav); await wait(expect, 10_000); await new Promise(r => setTimeout(r, 300)); }
+    await page.screenshot({ path: SHOTS + "02-insights.png" });
+    if (errors.length) fail("browser errors: " + errors.join(" | "));
+    console.log("  ok  Not returned = 5 units · 2 items and no FX6 row, Equipment / Checkout / Insights render, no console errors (shots in " + SHOTS + ")");
+  } finally { await browser.close(); }
+}
+
 console.log("\nDEDUPE WALK PASSED");
