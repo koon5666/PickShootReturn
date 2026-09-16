@@ -6,7 +6,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "App.jsx"), "utf8");
+const SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
+// The api object lives in src/ui/shared.jsx (P3-8 code split); call sites are
+// spread over App.jsx, the shared kernel and every view chunk.
+const files = ["App.jsx", "ui/shared.jsx", "views/invoice.jsx", "views/calendar.jsx", "views/admin.jsx", "views/settings.jsx", "views/crew.jsx"];
+const src = files.map(f => readFileSync(join(SRC, f), "utf8")).join("\n");
 
 function definedApiMethods(text) {
   const start = text.indexOf("const api = {");
