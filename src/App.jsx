@@ -2,12 +2,12 @@ import { useState, useEffect, useRef, useCallback, createContext, useContext } f
 import jsQR from "jsqr";
 import { LANG } from "./i18n/index.js";
 import { hoursWorked, DEFAULT_OT_TIERS, calcOtAmount, calcVatBreakdown, calcTotal, otExample } from "./logic/money.js";
-import { versionsFor, rebasePayload } from "./logic/sync.js";
-import { availability, availabilitySpan, stillOutList, jobConflicts, jobHoldDates, unitsOutForEquipment, unitsOutForJob, buildReceiveEvents, jobFirstDate, jobLastDate, effPickupDate, effReturnDate, isOpenReport } from "./logic/availability.js";
+import { versionsFor, rebasePayload, pendingSave, adoptRemote } from "./logic/sync.js";
+import { availability, availabilitySpan, stillOutList, jobConflicts, jobHoldDates, unitsOutForEquipment, unitsOutForJob, buildReceiveEvents, jobFirstDate, jobLastDate, effPickupDate, effReturnDate, isOpenReport, unreconciledLost, reconcileLost } from "./logic/availability.js";
 import { filterHistory, historyCsv, downloadText } from "./logic/history.js";
 import { isPickEvt, isReturnEvt, isLostEvt, isVoidEvt, jobCheckoutState, outstandingQty, latestOpenPick, laneDone, stillOutAcrossJobs, geoGate, voidEvent, conditionKey, DEFAULT_DAY_START_HOUR, DEFAULT_GEO_THRESHOLD_M } from "./logic/checkoutState.js";
-import { derivePrefix, sanitizePrefix, nextDocNo, rtxNoFromInv, fmtDocNo } from "./logic/docNumber.js";
-import { printableItems, validateDocument, docTotals, snapshotBillTo, resolveBillTo, canEditCompany, dateInTz, dueDateFrom, canMarkPaid, embedFlags, docTitle, WHT_DEFAULT_RATE } from "./logic/invoiceDoc.js";
+import { derivePrefix, sanitizePrefix, nextDocNo, rtxNoFromInv, receiptNoFor, fmtDocNo } from "./logic/docNumber.js";
+import { printableItems, validateDocument, docTotals, snapshotBillTo, resolveBillTo, canEditCompany, fillableCompanyFields, dateInTz, dueDateFrom, canMarkPaid, embedFlags, docTitle, WHT_DEFAULT_RATE } from "./logic/invoiceDoc.js";
 import { roleOptions, DEFAULT_POSITION_NAMES } from "./logic/positions.js";
 import { ToastProvider, useToast } from "./components/toast.jsx";
 import { Dialog } from "./components/dialog.jsx";
@@ -49,7 +49,7 @@ const api = {
   audit: (entry) => post("/api/audit", entry).catch(() => {}),
   // data
   getData: () => fetch("/api/data").then(r => { if (!r.ok) { const e = new Error("load failed"); e.status = r.status; throw e; } return r.json(); }),
-  putData: (body) => fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  putData: (body, opts = {}) => fetch("/api/data", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), ...(opts.keepalive ? { keepalive: true } : {}) }),
   getProfile: (empId) => fetch(`/api/profile/${empId}`).then(r => r.ok ? r.json() : null),
   putProfile: (empId, profileObj) => fetch(`/api/profile/${empId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profileObj) }),
   notify: (body) => fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {}),
@@ -140,26 +140,30 @@ const PALETTES = {
 const hexRgb = (h) => { const n = parseInt(h.replace("#",""), 16); return `${(n>>16)&255},${(n>>8)&255},${n&255}`; };
 const isLight = (hex) => { const n = parseInt(hex.replace("#",""),16); const r=(n>>16)&255,g=(n>>8)&255,b=n&255; return (0.299*r+0.587*g+0.114*b)>128; };
 
+// Dialogs portal to <body> (outside #admin-layout), so the palette variables are
+// also emitted for a dialog backdrop while an admin is logged in (body.psr-admin,
+// toggled by the theme effect). The crew portal never gets the admin palette.
+const THEME_SCOPE = "#admin-layout,body.psr-admin [data-dialog-backdrop]";
 function buildThemeCss(style, palette) {
   const p = PALETTES[palette]; if (!p) return "";
   const light = isLight(p.bg);
   const [accR, s1R, bgR, txtR] = [hexRgb(p.acc), hexRgb(p.s1), hexRgb(p.bg), hexRgb(p.text)];
 
-  const base = `#admin-layout{--bg:${p.bg};--surface:${p.s1};--surface2:${p.s2};--border-color:${p.bdr};--text:${p.text};--text-muted:${p.muted};--accent:${p.acc};--accent-rgb:${accR};--accent-text:${p.accT};--logo-bg:${light ? "#16324A" : p.s2};--btn-primary-bg:${p.acc};--btn-primary-color:${p.accT};--section-title-color:${p.muted};--divider-color:${p.bdr};--tag-bg:${p.s2};--tag-color:${p.muted};}`;
+  const base = `${THEME_SCOPE}{--bg:${p.bg};--surface:${p.s1};--surface2:${p.s2};--border-color:${p.bdr};--text:${p.text};--text-muted:${p.muted};--accent:${p.acc};--accent-rgb:${accR};--accent-text:${p.accT};--logo-bg:${light ? "#16324A" : p.s2};--btn-primary-bg:${p.acc};--btn-primary-color:${p.accT};--section-title-color:${p.muted};--divider-color:${p.bdr};--tag-bg:${p.s2};--tag-color:${p.muted};}`;
 
   let sv = "";
   if (style === "flat") {
     // Shop Job Board look: plain white planes, hairline borders, one soft shadow, no blur
     const sh = light ? "0 1px 2px rgba(22,50,74,0.06),0 4px 16px rgba(22,50,74,0.08)" : "0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.3)";
-    sv = `#admin-layout{--card-border:1px solid ${p.bdr};--card-radius:10px;--card-backdrop:none;--card-shadow:${sh};--input-bg:${p.s1};--input-border:1px solid ${p.bdr};--input-shadow:none;--btn-radius:6px;--btn-shadow:none;--topbar-bg:${p.s1};--topbar-border:1px solid ${p.bdr};--topbar-shadow:none;--nav-bg:${p.s1};--nav-border:1px solid ${p.bdr};--nav-shadow:none;}`;
+    sv = `${THEME_SCOPE}{--card-border:1px solid ${p.bdr};--card-radius:10px;--card-backdrop:none;--card-shadow:${sh};--input-bg:${p.s1};--input-border:1px solid ${p.bdr};--input-shadow:none;--btn-radius:6px;--btn-shadow:none;--topbar-bg:${p.s1};--topbar-border:1px solid ${p.bdr};--topbar-shadow:none;--nav-bg:${p.s1};--nav-border:1px solid ${p.bdr};--nav-shadow:none;}`;
   } else if (style === "neumorphism") {
     const dSh = light ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.48)";
     const lSh = light ? "rgba(255,255,255,0.88)" : "rgba(255,255,255,0.04)";
-    sv = `#admin-layout{--card-border:none;--card-radius:18px;--card-backdrop:none;--card-shadow:8px 8px 18px ${dSh},-5px -5px 12px ${lSh};--input-bg:${p.bg};--input-border:none;--input-shadow:inset 4px 4px 9px ${dSh},inset -3px -3px 6px ${lSh};--btn-radius:12px;--btn-shadow:5px 5px 12px ${dSh},-3px -3px 7px ${lSh};--topbar-bg:${p.s1};--topbar-border:none;--topbar-shadow:0 4px 18px ${dSh};--nav-bg:${p.s1};--nav-border:none;--nav-shadow:0 -4px 18px ${dSh};}`;
+    sv = `${THEME_SCOPE}{--card-border:none;--card-radius:18px;--card-backdrop:none;--card-shadow:8px 8px 18px ${dSh},-5px -5px 12px ${lSh};--input-bg:${p.bg};--input-border:none;--input-shadow:inset 4px 4px 9px ${dSh},inset -3px -3px 6px ${lSh};--btn-radius:12px;--btn-shadow:5px 5px 12px ${dSh},-3px -3px 7px ${lSh};--topbar-bg:${p.s1};--topbar-border:none;--topbar-shadow:0 4px 18px ${dSh};--nav-bg:${p.s1};--nav-border:none;--nav-shadow:0 -4px 18px ${dSh};}`;
   } else if (style === "glassmorphism") {
-    sv = `#admin-layout{--bg:radial-gradient(ellipse at 20% 20%,rgba(${accR},0.22) 0%,transparent 52%),radial-gradient(ellipse at 80% 78%,rgba(${s1R},0.42) 0%,transparent 55%),${p.bg};--surface:rgba(${s1R},0.2);--card-border:1px solid rgba(${txtR},0.1);--card-radius:16px;--card-shadow:0 8px 32px rgba(0,0,0,0.25);--card-backdrop:blur(20px);--input-bg:rgba(${bgR},0.52);--input-border:1px solid rgba(${txtR},0.14);--input-shadow:none;--btn-radius:10px;--btn-shadow:0 4px 16px rgba(0,0,0,0.2);--topbar-bg:rgba(${bgR},0.65);--topbar-border:none;--topbar-shadow:none;--nav-bg:rgba(${bgR},0.72);--nav-border:none;--nav-shadow:none;--tag-bg:rgba(${s1R},0.45);}`;
+    sv = `${THEME_SCOPE}{--bg:radial-gradient(ellipse at 20% 20%,rgba(${accR},0.22) 0%,transparent 52%),radial-gradient(ellipse at 80% 78%,rgba(${s1R},0.42) 0%,transparent 55%),${p.bg};--surface:rgba(${s1R},0.2);--card-border:1px solid rgba(${txtR},0.1);--card-radius:16px;--card-shadow:0 8px 32px rgba(0,0,0,0.25);--card-backdrop:blur(20px);--input-bg:rgba(${bgR},0.52);--input-border:1px solid rgba(${txtR},0.14);--input-shadow:none;--btn-radius:10px;--btn-shadow:0 4px 16px rgba(0,0,0,0.2);--topbar-bg:rgba(${bgR},0.65);--topbar-border:none;--topbar-shadow:none;--nav-bg:rgba(${bgR},0.72);--nav-border:none;--nav-shadow:none;--tag-bg:rgba(${s1R},0.45);}`;
   } else if (style === "skeuomorphism") {
-    sv = `#admin-layout{--surface:linear-gradient(145deg,${p.s2} 0%,${p.s1} 100%);--card-border:1px solid ${p.bdr};--card-radius:8px;--card-backdrop:none;--card-shadow:0 2px 0 rgba(0,0,0,0.5),0 6px 20px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.07);--input-bg:${p.bg};--input-border:2px solid ${p.bdr};--input-shadow:inset 0 2px 5px rgba(0,0,0,0.45);--btn-radius:6px;--btn-shadow:0 3px 0 rgba(0,0,0,0.5),0 5px 12px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.15);--topbar-bg:linear-gradient(180deg,${p.s2} 0%,${p.bg} 100%);--topbar-border:1px solid ${p.bdr};--topbar-shadow:0 3px 12px rgba(0,0,0,0.4);--nav-bg:linear-gradient(0deg,${p.bg} 0%,${p.s2} 100%);--nav-border:1px solid ${p.bdr};--nav-shadow:0 -3px 12px rgba(0,0,0,0.4);}`;
+    sv = `${THEME_SCOPE}{--surface:linear-gradient(145deg,${p.s2} 0%,${p.s1} 100%);--card-border:1px solid ${p.bdr};--card-radius:8px;--card-backdrop:none;--card-shadow:0 2px 0 rgba(0,0,0,0.5),0 6px 20px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.07);--input-bg:${p.bg};--input-border:2px solid ${p.bdr};--input-shadow:inset 0 2px 5px rgba(0,0,0,0.45);--btn-radius:6px;--btn-shadow:0 3px 0 rgba(0,0,0,0.5),0 5px 12px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.15);--topbar-bg:linear-gradient(180deg,${p.s2} 0%,${p.bg} 100%);--topbar-border:1px solid ${p.bdr};--topbar-shadow:0 3px 12px rgba(0,0,0,0.4);--nav-bg:linear-gradient(0deg,${p.bg} 0%,${p.s2} 100%);--nav-border:1px solid ${p.bdr};--nav-shadow:0 -3px 12px rgba(0,0,0,0.4);}`;
   }
   return base + sv;
 }
@@ -599,7 +603,7 @@ function QRScanner({ onScan, onClose, label }) {
           videoRef.current.play().then(() => { setStatus("scanning"); tick(); }).catch(() => setErr("Camera error."));
         }
       })
-      .catch(() => setErr("Camera access denied — allow camera in browser settings."));
+      .catch(() => setErr("Camera access denied. Allow the camera in your browser settings."));
 
     const tick = () => {
       if (stopped || scannedRef.current) return;
@@ -710,6 +714,7 @@ function describeReasons(reasons, t) {
     if (r.kind === "out") return fill(r.gone ? "avStillOutGone" : r.overdue ? "avStillOutOverdue" : "avStillOut");
     if (r.kind === "loan") return fill("avLoan");
     if (r.kind === "damage") return fill("avDamage");
+    if (r.kind === "lost") return fill("avLost");
     if (r.kind === "pencil") return fill("avPencil");
     return "";
   }).filter(Boolean);
@@ -726,7 +731,7 @@ function AvChip({ av, t, size = 10 }) {
 function AvReasons({ av, t, max = 2, style }) {
   const lines = describeReasons(av.reasons, t);
   if (!lines.length) return null;
-  const hasBad = (av.reasons || []).some(r => r.kind === "out" || r.kind === "damage");
+  const hasBad = (av.reasons || []).some(r => r.kind === "out" || r.kind === "damage" || r.kind === "lost");
   return (
     <div title={lines.join("\n")} style={{ fontSize: 10, lineHeight: 1.35, color: hasBad ? "#C53030" : "var(--text-muted,#5F7A91)", ...style }}>
       {lines.slice(0, max).map((l, i) => <div key={i} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l}</div>)}
@@ -903,6 +908,28 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
             <div style={{ marginTop: 3 }}><AvailBar available={Math.max(0, eq.available)} total={eq.total} /></div>
             {eq.available < 0 && <p style={{ margin: "2px 0 0", fontSize: 10, fontWeight: 700, color: "#C53030" }}>{t("avOverbooked").replace("{n}", -eq.available)}</p>}
             <AvReasons av={eq} t={t} style={{ marginTop: 2 }} />
+            {(() => {
+              // P0-4: units the admin marked lost / written off stay off the shelf
+              // (subtracted above) until they are taken out of stock or found.
+              const open = unreconciledLost(eq, checkouts);
+              if (!open) return null;
+              const to = Math.max(0, (+eq.total || 0) - open);
+              return (
+                <div data-testid={`lost-open-${eq.id}`} style={{ marginTop: 4, padding: "6px 8px", borderRadius: 6, background: "rgba(197,48,48,0.07)", border: "1px solid rgba(197,48,48,0.25)" }}>
+                  <p style={{ margin: 0, fontSize: 10, fontWeight: 700, color: "#C53030", lineHeight: 1.35 }}>{t("eqLostOpen").replace("{n}", open).replace("{total}", eq.total)}</p>
+                  <div style={{ display: "flex", gap: 4, marginTop: 5, flexWrap: "wrap" }}>
+                    <button style={{ ...S.btn("danger"), padding: "3px 7px", fontSize: 10 }} data-testid={`lost-remove-${eq.id}`}
+                      onClick={() => { if (window.confirm(t("eqLostRemoveConfirm").replace("{n}", open).replace("{to}", to))) { setEquipment(p => p.map(e => e.id === eq.id ? reconcileLost(e, checkouts, "remove", open) : e)); api.audit({ action: "equipment.lost_remove", recordId: eq.id, name: eq.name, detail: `${open} of ${eq.total}` }); } }}>
+                      {t("eqLostRemove").replace("{from}", eq.total).replace("{to}", to)}
+                    </button>
+                    <button style={{ ...S.btn("ghost"), padding: "3px 7px", fontSize: 10 }} data-testid={`lost-found-${eq.id}`}
+                      onClick={() => { setEquipment(p => p.map(e => e.id === eq.id ? reconcileLost(e, checkouts, "found", open) : e)); api.audit({ action: "equipment.lost_found", recordId: eq.id, name: eq.name, detail: String(open) }); }}>
+                      {t("eqLostFound")}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
             <div style={{ display: "flex", gap: 3, marginTop: 5, justifyContent: "flex-end" }}>
               {selectMode ? (
                 <button style={{ ...S.btn(selectedIds.has(eq.id) ? "primary" : "ghost"), padding: "3px 8px", fontSize: 11 }}
@@ -1035,7 +1062,7 @@ function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setR
           downloadText(`history-${(histTarget.name || histTarget.id).replace(/[^\w.-]+/g, "_")}.csv`, historyCsv(all, { eqName: histTarget.name, tz: APP_TZ }));
         };
         return (
-        <Modal title={`${t("eqHistoryTitle")} — ${histTarget.name}`} onClose={() => setModal(null)} wide>
+        <Modal title={`${t("eqHistoryTitle")}: ${histTarget.name}`} onClose={() => setModal(null)} wide>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 12 }}>
             <div><label style={S.label}>{t("histFrom")}</label><input type="date" style={{ ...S.input, width: 150 }} value={histRange.from} max={histRange.to || undefined} onChange={e => { setHistRange(r => ({ ...r, from: e.target.value })); setHistLimit(20); }} /></div>
             <div><label style={S.label}>{t("histTo")}</label><input type="date" style={{ ...S.input, width: 150 }} value={histRange.to} min={histRange.from || undefined} onChange={e => { setHistRange(r => ({ ...r, to: e.target.value })); setHistLimit(20); }} /></div>
@@ -1442,9 +1469,11 @@ function applyPaidChange(list, inv, change) {
 // receipt (null when the invoice is not paid or already has a live receipt).
 function issueReceiptFor(list, inv, tz) {
   if ((inv.status || "Pending") !== "Paid") return { list, receipt: null };
-  const rtxNo = rtxNoFromInv(inv.invoiceNo);
-  const live = list.find(i => !i._deleted && i.docType === "receipt" && i.status !== "Void" && (i.linkedInvId === inv.id || i.invoiceNo === rtxNo));
+  const live = list.find(i => !i._deleted && i.docType === "receipt" && i.status !== "Void" && (i.linkedInvId === inv.id || i.invoiceNo === rtxNoFromInv(inv.invoiceNo)));
   if (live) return { list, receipt: null };
+  // Mirrors the INV number once; a voided / deleted receipt burned that string,
+  // so a re-issue takes the next free RTX number (P0-8: never reused).
+  const rtxNo = receiptNoFor(inv, list);
   const now = Date.now();
   const receipt = {
     id: `rtx-${inv.id}-${now}`, invoiceNo: rtxNo,
@@ -1552,7 +1581,7 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
   const effectivePrefix = isAdminCreator ? sanitizePrefix(invoicePrefix || employee?.invoicePrefix) : derivePrefix({ invoicePrefix: invoicePrefix || employee?.invoicePrefix, nickname: profileInfo?.nickname, firstName: profileInfo?.firstName, name: employee?.name, id: employee?.id });
   const previewNo = (() => {
     if (existingInvoice) return fmtInvoiceNo(existingInvoice);
-    if (docType === "receipt" && linkedInvId) { const li = (allInvoices || []).find(i => i.id === linkedInvId); if (li) return rtxNoFromInv(li.invoiceNo); }
+    if (docType === "receipt" && linkedInvId) { const li = (allInvoices || []).find(i => i.id === linkedInvId); if (li) return receiptNoFor(li, allInvoices || []); }
     return nextDocNo({ docType, prefix: effectivePrefix, issuerId: employee?.id, invoices: allInvoices || [] });
   })();
 
@@ -1576,7 +1605,7 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
       // Number reserved here, on first Save (P0-8). Scoped per issuer (P0-6).
       if (docType === "receipt" && linkedInvId) {
         const linkedInv = (allInvoices || []).find(i => i.id === linkedInvId);
-        invNo = linkedInv ? rtxNoFromInv(linkedInv.invoiceNo) : nextDocNo({ docType, prefix: effectivePrefix, issuerId: employee?.id, invoices: allInvoices || [] });
+        invNo = linkedInv ? receiptNoFor(linkedInv, allInvoices || []) : nextDocNo({ docType, prefix: effectivePrefix, issuerId: employee?.id, invoices: allInvoices || [] });
       } else {
         invNo = nextDocNo({ docType, prefix: effectivePrefix, issuerId: employee?.id, invoices: allInvoices || [] });
       }
@@ -1701,7 +1730,7 @@ function InvoiceCreateModal({ job, existingInvoice, draft = null, employee, posi
                       </select>
                       {linkedInvId && (() => {
                         const li = paidInvs.find(i => i.id === linkedInvId);
-                        return li ? <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", margin: "5px 0 0" }}>{t("docRtxWillUse").replace("{no}", rtxNoFromInv(li.invoiceNo))}</p> : null;
+                        return li ? <p style={{ fontSize: 11, color: "var(--accent,#2563EB)", margin: "5px 0 0" }}>{t("docRtxWillUse").replace("{no}", receiptNoFor(li, allInvoices || []))}</p> : null;
                       })()}
                     </>
                   )}
@@ -2169,7 +2198,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
     <Modal title={editTarget ? t("editJob") : t("newJob")} onClose={onClose} wide>
       <div style={S.col}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div style={{ gridColumn: "1/-1" }}><label style={S.label}>{t("jobNameField")}</label><input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. TVC Toyota — Hero Film" /></div>
+          <div style={{ gridColumn: "1/-1" }}><label style={S.label}>{t("jobNameField")}</label><input style={S.input} value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. TVC Toyota Hero Film" /></div>
           <div style={{ gridColumn: "1/-1" }}>
             <label style={S.label}>{t("productionCoField")}</label>
             <ProductionCombobox value={form.production} onChange={v => setForm(p => ({ ...p, production: v }))} companies={productionCompanies} />
@@ -2270,7 +2299,7 @@ function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employee
         {/* Per-date location / time overrides */}
         {form.dates.length > 0 && (
           <div>
-            <label style={S.label}>Per-date overrides <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400 }}>(optional — overrides the defaults above for specific dates)</span></label>
+            <label style={S.label}>Per-date overrides <span style={{ color: "var(--text-muted,#5F7A91)", fontWeight: 400 }}>(optional, overrides the defaults above for specific dates)</span></label>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {[...form.dates].sort().map(ds => {
                 const ov = (form.dateOverrides || {})[ds] || {};
@@ -2540,7 +2569,7 @@ function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, em
 
       {/* Assign Equipment Modal — kanban style */}
       {modal === "assign" && assignTarget && (
-        <Modal title={`${t("jobAssignGear")} — ${assignTarget.name}`} onClose={() => setModal(null)} wide>
+        <Modal title={`${t("jobAssignGear")}: ${assignTarget.name}`} onClose={() => setModal(null)} wide>
           {/* Return mode selector */}
           <div style={{ marginBottom: 18 }}>
             <p style={{ ...S.label, marginBottom: 8 }}>{t("jobReturnMode")}</p>
@@ -3139,7 +3168,8 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
                 {approvalFilter === "pending" ? t("dashNoPending") : approvalFilter === "resolved" ? t("dashNoResolved") : t("dashNoAll")}
               </p>
             )}
-            <div style={{ maxHeight: 520, overflowY: rows.length > 6 ? "auto" : "visible", margin: "0 -4px", padding: "0 4px" }}>
+            {/* No height cap with overflow visible: an expanded geo-return photo used to push its Approve / Reject under the next card. */}
+            <div style={{ maxHeight: rows.length > 6 ? 640 : "none", overflowY: rows.length > 6 ? "auto" : "visible", margin: "0 -4px", padding: "0 4px" }}>
             {rows.map((row, i, arr) => {
               const divider = { paddingBottom: i < arr.length - 1 ? 12 : 0, marginBottom: i < arr.length - 1 ? 12 : 0, borderBottom: i < arr.length - 1 ? "1px solid var(--divider-color,#D8E1EC)" : "none" };
               if (row.kind === "geo-group") {
@@ -3534,7 +3564,7 @@ function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, prod
               <div>
                 <p style={S.label}>{t("dashPurpose")}</p>
                 <p style={{ fontSize: 13, color: "var(--text,#16324A)", margin: 0 }}>
-                  {req.purpose === "work" ? `${t("teamWork")} — ${req.jobName || ""}${req.productionName ? ` (${req.productionName})` : ""}` : t("purposePractice")}
+                  {req.purpose === "work" ? `${t("teamWork")}: ${req.jobName || ""}${req.productionName ? ` (${req.productionName})` : ""}` : t("purposePractice")}
                 </p>
               </div>
 
@@ -3755,7 +3785,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   const earlyReqPending = (type, jobId) => (adminRequests || []).some(r => r.type === type && r.status === "pending" && r.jobId === jobId && r.employeeId === employee.id);
   const submitEarlyRequest = (type, job) => {
     const label = type === "early-pickup" ? "Early pickup" : "Early return";
-    setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type, status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: job.id, jobName: job.name, requestedDate: todayStr, name: `${label} — ${job.name}` }]);
+    setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type, status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: job.id, jobName: job.name, requestedDate: todayStr, name: `${label}: ${job.name}` }]);
     if (lineGroupId && !lineNotifyMuted) {
       const emoji = type === "early-pickup" ? "⏰" : "🔙";
       api.notify({ userIds: [lineGroupId], message: `${emoji} [${label} Request] ${employee.name}\n🎬 ${job.name}\n📅 ${formatDate(todayStr)}\n🔗 https://pickshootreturn.pages.dev` });
@@ -3765,6 +3795,10 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
   // ── Verification mode helpers ────────────────────────────────────────────────
   const vMode = verificationConfig?.mode || "photo";
   const isAdmin = employee.id === "admin";
+
+  // P2-2: an open damage report on an item warns on the pick row (the unit is
+  // out of service; the house may still hand it over knowingly).
+  const openReportFor = (eqId) => (reports || []).find(r => isOpenReport(r) && r.eqId === eqId) || null;
 
   // Which lanes this employee can perform for a given job.
   // Admin always gets both. "anyone" means any crew member can do that lane.
@@ -3776,7 +3810,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
     if (vMode === "both") return { barcode: canBarcode, photo: canPhoto };
     if (vMode === "barcode") return { barcode: canBarcode, photo: false };
     if (vMode === "photo") return { barcode: false, photo: canPhoto };
-    return { barcode: false, photo: false }; // "none"
+    // "none": the photo lane doubles as the tap lane (onTapItem commits without a
+    // photo when vMode === "none"), so the crew still gets an Out / Return button.
+    return { barcode: false, photo: canPhoto };
   };
 
   // Count-based checkout state (src/logic/checkoutState.js): picked - returned - lost
@@ -4114,6 +4150,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                       {eq.category} · {isReturn ? t("outOfN").replace("{out}", out).replace("{total}", ae.qty) : `${t("qty")}: ${ae.qty}`}
                       {counts?.missing && out > 0 && <span style={{ ...S.badge("red"), marginLeft: 6 }}>{t("missingN").replace("{n}", out)}</span>}
                     </p>
+                    {!isReturn && !done && openReportFor(ae.eqId) && (
+                      <p data-testid={`damage-banner-${ae.eqId}`} style={{ margin: "4px 0 0", fontSize: 11, fontWeight: 700, color: "#C53030", lineHeight: 1.4 }}>⚠ {t("pickDamageBanner")}{openReportFor(ae.eqId).description ? ` (${openReportFor(ae.eqId).description})` : ""}</p>
+                    )}
                     {pend && (
                       <div style={{ margin: "6px 0 0" }}>
                         <p style={{ margin: 0, fontSize: 11, color: "#C53030", fontWeight: 600 }}>⚠ {t("geoSentForApproval")}</p>
@@ -4280,24 +4319,29 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
         // Shared list: only the crew who added a company (or an admin) may edit it (P2-9). Others see it read-only.
         const editing = adminReqForm.id ? (productionCompanies || []).find(c => c.id === adminReqForm.id) : null;
         const readOnly = !!editing && !canEditCompany(editing, { id: employee.id, role: "employee" });
+        // A shared company the crew does not own: its EMPTY billing fields can still
+        // be filled in (the house needs an address on the document); filled ones lock.
+        const editable = editing ? fillableCompanyFields(editing, { id: employee.id, role: "employee" }) : ["name", "address", "taxId", "branch"];
+        const locked = (key) => !editable.includes(key);
+        const canSave = !readOnly || editable.length > 0;
         const field = (key, label, ph, extra = {}) => (
           <div>
             <label style={S.label}>{label}</label>
-            <input style={{ ...S.input, ...(readOnly ? { background: "var(--surface2,#EAF0F7)", color: "var(--text-muted,#5F7A91)" } : {}) }} value={adminReqForm[key] || ""} readOnly={readOnly} onChange={e => setAdminReqForm(p => ({ ...p, [key]: e.target.value }))} placeholder={readOnly ? "" : ph} {...extra} />
+            <input style={{ ...S.input, ...(locked(key) ? { background: "var(--surface2,#EAF0F7)", color: "var(--text-muted,#5F7A91)" } : {}) }} value={adminReqForm[key] || ""} readOnly={locked(key)} onChange={e => setAdminReqForm(p => ({ ...p, [key]: e.target.value }))} placeholder={locked(key) ? "" : ph} {...extra} />
           </div>
         );
         return (
-        <Modal title={adminReqForm.id ? t("prodHouseEditTitle") : t("prodHouseAddTitle")} dirty={!readOnly && (editing ? ["name", "address", "taxId", "branch"].some(k => (adminReqForm[k] || "") !== (editing[k] || "")) : !!(adminReqForm.name || adminReqForm.address))} onClose={() => setShowAdminReqModal(null)}>
+        <Modal title={adminReqForm.id ? t("prodHouseEditTitle") : t("prodHouseAddTitle")} dirty={canSave && (editing ? ["name", "address", "taxId", "branch"].some(k => (adminReqForm[k] || "") !== (editing[k] || "")) : !!(adminReqForm.name || adminReqForm.address))} onClose={() => setShowAdminReqModal(null)}>
           <div style={S.col}>
             {readOnly && (
               <div style={{ ...S.card, padding: "10px 14px", background: "rgba(var(--accent-rgb,37,99,235),0.05)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)" }}>
-                <p style={{ margin: 0, fontSize: 12, color: "var(--text,#16324A)", lineHeight: 1.5, display: "flex", gap: 6, alignItems: "flex-start" }}><Icon d={icons.lock} size={14} style={{ flexShrink: 0, marginTop: 2 }} /> <span>{t("prodHouseReadOnly").replace("{name}", editing.addedByName || (editing.addedBy ? t("teammate") : companyName || t("theHouse")))}</span></p>
+                <p style={{ margin: 0, fontSize: 12, color: "var(--text,#16324A)", lineHeight: 1.5, display: "flex", gap: 6, alignItems: "flex-start" }}><Icon d={icons.lock} size={14} style={{ flexShrink: 0, marginTop: 2 }} /> <span>{t(editable.length ? "prodHouseFillIn" : "prodHouseReadOnly").replace("{name}", editing.addedByName || (editing.addedBy ? t("teammate") : companyName || t("theHouse")))}</span></p>
               </div>
             )}
             {field("name", t("prodHouseName"), "e.g. Thai Film Co.", { autoFocus: !adminReqForm.id })}
             <div>
               <label style={S.label}>{t("billingAddress")}</label>
-              <textarea style={{ ...S.input, height: 80, resize: "vertical", ...(readOnly ? { background: "var(--surface2,#EAF0F7)", color: "var(--text-muted,#5F7A91)" } : {}) }} value={adminReqForm.address || ""} readOnly={readOnly} onChange={e => setAdminReqForm(p => ({ ...p, address: e.target.value }))} placeholder={t("billingAddressPh")} autoFocus={!!adminReqForm.id && !readOnly} />
+              <textarea style={{ ...S.input, height: 80, resize: "vertical", ...(locked("address") ? { background: "var(--surface2,#EAF0F7)", color: "var(--text-muted,#5F7A91)" } : {}) }} value={adminReqForm.address || ""} readOnly={locked("address")} onChange={e => setAdminReqForm(p => ({ ...p, address: e.target.value }))} placeholder={locked("address") ? "" : t("billingAddressPh")} autoFocus={!!adminReqForm.id && !locked("address")} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {field("taxId", t("prodHouseTaxId"), "0105551234567", { inputMode: "numeric", maxLength: 17 })}
@@ -4305,8 +4349,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
             </div>
             {adminReqMsg && <p style={{ fontSize: 12, color: adminReqMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{adminReqMsg.text}</p>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>{readOnly ? t("back") : t("cancel")}</button>
-              {!readOnly && <button style={S.btn("primary")} onClick={() => {
+              <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>{canSave ? t("cancel") : t("back")}</button>
+              {canSave && <button style={S.btn("primary")} onClick={() => {
                 const name = (adminReqForm.name || "").trim();
                 const address = (adminReqForm.address || "").trim();
                 const taxId = (adminReqForm.taxId || "").trim();
@@ -4314,6 +4358,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                 if (!name) { setAdminReqMsg({ ok: false, text: t("prodHouseNameRequired") }); return; }
                 setProductionCompanies(prev => {
                   const list = prev || [];
+                  // Shared company: only the empty fields are filled (the server enforces the same rule).
+                  if (adminReqForm.id && readOnly) return list.map(c => c.id === adminReqForm.id ? { ...c, ...Object.fromEntries(editable.map(k => [k, { address, taxId, branch }[k]])) } : c);
                   if (adminReqForm.id) return list.map(c => c.id === adminReqForm.id ? { ...c, name, address, taxId, branch } : c);
                   // Same name already registered (e.g. auto-added from a booking with no address) → fill it in, never duplicate
                   const dup = list.find(c => (c.name || "").trim().toLowerCase() === name.toLowerCase());
@@ -4366,7 +4412,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                         <div key={job.id} style={{ ...S.card, background: "var(--surface2,#EAF0F7)", cursor: canReturn ? "pointer" : "default", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }} onClick={() => canReturn && selectJob(job, true)}>
                           <span style={{ ...S.badge("amber", "md"), flexShrink: 0 }}>{outCount} {t("outBadge")}</span>
                           {missingUnits > 0 && <span style={{ ...S.badge("red", "md"), flexShrink: 0 }}>{t("missingN").replace("{n}", missingUnits)}</span>}
-                          <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ flex: "1 1 160px", minWidth: 0 }}>
                             <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{job.name}{job.__reqId ? <span style={{ ...S.badge("blue"), marginLeft: 6 }}>{t("requestBadge")}</span> : null}</p>
                             <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{job.dates?.map(d => formatDate(d)).join(", ")}</p>
                             {(() => {
@@ -4383,7 +4429,8 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           ) : erPending ? (
                             <span style={{ ...S.badge("amber", "md"), flexShrink: 0 }}>{t("returnReqPending")}</span>
                           ) : (
-                            <button style={{ ...S.btn("ghost", "lg"), flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); submitEarlyRequest("early-return", job); }}>{t("requestEarlyReturn")}</button>
+                            /* full-width row under the title at phone width (flex-basis 160px above forces the wrap), so the job name is never squeezed to one word per line */
+                            <button style={{ ...S.btn("ghost", "lg"), flex: "1 0 100%", justifyContent: "center" }} onClick={(e) => { e.stopPropagation(); submitEarlyRequest("early-return", job); }}>{t("requestEarlyReturn")}</button>
                           )}
                         </div>
                       );
@@ -4774,7 +4821,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                           groups[key].days.push(dt.getDate());
                         });
                         const dateStr = Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
-                        const purposeStr = gearReqForm.purpose === "work" ? `Job: ${gearReqForm.jobName}${gearReqForm.productionName ? ` — ${gearReqForm.productionName}` : ""}` : "Purpose: Practice";
+                        const purposeStr = gearReqForm.purpose === "work" ? `Job: ${gearReqForm.jobName}${gearReqForm.productionName ? ` (${gearReqForm.productionName})` : ""}` : "Purpose: Practice";
                         const msg = `📦 [Gear Request] ${employee.name}\n🎥 ${itemLabel}${dateStr ? `\n📅 ${dateStr}` : ""}\n💼 ${purposeStr}\n🔗 https://pickshootreturn.pages.dev`;
                         api.notify({ userIds: [lineGroupId], message: msg });
                       }
@@ -5607,7 +5654,7 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                               ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)", whiteSpace: "pre-wrap" }}>{co.address}</p>
                               : <p style={{ margin: "2px 0 0", fontSize: 11, color: "#B7791F", fontStyle: "italic" }}>{t("noBillingAddress")}</p>}
                           </div>
-                          <Icon d={canEditCompany(co, { id: employee.id, role: "employee" }) ? icons.edit : icons.lock} size={14} color="var(--text-muted,#5F7A91)" />
+                          <Icon d={fillableCompanyFields(co, { id: employee.id, role: "employee" }).length ? icons.edit : icons.lock} size={14} color="var(--text-muted,#5F7A91)" />
                         </div>
                       ))}
                       {legacyPending.map(req => (
@@ -5736,9 +5783,9 @@ function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, repo
                                 {!liveReceiptFor(inv) && <button style={S.btn("success", "md")} onClick={() => issueReceipt(inv)}><Icon d={icons.receipt} size={14} /> {t("issueReceipt")}</button>}
                                 <button style={S.btn("ghost", "md")} onClick={() => setPaidDialog({ mode: "unpaid", inv })}>{t("markPending")}</button>
                               </>)}
-                              <button style={{ ...S.btn("danger", "md"), minWidth: 36 }} aria-label={t("deleteBtn")} title={t("deleteBtn")} onClick={() => delInvoice(inv.id)}>
+                              {!isVoid && <button style={{ ...S.btn("danger", "md"), minWidth: 36 }} aria-label={t("deleteBtn")} title={t("deleteBtn")} onClick={() => delInvoice(inv.id)}>
                                 <Icon d={icons.trash} size={14} />
-                              </button>
+                              </button>}
                             </div>
                             {inv.share?.key && (
                               <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
@@ -6486,7 +6533,7 @@ function TeamPage({ employees, setEmployees, setEmployeePin, equipmentRequests, 
                     ))}
                   </div>
                   {!isAdd && (punishments || []).length > 0 && (
-                    <select style={S.select} value={kpiForm.punishmentId} onChange={e => { const pun = (punishments || []).find(x => x.id === e.target.value); setKpiForm(f => ({ punishmentId: e.target.value, points: pun ? String(pun.points) : f.points, reason: pun ? (pun.label + (pun.description ? ` — ${pun.description}` : "")) : f.reason })); }}>
+                    <select style={S.select} value={kpiForm.punishmentId} onChange={e => { const pun = (punishments || []).find(x => x.id === e.target.value); setKpiForm(f => ({ punishmentId: e.target.value, points: pun ? String(pun.points) : f.points, reason: pun ? (pun.label + (pun.description ? `: ${pun.description}` : "")) : f.reason })); }}>
                       <option value="">{t("teamKpiCustomDeduction")}</option>
                       {(punishments || []).map(pun => <option key={pun.id} value={pun.id}>{pun.label} (−{pun.points})</option>)}
                     </select>
@@ -6908,11 +6955,11 @@ function SettingsPage({ companyName, setCompanyName, user, onUserUpdate, staff, 
               <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} disabled={lineTest === "sending"} onClick={async () => {
                 setLineTest("sending");
                 try {
-                  const res = await fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userIds: [lineGroupId], message: "✅ Test from Pick Shoot Return — notifications are working" }) });
+                  const res = await fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userIds: [lineGroupId], message: "Test from Pick Shoot Return: notifications are working" }) });
                   const d = await res.json().catch(() => null);
-                  setLineTest(d?.ok ? { ok: true, text: "Delivered — check the group chat" } : { ok: false, text: (d?.errors && d.errors[0]) || `Failed (HTTP ${res.status})` });
+                  setLineTest(d?.ok ? { ok: true, text: "Delivered, check the group chat" } : { ok: false, text: (d?.errors && d.errors[0]) || `Failed (HTTP ${res.status})` });
                 } catch {
-                  setLineTest({ ok: false, text: "Network error — could not reach the server" });
+                  setLineTest({ ok: false, text: "Network error, could not reach the server" });
                 }
               }}>{lineTest === "sending" ? "Sending…" : "Send test"}</button>
               <button style={{ ...S.btn("danger"), padding: "5px 10px", fontSize: 11 }} onClick={async () => { const r = await api.putData({ lineGroupId: null }); if (r?.ok) { setLineGroupId(null); setLineTest(null); } }}>{t("settingsLineDisconnect")}</button>
@@ -7595,7 +7642,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
             <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
               <Icon d={icons.building} size={36} color="var(--text-muted,#8CA2B5)" />
               <p style={{ color: "var(--text-muted,#5F7A91)", fontSize: 13, marginTop: 12 }}>No production companies yet.</p>
-              <p style={{ color: "var(--text-muted,#7B8FA3)", fontSize: 12, marginTop: 4 }}>Add one — it will appear as a suggestion when creating jobs.</p>
+              <p style={{ color: "var(--text-muted,#7B8FA3)", fontSize: 12, marginTop: 4 }}>Add one, it will appear as a suggestion when creating jobs.</p>
             </div>
           ) : (
             <div style={S.col}>
@@ -7851,7 +7898,7 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                         <span style={{ fontWeight: 700, fontSize: 13, color: "var(--accent,#2563EB)", flexShrink: 0 }}>฿{total.toLocaleString()}</span>
                         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                           <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => previewInvoice(inv)} disabled={previewing === inv.id}>{previewing === inv.id ? "…" : "Preview"}</button>
-                          <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>
+                          {st !== "Void" && <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => { setAdminEditInvoice(inv); setAdminCreateModal(true); }}>Edit</button>}
                           {inv.docType === "quotation" && st === "Pending" && <>
                             <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleConfirmQuo(inv)}>Confirm</button>
                             <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleDeclineQuo(inv)}>Decline</button>
@@ -7862,7 +7909,8 @@ function InvoicePage({ productionCompanies, setProductionCompanies, invoices, se
                           })()}
                           {(inv.docType === "invoice" || !inv.docType) && <button style={{ ...S.btn(isPaid ? "ghost" : "success"), fontSize: 10, padding: "3px 8px" }} onClick={() => handleAdminMarkPaid(inv, isPaid)}>{isPaid ? t("markPending") : t("markPaid")}</button>}
                           {(inv.docType === "invoice" || !inv.docType) && isPaid && !liveReceiptFor(inv) && <button style={{ ...S.btn("success"), fontSize: 10, padding: "3px 8px" }} onClick={() => issueReceipt(inv)}>🧾 {t("issueReceipt")}</button>}
-                          <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true, deletedAt: Date.now(), deletedBy: actorName() } : i)); }}><Icon d={icons.trash} size={11} /></button>
+                          {/* A void receipt is a frozen record: it keeps its burned number, it is not edited or deleted (P0-8). */}
+                          {st !== "Void" && <button style={{ ...S.btn("danger"), fontSize: 10, padding: "3px 8px" }} onClick={() => { if (window.confirm("Delete this document?")) setInvoices(p => p.map(i => i.id === inv.id ? { ...i, _deleted: true, deletedAt: Date.now(), deletedBy: actorName() } : i)); }}><Icon d={icons.trash} size={11} /></button>}
                         </div>
                         {st === "Void" && inv.voidReason && <p style={{ margin: "2px 0 0", fontSize: 10, color: "#C53030", width: "100%" }}>{t("receiptVoided")}: {inv.voidReason}</p>}
                       </div>
@@ -8588,8 +8636,8 @@ function AdminTopBar({ onLogout, saveErr, offlineMode, companyName, onOpenSettin
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        {offlineMode && <span title="Using cached data — reconnecting" style={{ fontSize: 10, color: "var(--accent,#2563EB)", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ OFFLINE</span>}
-        {!offlineMode && saveErr && <span title="Sync error — retrying" style={{ fontSize: 10, color: "#C53030", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
+        {offlineMode && <span title="Using cached data, reconnecting" style={{ fontSize: 10, color: "var(--accent,#2563EB)", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ OFFLINE</span>}
+        {!offlineMode && saveErr && <span title="Sync error, retrying" style={{ fontSize: 10, color: "#C53030", fontWeight: 700, letterSpacing: "0.04em" }}>⚠ SYNC</span>}
 
         {/* Chat button */}
         {chatEnabled && (
@@ -8883,8 +8931,9 @@ function ReportsPage({ equipment, checkouts, jobs, equipmentRequests, production
 }
 
 // ─── ADMIN CHECKOUT PAGE ──────────────────────────────────────────────────────
-function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificationConfig, employees, equipmentRequests }) {
+function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificationConfig, employees, equipmentRequests, reports = [] }) {
   const t = useT();
+  const openReportFor = (eqId) => (reports || []).find(r => isOpenReport(r) && r.eqId === eqId) || null; // P2-2 banner
   const todayStr = today();
   const [selectedJob, setSelectedJob] = useState(null);
   const [phase, setPhase] = useState("pick"); // "pick" | "return"
@@ -9060,7 +9109,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
       else commitItem(ae, null, null);
       return;
     }
-    if (lane === "lost") { setLostForm({ qty: outstandingQty(getState(selectedJob), ae.eqId), condition: "lost", note: "" }); setLostAe(ae); return; }
+    if (lane === "lost") { setLostForm({ qty: 1, condition: "lost", note: "" }); setLostAe(ae); return; } // one unit by default: losing the whole line is the exception
     // photo lane: open the camera synchronously inside the tap (P2-14)
     capture.reset();
     setReturnDetails(freshDetails(ae));
@@ -9176,9 +9225,13 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
                   <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                     {isReturn ? <span>{t("outOfN").replace("{out}", out).replace("{total}", ae.qty)}</span> : ae.qty > 1 ? <span>×{ae.qty}</span> : null}
                     {counts?.missing && out > 0 && <span style={S.badge("red")}>{t("missingN").replace("{n}", out)}</span>}
-                    {lostUnits > 0 && <span style={S.badge("gray")}>{t("adminLostDone")} ×{lostUnits}</span>}
+                    {(counts?.lostBy?.lost || 0) > 0 && <span style={S.badge("gray")}>{t("lostBadgeLost")} ×{counts.lostBy.lost}</span>}
+                    {(counts?.lostBy?.written_off || 0) > 0 && <span style={S.badge("gray")}>{t("lostBadgeWrittenOff")} ×{counts.lostBy.written_off}</span>}
                     {isReturn && counts?.owner?.employeeName && <span>{t("adminPickedBy").replace("{name}", counts.owner.employeeName)}</span>}
                   </p>
+                  {!isReturn && !done && openReportFor(ae.eqId) && (
+                    <p data-testid={`admin-damage-banner-${ae.eqId}`} style={{ margin: "4px 0 0", fontSize: 11, fontWeight: 700, color: "#C53030", lineHeight: 1.4 }}>⚠ {t("assignDamageBanner")}{openReportFor(ae.eqId).description ? ` (${openReportFor(ae.eqId).description})` : ""}</p>
+                  )}
                   {vMode === "both" && !done && !isReturn && (
                     <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>
                       {barcodeDone ? "✓ Scanned" : "○ Scan"} · {photoDone ? "✓ Photo" : "○ Photo"}
@@ -9186,7 +9239,7 @@ function AdminCheckoutPage({ jobs, equipment, checkouts, setCheckouts, verificat
                   )}
                 </div>
                 {done ? (
-                  <span style={{ ...S.badge("green"), flexShrink: 0 }}>✓ {isReturn ? (lostUnits > 0 && (counts?.returned || 0) === 0 ? t("adminLostDone") : t("rowReturned")) : t("rowPicked")}</span>
+                  <span style={{ ...S.badge("green"), flexShrink: 0 }}>✓ {isReturn ? (lostUnits > 0 && (counts?.returned || 0) === 0 ? ((counts?.lostBy?.written_off || 0) >= lostUnits ? t("lostBadgeWrittenOff") : t("lostBadgeLost")) : t("rowReturned")) : t("rowPicked")}</span>
                 ) : (
                   <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
                     <button style={{ ...S.btn("primary"), padding: "6px 12px", fontSize: 12 }} onClick={() => onTapItem(ae, "receive")}>
@@ -10000,53 +10053,83 @@ export default function App() {
     el.textContent = buildThemeCss(themeStyle, themePalette);
     try { localStorage.setItem("psr_theme", JSON.stringify({ style: themeStyle, palette: themePalette })); } catch {}
   }, [themeStyle, themePalette]);
+  // Admin dialogs (portaled to body) pick up the palette through body.psr-admin.
+  useEffect(() => {
+    const on = !!user && user.role === "admin";
+    try { document.body.classList.toggle("psr-admin", on); } catch {}
+    return () => { try { document.body.classList.remove("psr-admin"); } catch {} };
+  }, [user]);
 
   // Stable data-apply function — used by both the initial load and the offline reconnect loop.
   // setState functions are guaranteed stable so [] deps is correct.
   const applyData = useCallback((d) => {
     const kl = kvLoadedRef.current;
-    if (d.equipment) { setEquipment(d.equipment); kl.add("equipment"); }
-    if (d.jobs) { setJobs(d.jobs); kl.add("jobs"); }
-    if (d.checkouts) { setCheckouts(d.checkouts); kl.add("checkouts"); }
-    if (d.employees) { setEmployees(d.employees); kl.add("employees"); }
-    if (d.reports) { setReports(d.reports); kl.add("reports"); }
-    if (d.productionCompanies) { setProductionCompanies(d.productionCompanies); kl.add("productionCompanies"); }
-    if (d.invoices) { setInvoices(d.invoices); kl.add("invoices"); }
-    if (d.companyName != null) { setCompanyName(d.companyName); kl.add("companyName"); }
-    if (d.equipmentRequests) { setEquipmentRequests(d.equipmentRequests); kl.add("equipmentRequests"); }
-    if (d.adminRequests) { setAdminRequests(d.adminRequests); kl.add("adminRequests"); }
+    const ls = lastSavedRef.current;
+    // A remote copy never clobbers a field this device has edited but not yet
+    // saved (or whose save failed and waits for the retry): the local edits are
+    // re-applied on top of the server copy (src/logic/sync.js adoptRemote). The
+    // field then still reads dirty against the new base, so the debounced save
+    // PUTs the merged value with the fresh version. On the first load nothing
+    // has a base yet, so every field takes the server copy.
+    const st = latestStateRef.current || {};
+    let anyDirty = false;
+    const pick = (f) => {
+      const server = d[f];
+      if (!(f in ls)) return server;
+      const v = adoptRemote({ base: ls[f], local: st[f], server });
+      if (v !== server) anyDirty = true;
+      return v;
+    };
+    if (d.equipment) { setEquipment(pick("equipment")); kl.add("equipment"); }
+    if (d.jobs) { setJobs(pick("jobs")); kl.add("jobs"); }
+    if (d.checkouts) { setCheckouts(pick("checkouts")); kl.add("checkouts"); }
+    if (d.employees) { setEmployees(pick("employees")); kl.add("employees"); }
+    if (d.reports) { setReports(pick("reports")); kl.add("reports"); }
+    if (d.productionCompanies) { setProductionCompanies(pick("productionCompanies")); kl.add("productionCompanies"); }
+    if (d.invoices) { setInvoices(pick("invoices")); kl.add("invoices"); }
+    if (d.companyName != null) { setCompanyName(pick("companyName")); kl.add("companyName"); }
+    if (d.equipmentRequests) { setEquipmentRequests(pick("equipmentRequests")); kl.add("equipmentRequests"); }
+    if (d.adminRequests) { setAdminRequests(pick("adminRequests")); kl.add("adminRequests"); }
     if (Array.isArray(d.staff)) setStaff(d.staff);
     if (typeof d.calendarToken === "string") setCalendarToken(d.calendarToken);
-    if (d.lineGroupId) { setLineGroupId(d.lineGroupId); kl.add("lineGroupId"); }
-    if (d.timezone) { setTimezone(d.timezone); kl.add("timezone"); }
-    if (d.timeFormat) { setTimeFormat(d.timeFormat); kl.add("timeFormat"); }
-    if (d.kpiConfig) { setKpiConfig(d.kpiConfig); kl.add("kpiConfig"); }
-    if (d.punishments) { setPunishments(d.punishments); kl.add("punishments"); }
-    if (d.kpiEvents) { setKpiEvents(d.kpiEvents); kl.add("kpiEvents"); }
-    if (d.photoVerification != null) { setPhotoVerification(d.photoVerification); kl.add("photoVerification"); }
-    if (d.navOrder) { setNavOrder(d.navOrder); kl.add("navOrder"); }
+    if (d.lineGroupId) { setLineGroupId(pick("lineGroupId")); kl.add("lineGroupId"); }
+    if (d.timezone) { setTimezone(pick("timezone")); kl.add("timezone"); }
+    if (d.timeFormat) { setTimeFormat(pick("timeFormat")); kl.add("timeFormat"); }
+    if (d.kpiConfig) { setKpiConfig(pick("kpiConfig")); kl.add("kpiConfig"); }
+    if (d.punishments) { setPunishments(pick("punishments")); kl.add("punishments"); }
+    if (d.kpiEvents) { setKpiEvents(pick("kpiEvents")); kl.add("kpiEvents"); }
+    if (d.photoVerification != null) { setPhotoVerification(pick("photoVerification")); kl.add("photoVerification"); }
+    if (d.navOrder) { setNavOrder(pick("navOrder")); kl.add("navOrder"); }
     if (d.verificationConfig != null) {
-      setVerificationConfig(d.verificationConfig); kl.add("verificationConfig");
+      setVerificationConfig(pick("verificationConfig")); kl.add("verificationConfig");
     } else if (d.photoVerification != null) {
       // Migrate legacy boolean: true→photo, false→none
       setVerificationConfig({ mode: d.photoVerification ? "photo" : "none" });
       kl.add("verificationConfig");
     }
-    if (d.invoicePresets != null) { setInvoicePresets(d.invoicePresets); kl.add("invoicePresets"); }
-    if (d.chatEnabled != null) { setChatEnabled(d.chatEnabled); kl.add("chatEnabled"); }
+    if (d.invoicePresets != null) { setInvoicePresets(pick("invoicePresets")); kl.add("invoicePresets"); }
+    if (d.chatEnabled != null) { setChatEnabled(pick("chatEnabled")); kl.add("chatEnabled"); }
     if (d.theme && typeof d.theme === "object") {
       // Keep KV's own object when it is already valid, so the reference matches
       // lastSavedRef and the loaded theme is not re-uploaded as a "change".
-      const th = normalizeTheme(d.theme);
-      setTheme(th.style === d.theme.style && th.palette === d.theme.palette ? d.theme : th);
+      const th0 = pick("theme");
+      const th = normalizeTheme(th0);
+      setTheme(th.style === th0.style && th.palette === th0.palette ? th0 : th);
       kl.add("theme");
     }
     // Mark every applied field as already-persisted (same reference now lives in
-    // state), so the debounced save effect skips re-uploading freshly loaded or
-    // remotely-synced data. Only fields actually present are recorded.
-    const ls = lastSavedRef.current;
+    // state, or is the base the merged value is dirty against), so the debounced
+    // save effect only re-uploads what this device really changed.
     for (const f of DATA_FIELDS) if (d[f] !== undefined && d[f] !== null) ls[f] = d[f];
     if (d._v && typeof d._v === "object") Object.assign(versionsRef.current, d._v);
+    // A failed save whose fields all just arrived from the server is superseded:
+    // its edits now live in state on top of the fresh copy (dirty -> the debounced
+    // save carries them), or were already there (clean -> nothing left to send).
+    const pend = pendingSaveRef.current;
+    if (pend && pend.payload && Object.keys(pend.payload).every(f => f === "_v" || f === "_invoiceEmployeeId" || d[f] !== undefined)) {
+      pendingSaveRef.current = null;
+      if (!anyDirty) setSaveErr(false);
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Animate load progress bar — ramps to ~88% while fetching, snaps to 100 on completion.
@@ -10271,14 +10354,22 @@ export default function App() {
   // Triple guard: loaded + cloudSynced + the per-field rules in
   // src/logic/offline.js buildSavePayload (loaded-from-KV OR changed-vs-snapshot,
   // AND reference !== lastSaved; employees send only their own invoices).
+  const saveDueRef = useRef(false); // a debounced save is scheduled and has not fired yet
+  const saveInFlightRef = useRef(null); // promise of the autosave PUT currently on the wire
+  const flushedRef = useRef(false); // a keepalive flush went out on pagehide
   useEffect(() => {
     if (!loaded || !cloudSynced) return;
     clearTimeout(saveTimer.current);
+    saveDueRef.current = true;
     saveTimer.current = setTimeout(() => {
+      saveDueRef.current = false;
       // kvLoaded.size === 0 means admin just initialized a fresh account (needsInit was
       // shown and they clicked Initialize — initializeAccount() populated it manually).
       const { payload: savePayload, sent } = buildSavePayload(dataState, saveRules());
       if (Object.keys(savePayload).length === 0) return;
+      // Versions + bases OF THIS ATTEMPT: the retry after a failure must carry
+      // these, not the refs a remote sync may have refreshed in the meantime.
+      const attempt = pendingSave(savePayload, versionsRef.current, lastSavedRef.current);
       // Phase 1: build a full-state snapshot for the cache (saved on every success)
       const fullSnapshot = dataState;
       const onSuccess = (r) => {
@@ -10307,32 +10398,67 @@ export default function App() {
           return;
         }
         if (err && err.conflict) showToast("error", "syncConflictFailed");
-        // Phase 2: remember the failed payload so the retry effect can drain it
-        pendingSaveRef.current = savePayload;
+        // Phase 2: remember the failed attempt (payload + its versions + bases) so
+        // the retry effect can drain it without bypassing the server's stale check.
+        pendingSaveRef.current = attempt;
       };
       // Retry once after 3s before showing the error — absorbs transient network blips
       // and Cloudflare Worker cold starts without alarming the user. 409 is handled
       // inside putSynced (re-GET, rebase, retry); 413 is final.
-      const tryPut = () => putSynced(savePayload).then(r => { if (!r.ok) throw r; return r; });
-      tryPut()
+      const tryPut = () => putSynced(savePayload, attempt).then(r => { if (!r.ok) throw r; return r; });
+      // One PUT at a time: the manual "Save" buttons wait for this chain, so an
+      // autosave and a manual save never race on the same field versions (409).
+      saveInFlightRef.current = tryPut()
         .then(onSuccess)
         .catch((e1) => (e1 && (e1.status === 413 || e1.conflict)) ? onFail(e1)
           : new Promise(r => setTimeout(r, 3000)).then(tryPut)
             .then(onSuccess)
-            .catch(onFail));
+            .catch(onFail))
+        .finally(() => { saveInFlightRef.current = null; });
     }, 1500);
   }, [equipment, jobs, checkouts, employees, reports, productionCompanies, invoices, companyName, equipmentRequests, adminRequests, timezone, timeFormat, kpiConfig, punishments, kpiEvents, photoVerification, navOrder, lineGroupId, verificationConfig, invoicePresets, chatEnabled, theme, loaded, cloudSynced]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Leaving the page inside the debounce window (tab closed / app switched right
+  // after a tap) used to lose the edit. On pagehide the pending delta is flushed
+  // with a keepalive PUT, which the browser completes after the page is gone.
+  useEffect(() => {
+    const flush = () => {
+      if (!saveDueRef.current || !loaded || !cloudSynced || offlineMode) return;
+      const { payload } = buildSavePayload(latestStateRef.current, { lastSaved: lastSavedRef.current, kvLoaded: kvLoadedRef.current, snapshot: postLoadSnapRef.current, user: userRef.current });
+      if (Object.keys(payload).length === 0) return;
+      const body = { ...payload, _v: versionsFor(payload, versionsRef.current) };
+      if (JSON.stringify(body).length > 60000) return; // keepalive bodies are capped at 64 KiB: a photo-sized delta stays on the normal path
+      clearTimeout(saveTimer.current);
+      saveDueRef.current = false;
+      flushedRef.current = true;
+      try { api.putData(body, { keepalive: true }).catch(() => {}); } catch {}
+    };
+    // If the page comes back (app switch, bfcache) after a flush, re-read KV so the
+    // versions and bases match what the keepalive PUT wrote.
+    const resume = () => {
+      if (!flushedRef.current || document.visibilityState === "hidden") return;
+      flushedRef.current = false;
+      api.getData().then(d => { lastExternalSyncRef.current = Date.now(); applyData(d); writeCache(d); }).catch(() => {});
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pageshow", resume);
+    document.addEventListener("visibilitychange", resume);
+    return () => { window.removeEventListener("pagehide", flush); window.removeEventListener("beforeunload", flush); window.removeEventListener("pageshow", resume); document.removeEventListener("visibilitychange", resume); };
+  }, [loaded, cloudSynced, offlineMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Phase 2: when a save has failed, retry automatically when the browser comes back online
   // or every 30 seconds. This drains without user action and clears the ⚠ SYNC indicator.
   useEffect(() => {
     if (!saveErr) return;
     const retryPending = () => {
-      const payload = pendingSaveRef.current;
-      if (!payload || !navigator.onLine) return;
-      putSynced(payload)
+      const pend = pendingSaveRef.current;
+      if (!pend || !pend.payload || !navigator.onLine) return;
+      // The attempt's own versions: a field another device wrote since then 409s
+      // and is rebased with the attempt's bases (never overwritten).
+      putSynced(pend.payload, pend)
         .then(r => { if (!r.ok) throw r; Object.assign(lastSavedRef.current, r.sent || {}); })
-        .then(() => { setSaveErr(false); pendingSaveRef.current = null; })
+        .then(() => { setSaveErr(false); if (pendingSaveRef.current === pend) pendingSaveRef.current = null; })
         .catch(() => {}); // will retry on next event or interval
     };
     window.addEventListener("online", retryPending);
@@ -10350,15 +10476,18 @@ export default function App() {
   // ONCE. Resolves { ok, sent } (sent = values actually persisted) or
   // { ok:false, status, error, conflict?, field?, bytes? }. Never throws on HTTP
   // errors; network errors reject like before.
-  const putSynced = async (payload) => {
-    const body = { ...payload, _v: versionsFor(payload, versionsRef.current) };
+  //   attempt: { versions, bases } snapshot of the save attempt (src/logic/sync.js
+  //   pendingSave); when omitted the current refs are used.
+  const putSynced = async (payload, attempt = null) => {
+    const body = { ...payload, _v: (attempt && attempt.versions) || versionsFor(payload, versionsRef.current) };
     let res = await api.putData(body);
     let sent = null;
     if (res.status === 409) {
       const info = await res.json().catch(() => ({}));
       const conflicts = (Array.isArray(info.conflicts) && info.conflicts.length) ? info.conflicts : Object.keys(body._v);
       const fresh = await api.getData();
-      const { payload: retry, merged } = rebasePayload(body, lastSavedRef.current, fresh, conflicts);
+      const bases = (attempt && attempt.bases) ? { ...lastSavedRef.current, ...attempt.bases } : lastSavedRef.current;
+      const { payload: retry, merged } = rebasePayload(body, bases, fresh, conflicts);
       // Adopt the server's copy of every field we were NOT saving (a normal
       // remote sync), then our merged copy of the conflicting ones.
       const others = { ...fresh };
@@ -10390,7 +10519,12 @@ export default function App() {
   // longer re-uploads the whole dataset (equipment, history, …). Returns {ok} or
   // {ok:false,error}. The loaded/cloudSynced guard is unchanged.
   const saveSettingsNow = async () => {
-    if (!loaded || !cloudSynced) return { ok: false, error: "Still syncing with the cloud — wait a moment, then try again." };
+    if (!loaded || !cloudSynced) return { ok: false, error: "Still syncing with the cloud. Wait a moment, then try again." };
+    // Take over from the debounced autosave: cancel a pending one and let an
+    // in-flight one land first, so the two never PUT the same field versions.
+    clearTimeout(saveTimer.current);
+    saveDueRef.current = false;
+    if (saveInFlightRef.current) { try { await saveInFlightRef.current; } catch {} }
     const ls = lastSavedRef.current;
     // Same rules as the debounced save (src/logic/offline.js): loaded-or-changed
     // guard, employees only their own invoices and only crew-writable fields. A
@@ -10404,14 +10538,14 @@ export default function App() {
         setSaveErr(true);
         if (res.status === 413) return { ok: false, error: _tRoot("syncTooBig").replace("{field}", res.field || "").replace("{mb}", res.bytes ? (res.bytes / 1048576).toFixed(1) : "?") };
         if (res.conflict) return { ok: false, error: _tRoot("syncConflictFailed") };
-        return { ok: false, error: `Server error ${res.status} — changes not saved.` };
+        return { ok: false, error: `Server error ${res.status}, changes not saved.` };
       }
       Object.assign(ls, sent, res.sent || {});
       setSaveErr(false);
       return { ok: true };
     } catch (e) {
       setSaveErr(true);
-      return { ok: false, error: (e && e.message) ? e.message : "Network error — check your connection and try again." };
+      return { ok: false, error: (e && e.message) ? e.message : "Network error. Check your connection and try again." };
     }
   };
 
@@ -10699,11 +10833,11 @@ export default function App() {
           <p style={{ color: "#f0f0dc", fontSize: 17, fontWeight: 700, textAlign: "center" }}>No Data Found in Cloud Storage</p>
           <p style={{ color: "#8a8a68", fontSize: 13, textAlign: "center", maxWidth: 340, lineHeight: 1.6 }}>
             All cloud storage fields came back empty. This is expected for a <strong style={{ color: "var(--accent,#2563EB)" }}>brand-new account</strong>.<br /><br />
-            If you <strong style={{ color: "#C53030" }}>previously had data</strong>, this may be a temporary connection issue — try reloading before clicking Initialize.
+            If you <strong style={{ color: "#C53030" }}>previously had data</strong>, this may be a temporary connection issue. Try reloading before clicking Initialize.
           </p>
           <button onClick={() => window.location.reload()} style={{ padding: "10px 24px", background: "transparent", color: "#8a8a68", border: "1px solid #353520", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Reload First</button>
           <button onClick={initializeAccount} style={{ padding: "12px 28px", background: "var(--accent,#2563EB)", color: "#0e0e08", border: "none", borderRadius: 10, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Initialize Fresh Account</button>
-          {saveErr && <p style={{ color: "#C53030", fontSize: 12 }}>Save failed — check your connection and try again.</p>}
+          {saveErr && <p style={{ color: "#C53030", fontSize: 12 }}>Save failed. Check your connection and try again.</p>}
         </div>
       ) : user.role === "employee" ? (
         <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={onLogout} calendarToken={calendarToken} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} offlinePendingCount={offlinePending.length + profileQueueSize} putProfile={putProfileQueued} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
@@ -10757,7 +10891,7 @@ export default function App() {
             {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} equipmentRequests={equipmentRequests} reports={reports} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} jobs={jobs} setJobs={setJobs} adminRequests={adminRequests} saveNow={saveSettingsNow} />}
             {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} setEmployeePin={setEmployeePinAndAdopt} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} deleteRecord={deleteRecord} onOpenRequests={goDashboard("gear-requests-card")} />}
-            {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} equipmentRequests={equipmentRequests} />}
+            {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} equipmentRequests={equipmentRequests} reports={reports} />}
             {activePage === "reports" && <ReportsPage equipment={equipment} checkouts={checkouts} jobs={jobs} equipmentRequests={equipmentRequests} productionCompanies={productionCompanies} invoices={invoices} employees={employees} />}
           </main>
           {isMobile && <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} navOrder={navOrder} />}
@@ -10818,7 +10952,7 @@ export default function App() {
               Another device is active
             </p>
             <p style={{ margin: "3px 0 0", fontSize: 11, color: "#9ca3af", lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {concurrentSessions.map(s => s.label).join(", ")} — edits may conflict
+              {concurrentSessions.map(s => s.label).join(", ")}, edits may conflict
             </p>
           </div>
           <button

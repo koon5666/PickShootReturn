@@ -70,7 +70,7 @@ export function Dialog({ title, onClose, children, wide, dirty = false, confirmT
         aria-labelledby={titleId}
         tabIndex={-1}
         data-testid={testId}
-        style={{ background: "var(--surface,#FFFFFF)", border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 12, width: "100%", maxWidth: wide ? 700 : 480, maxHeight: "90vh", overflow: "auto", outline: "none", ...(st.panel || {}) }}
+        style={{ background: "var(--surface,#FFFFFF)", color: "var(--text,#16324A)", border: "1px solid var(--border-color,#D8E1EC)", borderRadius: 12, width: "100%", maxWidth: wide ? 700 : 480, maxHeight: "90vh", overflow: "auto", outline: "none", ...(st.panel || {}) }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", borderBottom: "1px solid var(--divider-color,#D8E1EC)", ...(st.header || {}) }}>
           <h3 id={titleId} style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{title}</h3>
