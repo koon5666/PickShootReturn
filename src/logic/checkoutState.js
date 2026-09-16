@@ -54,6 +54,19 @@ export function evtMatchesJob(c, job) {
   return job.__reqId ? c.requestId === job.__reqId : c.jobId === job.id;
 }
 
+// One id, one event. The server keeps distinct records under distinct ids
+// (functions/_lib/merge.js uniqueIds re-keys a differing copy "<id>#n"), so a
+// same-id copy that still reaches a counter is the same event twice (a double
+// append, an un-healed field): the last copy counts, the others are skipped.
+// Order is preserved; entries without an id always pass.
+export function uniqueEvents(events) {
+  const list = events || [];
+  const lastAt = new Map();
+  list.forEach((c, i) => { if (c && c.id != null) lastAt.set(c.id, i); });
+  if (lastAt.size === list.length) return list;
+  return list.filter((c, i) => !(c && c.id != null) || lastAt.get(c.id) === i);
+}
+
 // Per-eqId counts over a list of events (already filtered to one job).
 // `todayKey` + `dayOf(ts)` are used to also count picks made TODAY (daily mode).
 export function itemCounts(events, { todayKey, dayOf } = {}) {
@@ -63,7 +76,7 @@ export function itemCounts(events, { todayKey, dayOf } = {}) {
     photoPickedToday: 0, barcodePickedToday: 0, lost: 0, lostBy: { lost: 0, written_off: 0 },
     missingFlag: false, lastPick: null, lastPickTs: 0,
   });
-  for (const c of events || []) {
+  for (const c of uniqueEvents(events)) {
     if (!c || !c.eqId || isVoidEvt(c.type)) continue;
     const it = get(c.eqId);
     const q = qtyOf(c);

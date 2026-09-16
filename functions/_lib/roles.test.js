@@ -155,3 +155,52 @@ describe("crew may fill in EMPTY billing fields of a house-registered company (n
     expect(fillEmpty(prev, { address: "" }, ["address"])).toBe(prev);
   });
 });
+
+// ── One id, one record (security re-review 2026-09) ──────────────────────────
+import { uniqueIds } from "./merge.js";
+import { newRecordCount, CREW_MAX_NEW_RECORDS } from "./roles.js";
+
+describe("a crew payload repeating one id 300 times", () => {
+  const copies = (rec, n = 300) => Array.from({ length: n }, () => ({ ...rec }));
+  it("checkouts: 300 copies of another crew's pick event -> that event once, as KV has it (restrictOwn + mergePhotoArray)", () => {
+    const kv = [
+      { id: "c_nong", employeeId: "e1", type: "pick", qty: 1, photo: PHOTO_KV() },
+      { id: "c_arthit", employeeId: "e2", type: "pick", qty: 1, photo: null, hasPhoto: true, photoSig: "s" },
+    ];
+    const payload = [...kv.map(e => ({ ...e, photo: null })), ...copies({ id: "c_arthit", employeeId: "e2", type: "pick", qty: 4 })];
+    const out = mergePhotoArray(restrictOwn(uniqueIds(payload), kv, "e1", "employeeId"), kv);
+    expect(out.filter(e => e.id === "c_arthit")).toEqual([kv[1]]);
+    expect(out.find(e => e.id === "c_nong").photo).toBe(kv[0].photo);
+    expect(out).toHaveLength(2);
+    // defensive: the same without uniqueIds in front still yields one output per id
+    expect(restrictOwn(payload, kv, "e1", "employeeId").filter(e => e.id === "c_arthit")).toEqual([kv[1]]);
+    expect(restrictOwn(copies({ id: "c_new", employeeId: "e1", type: "pick" }), kv, "e1", "employeeId")).toHaveLength(1);
+  });
+  it("reports: 300 copies of a foreign report keep the KV value once; 300 copies of an own report -> one", () => {
+    const kv = [{ id: "rep_nong", employeeId: "e1", status: "open" }, { id: "rep_arthit", employeeId: "e2", status: "open" }];
+    const foreign = mergeById(restrictOwn(uniqueIds(copies({ id: "rep_arthit", employeeId: "e2", status: "discarded" })), kv, "e1", "employeeId"), kv);
+    expect(foreign).toEqual([kv[1], kv[0]]);
+    const own = mergeById(restrictOwn(uniqueIds(copies({ id: "rep_nong", employeeId: "e1", status: "solved" })), kv, "e1", "employeeId"), kv);
+    expect(own).toEqual([{ id: "rep_nong", employeeId: "e1", status: "solved" }, kv[1]]);
+  });
+  it("invoices: 300 copies of an own invoice -> one; productionCompanies: 300 copies of a house -> unchanged", () => {
+    const kv = [{ id: "inv1", employeeId: "e1", status: "Pending" }, { id: "inv2", employeeId: "e2", status: "Paid" }];
+    const own = ownInvoices(uniqueIds(copies({ id: "inv1", employeeId: "e1", status: "Paid" })), kv, "e1");
+    expect(own).toHaveLength(1);
+    expect(mergeInvoices(own, kv, "e1").map(i => i.id).sort()).toEqual(["inv1", "inv2"]);
+    expect(ownInvoices(copies({ id: "inv1", employeeId: "e1" }), kv, "e1")).toHaveLength(1); // defensive, no uniqueIds in front
+    const houses = [{ id: "p1", name: "Bangkok Pictures", address: "A" }, { id: "p2", name: "Mine", addedBy: "e1" }];
+    const out = mergeOwnedWhole(uniqueIds([...copies(houses[0]), ...copies(houses[1])]), [...houses, ...houses], "e1", "addedBy", { fillable: COMPANY_FILLABLE });
+    expect(out).toEqual(houses);
+  });
+  it("newRecordCount counts ids KV does not hold plus id-less rows; the cap is what data.js refuses at 413", () => {
+    const kv = [{ id: "a" }, { id: "b" }];
+    expect(newRecordCount([{ id: "a" }, { id: "b" }], kv)).toBe(0);
+    expect(newRecordCount([{ id: "a" }, { id: "c" }, { name: "no id" }, null], kv)).toBe(2);
+    const spam = uniqueIds(Array.from({ length: CREW_MAX_NEW_RECORDS + 1 }, (_, i) => ({ id: "own", employeeId: "e1", note: String(i) })));
+    expect(spam).toHaveLength(CREW_MAX_NEW_RECORDS + 1); // differing copies are re-keyed, not collapsed
+    expect(newRecordCount(spam, kv)).toBeGreaterThan(CREW_MAX_NEW_RECORDS);
+    expect(newRecordCount(uniqueIds(Array.from({ length: 300 }, () => ({ id: "own", employeeId: "e1" }))), kv)).toBe(1);
+  });
+});
+function PHOTO_KV() { return "data:image/jpeg;base64,KV"; }

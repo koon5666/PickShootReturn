@@ -10389,7 +10389,7 @@ export default function App() {
         const { payload, sent } = buildSavePayload(state, { lastSaved: lastSavedRef.current, kvLoaded: kvLoadedRef.current, snapshot: null, user: userRef.current });
         if (Object.keys(payload).length) {
           const r = await putSynced(payload);
-          if (!r.ok) { if (r.status === 413) showToast("error", "syncTooBig", { field: r.field || "", mb: r.bytes ? (r.bytes / 1048576).toFixed(1) : "?" }); return; }
+          if (!r.ok) { if (r.status === 413) showToast("error", ...tooBigToast(r)); return; }
           Object.assign(lastSavedRef.current, sent, r.sent || {});
           try { sessionStorage.setItem("psr_offline_synced", String(Object.keys(sent).length)); } catch {}
         }
@@ -10479,9 +10479,10 @@ export default function App() {
       const onFail = (err) => {
         setSaveErr(true);
         if (err && err.status === 413) {
-          // The value can never fit: do not queue it for the blind retry loop, tell the user.
+          // The value can never fit (or the server refused the number of new
+          // records): do not queue it for the blind retry loop, tell the user.
           pendingSaveRef.current = null;
-          showToast("error", "syncTooBig", { field: err.field || "", mb: err.bytes ? (err.bytes / 1048576).toFixed(1) : "?" });
+          showToast("error", ...tooBigToast(err));
           return;
         }
         if (err && err.conflict) showToast("error", "syncConflictFailed");
@@ -10565,6 +10566,11 @@ export default function App() {
   // errors; network errors reject like before.
   //   attempt: { versions, bases } snapshot of the save attempt (src/logic/sync.js
   //   pendingSave); when omitted the current refs are used.
+  // Toast for a 413: the value can never fit (syncTooBig), or a crew payload
+  // tried to add more new records than the server allows at once (syncTooMany).
+  const tooBigToast = (r) => r && r.error === "too many new records"
+    ? ["syncTooMany", { field: r.field || "", n: r.count ?? "?", limit: r.limit ?? "?" }]
+    : ["syncTooBig", { field: (r && r.field) || "", mb: r && r.bytes ? (r.bytes / 1048576).toFixed(1) : "?" }];
   const putSynced = async (payload, attempt = null) => {
     const body = { ...payload, _v: (attempt && attempt.versions) || versionsFor(payload, versionsRef.current) };
     let res = await api.putData(body);
@@ -10594,7 +10600,7 @@ export default function App() {
       const info = await res.json().catch(() => ({}));
       if (res.status === 401) showToast("error", "authSessionEnded");
       else if (res.status === 403) showToast("error", "authForbidden");
-      return { ok: false, status: res.status, error: info.error || `HTTP ${res.status}`, field: info.field, bytes: info.bytes };
+      return { ok: false, status: res.status, error: info.error || `HTTP ${res.status}`, field: info.field, bytes: info.bytes, count: info.count, limit: info.limit };
     }
     const jr = await res.json().catch(() => ({}));
     if (jr && jr._v) Object.assign(versionsRef.current, jr._v);
@@ -10631,7 +10637,7 @@ export default function App() {
       const res = await putSynced(payload);
       if (!res.ok) {
         setSaveErr(true);
-        if (res.status === 413) return { ok: false, error: _tRoot("syncTooBig").replace("{field}", res.field || "").replace("{mb}", res.bytes ? (res.bytes / 1048576).toFixed(1) : "?") };
+        if (res.status === 413) { const [key, vars] = tooBigToast(res); return { ok: false, error: Object.entries(vars).reduce((txt, [k, v]) => txt.replace(`{${k}}`, String(v)), _tRoot(key)) }; }
         if (res.conflict) return { ok: false, error: _tRoot("syncConflictFailed") };
         return { ok: false, error: `Server error ${res.status}, changes not saved.` };
       }

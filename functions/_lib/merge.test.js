@@ -160,3 +160,55 @@ describe("restore watermark (restoredAt) on the id-merged arrays", () => {
     expect(mergePhotoArray(reqs, [], { restoredAt }).map(e => e.id)).toEqual(["a_new"]);
   });
 });
+
+// ── One id, one record (security re-review 2026-09) ──────────────────────────
+import { uniqueIds } from "./merge.js";
+
+describe("uniqueIds: identical copies collapse, differing copies are re-keyed, nothing is lost", () => {
+  const rec = (id, extra = {}) => ({ id, type: "pick", qty: 1, ts: 5, employeeId: "e2", ...extra });
+  it("300 identical copies of one id -> one record", () => {
+    const out = uniqueIds(Array.from({ length: 300 }, () => rec("x")));
+    expect(out).toEqual([rec("x")]);
+  });
+  it("a copy that lost its photo does not beat the copy that still carries it; otherwise the last copy wins", () => {
+    expect(uniqueIds([rec("x", { photo: PHOTO }), rec("x", { photo: null, hasPhoto: true })])).toEqual([rec("x", { photo: null, hasPhoto: true })]);
+    expect(uniqueIds([rec("x", { photo: null, hasPhoto: true, photoSig: "s" }), rec("x", { photo: null })])).toEqual([rec("x", { photo: null, hasPhoto: true, photoSig: "s" })]);
+    expect(uniqueIds([rec("x", { photo: PHOTO }), rec("x", { photo: PHOTO2 })])).toEqual([rec("x", { photo: PHOTO2 })]);
+    // nested objects compare by content, not key order
+    expect(uniqueIds([rec("x", { location: { lat: 1, lng: 2 } }), rec("x", { location: { lng: 2, lat: 1 } })])).toHaveLength(1);
+  });
+  it("two real returns that share an id (one per loan, same millisecond) both survive: the second is re-keyed #1", () => {
+    const a = rec("co1eqA", { type: "return", requestId: "reqA" });
+    const b = rec("co1eqA", { type: "return", requestId: "reqB" });
+    const c = rec("co1eqA", { type: "return", requestId: "reqB", location: { lat: 1 } });
+    const out = uniqueIds([a, b, c, rec("y")]);
+    expect(out).toEqual([a, { ...b, id: "co1eqA#1" }, { ...c, id: "co1eqA#2" }, rec("y")]);
+    // idempotent: a second pass changes nothing, so GET and PUT agree on every id
+    expect(uniqueIds(out)).toEqual(out);
+  });
+  it("a re-key never collides with an id the array already holds", () => {
+    const out = uniqueIds([rec("x"), rec("x", { qty: 2 }), rec("x#1", { qty: 9 })]);
+    expect(out.map(e => e.id)).toEqual(["x", "x#2", "x#1"]);
+  });
+  it("leaves entries without an id, strings and nulls where they are", () => {
+    const input = [{ name: "no id" }, "navKey", null, rec("x"), { name: "no id" }];
+    expect(uniqueIds(input)).toEqual(input);
+    expect(uniqueIds(undefined)).toEqual([]);
+  });
+  it("mergePhotoArray / mergeById / mergeInvoices: 300 copies in the payload or in KV -> one record, KV photo kept", () => {
+    const kv = [{ id: "c1", photo: PHOTO, qty: 1 }, { id: "c2", photo: null, hasPhoto: true, photoSig: "s2" }];
+    const copies = Array.from({ length: 300 }, () => ({ id: "c1", photo: null, hasPhoto: true, qty: 1 }));
+    const out = mergePhotoArray(copies, kv);
+    expect(out).toEqual([{ id: "c1", photo: PHOTO, qty: 1 }, kv[1]]);
+    // an already polluted KV copy heals on the next write
+    const polluted = [...Array.from({ length: 300 }, () => kv[0]), kv[1], kv[1]];
+    expect(mergePhotoArray([{ id: "c9", qty: 1 }], polluted)).toEqual([{ id: "c9", qty: 1, photo: null }, kv[0], kv[1]]);
+    expect(mergeById(Array.from({ length: 300 }, () => ({ id: "r1", status: "pending" })), Array.from({ length: 5 }, () => ({ id: "r2" })))).toEqual([{ id: "r1", status: "pending" }, { id: "r2" }]);
+    const inv = Array.from({ length: 300 }, () => ({ id: "i1", employeeId: "e1", status: "Pending" }));
+    expect(mergeInvoices(inv, [{ id: "i1", employeeId: "e1", paidDate: "2026-01-01" }, { id: "i1", employeeId: "e1", paidDate: "2026-01-01" }], "e1")).toEqual([{ id: "i1", employeeId: "e1", status: "Pending", paidDate: "2026-01-01", whTaxDoc: null }]);
+    expect(mergeInvoices(inv, [], "admin")).toHaveLength(1);
+  });
+  it("the merges drop null entries instead of throwing", () => {
+    expect(mergeById([null, { id: "a" }], [undefined, { id: "b" }])).toEqual([{ id: "a" }, { id: "b" }]);
+  });
+});

@@ -36,8 +36,10 @@ const ownerOf = (e, key) => (e && typeof e === "object" ? e[key] : undefined);
 export function restrictOwn(incoming, existing, ownerId, ownerKey) {
   const kv = new Map((existing || []).filter(e => e && e.id != null).map(e => [e.id, e]));
   const out = [];
+  const seen = new Set(); // one id, one record: a payload repeating an id yields one output (the first copy)
   for (const e of incoming || []) {
     if (!e || typeof e !== "object") continue;
+    if (e.id != null) { if (seen.has(e.id)) continue; seen.add(e.id); }
     const prev = e.id != null ? kv.get(e.id) : undefined;
     if (prev && ownerOf(prev, ownerKey) !== ownerId) { out.push(prev); continue; } // foreign record: keep what KV has
     const owner = ownerOf(e, ownerKey);
@@ -77,6 +79,7 @@ export function mergeOwnedWhole(incoming, existing, ownerId, ownerKey, { fillabl
   for (const e of existing || []) {
     if (!e || e.id == null || ids.has(e.id)) continue;
     if (ownerOf(e, ownerKey) === ownerId) continue; // own record removed by the session
+    ids.add(e.id); // a KV copy repeated under one id comes back once
     kept.push(e);
   }
   return kept;
@@ -88,12 +91,34 @@ export function mergeOwnedWhole(incoming, existing, ownerId, ownerKey, { fillabl
 export function ownInvoices(incoming, existing, ownerId) {
   const kv = new Map((existing || []).filter(e => e && e.id != null).map(e => [e.id, e]));
   const out = [];
+  const seen = new Set(); // one id, one record
   for (const i of incoming || []) {
     if (!i || typeof i !== "object") continue;
+    if (i.id != null) { if (seen.has(i.id)) continue; seen.add(i.id); }
     const prev = i.id != null ? kv.get(i.id) : undefined;
     if (prev && prev.employeeId !== ownerId) continue;
     if (i.employeeId === ownerId) out.push(i);
     else if (i.employeeId == null || i.employeeId === "") out.push({ ...i, employeeId: ownerId });
   }
   return out;
+}
+
+// Cheap abuse cap for a crew PUT (security re-review 2026-09): the ownership
+// filter and uniqueIds stop a payload from rewriting or duplicating records, but
+// a crew session may still append its OWN records without limit. No real save
+// ever adds more than a handful of new records at once (autosave runs 1.5 s after
+// each tap; a big pick is tens of events), so a payload that would add more than
+// CREW_MAX_NEW_RECORDS ids KV does not know to one field is refused outright
+// (413, nothing written) instead of growing the field toward its size limit.
+export const CREW_MAX_NEW_RECORDS = 200;
+// Records of `incoming` (after uniqueIds) that would be NEW in `existing`: ids KV
+// does not hold, plus every entry without an id (nothing to match it by).
+export function newRecordCount(incoming, existing) {
+  const known = new Set((existing || []).filter(e => e && typeof e === "object" && e.id != null).map(e => e.id));
+  let n = 0;
+  for (const e of incoming || []) {
+    if (!e || typeof e !== "object") continue;
+    if (e.id == null || !known.has(e.id)) n++;
+  }
+  return n;
 }

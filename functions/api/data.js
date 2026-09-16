@@ -1,10 +1,10 @@
-import { stripPhoto, mergePhotoArray, mergeById, mergeInvoices, withoutTombstones } from "../_lib/merge.js";
+import { stripPhoto, mergePhotoArray, mergeById, mergeInvoices, withoutTombstones, uniqueIds } from "../_lib/merge.js";
 import { FIELDS, readAllFields, readField, inlineField, prepareWrite, commitWrites } from "../_lib/store.js";
 import { PHOTO_FIELDS } from "../_lib/photos.js";
 import { isStale, VERSIONED } from "../_lib/versions.js";
 import { requireSession, stripCredentials } from "../_lib/auth.js";
 import { protectEmployees, protectRequests, adoptPlainAdminPin } from "../_lib/accounts.js";
-import { forbiddenFields, restrictOwn, mergeOwnedWhole, ownInvoices, OWNER_KEY, SERVER_OWNED_FIELDS, COMPANY_FILLABLE } from "../_lib/roles.js";
+import { forbiddenFields, restrictOwn, mergeOwnedWhole, ownInvoices, OWNER_KEY, SERVER_OWNED_FIELDS, COMPANY_FILLABLE, CREW_MAX_NEW_RECORDS, newRecordCount } from "../_lib/roles.js";
 import { allocateNumbers } from "../_lib/docalloc.js";
 
 // Same-origin API: no Access-Control-Allow-* headers on purpose (P0-2).
@@ -54,6 +54,14 @@ const CORS = {};
 // hashed on the spot); `adminPin` sent by an admin becomes the hashed owner PIN.
 // Server-owned fields (adminPinHash, staff, calendarToken, auditLog) are never
 // written through PUT.
+//
+// ── One id, one record (security re-review 2026-09) ──────────────────────────
+// Every id-keyed array is passed through merge.uniqueIds on the way in (the
+// payload), on the KV copy it is merged with (an already duplicated field heals
+// on its next write) and on the way out (GET): identical copies of one id
+// collapse to one, differing copies are re-keyed "<id>#n" so nothing is lost. A
+// crew PUT that would add more than CREW_MAX_NEW_RECORDS new ids to one field is
+// refused with 413 (roles.js).
 
 function leanAdminRequests(arr) {
   return Array.isArray(arr)
@@ -80,6 +88,7 @@ export async function onRequestGet(context) {
     if (Array.isArray(out.invoices)) out.invoices = out.invoices.map(i => (i && i.share && i.share.token && i.employeeId !== auth.session.id) ? { ...i, share: { ...i.share, token: undefined } } : i);
   }
   delete versions.adminPin; delete versions.adminPinHash;
+  for (const f of ID_ARRAYS) if (Array.isArray(out[f])) out[f] = uniqueIds(out[f]);
   for (const f of ["checkouts", "adminRequests", "equipmentRequests"]) out[f] = withoutTombstones(out[f]);
   // Re-inline photos the client renders immediately.
   const [equipment, reports, adminRequests] = await Promise.all([
@@ -106,6 +115,10 @@ const PHOTO_ARRAYS = new Set(["checkouts", "adminRequests"]);
 // Other arrays where concurrent sessions may append entries independently.
 // On PUT: incoming entries win for shared IDs, KV-only IDs are preserved.
 const MERGE_ARRAYS = new Set(["equipmentRequests"]);
+// Every array keyed by `id` (uniqueIds applies; navOrder / roleList are strings,
+// invoicePresets rows have no id).
+const ID_ARRAYS = ["equipment", "jobs", "checkouts", "employees", "reports", "productionCompanies", "invoices", "equipmentRequests", "adminRequests", "kpiEvents", "punishments"];
+const ID_ARRAY_SET = new Set(ID_ARRAYS);
 
 export async function onRequestPut(context) {
   const { request, env } = context;
@@ -138,6 +151,7 @@ export async function onRequestPut(context) {
     if (k === "lineGroupId" && body[k] === null) { deletes.push("lineGroupId"); continue; }
 
     let value = body[k];
+    if (ID_ARRAY_SET.has(k) && Array.isArray(value)) value = uniqueIds(value); // one id, one record
     const merged = (k === "invoices" || PHOTO_ARRAYS.has(k) || MERGE_ARRAYS.has(k)) && Array.isArray(value);
     // Whole-value fields a crew session may write only inside its own records:
     // productionCompanies (P2-9) and reports (a damage report belongs to the crew
@@ -147,7 +161,15 @@ export async function onRequestPut(context) {
     const ownedWhole = !isAdmin && (k === "productionCompanies" || k === "reports") && Array.isArray(value);
     const needExisting = merged || ownedWhole || k === "employees" || PHOTO_FIELDS[k] || (VERSIONED.has(k) && sentV && (k in sentV));
     const cur = needExisting ? await readField(env.KV, k) : null;
-    const existing = cur && Array.isArray(cur.value) ? cur.value : [];
+    // The KV copy is normalised too: a field that already holds duplicate copies
+    // of an id (pre-fix pollution, a legacy batch-return collision) heals here.
+    const existing = cur && Array.isArray(cur.value) ? (ID_ARRAY_SET.has(k) ? uniqueIds(cur.value) : cur.value) : [];
+    if (!isAdmin && ID_ARRAY_SET.has(k) && Array.isArray(value)) {
+      const count = newRecordCount(value, existing);
+      if (count > CREW_MAX_NEW_RECORDS) {
+        return Response.json({ ok: false, error: "too many new records", field: k, count, limit: CREW_MAX_NEW_RECORDS }, { status: 413, headers: CORS });
+      }
+    }
     if (merged) {
       if (k === "invoices") {
         // Employee sessions: ownership is the SESSION, never a client-declared id.

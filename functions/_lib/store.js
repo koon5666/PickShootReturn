@@ -61,6 +61,8 @@ export async function getPhoto(kv, field, id, index) {
   if (!Array.isArray(value)) return null;
   const e = value.find(x => x && x.id === id);
   if (!e) return null;
+  // a re-keyed duplicate (merge.uniqueIds) keeps its externalized key on the record
+  if (e.photoKey) { const alt = await kv.get(index == null ? e.photoKey : `${e.photoKey}:${index}`); if (isDataUri(alt)) return alt; }
   if (index == null) return isDataUri(e.photo) ? e.photo : null;
   return Array.isArray(e.photos) && isDataUri(e.photos[index]) ? e.photos[index] : null;
 }

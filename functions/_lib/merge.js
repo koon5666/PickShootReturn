@@ -17,6 +17,65 @@ export const stripPhoto = stripInline;
 
 export const isTombstone = (e) => !!(e && e._deleted);
 
+// ── One id, one record (security re-review 2026-09) ──────────────────────────
+// Every merge below keys on `id`, so an array where one id appears twice is
+// ambiguous: a crew PUT could inflate a field with copies of one record (KV grew
+// per request, duplicated pick events double-counted "still out"), and real data
+// already held a few collisions (a batch return mints "co<ts><eqId>" per loan,
+// so one item returned on two loans in the same millisecond shares an id).
+// uniqueIds() makes the invariant hold without losing anything:
+//   - copies that are IDENTICAL apart from their photo payload / markers collapse
+//     to one (the copy that carries a photo or marker wins, else the last one);
+//   - copies that DIFFER are distinct records: the first keeps the id, the k-th
+//     other one is re-keyed "<id>#k" (the suffix photos.js already gives their
+//     photo keys) and is never dropped;
+//   - entries without an id are left where they are.
+// Deterministic and idempotent (a second pass is a no-op), so GET, the PUT
+// self-heal of the KV copy and the client agree on every id.
+const PHOTO_KEYS = new Set(["photo", "photos", "hasPhoto", "hasPhotos", "photoSig", "photoSigs", "photoKey"]);
+const isRec = (e) => !!e && typeof e === "object";
+function stable(v) {
+  if (Array.isArray(v)) return "[" + v.map(stable).join(",") + "]";
+  if (v && typeof v === "object") return "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + stable(v[k])).join(",") + "}";
+  return JSON.stringify(v === undefined ? null : v);
+}
+function contentSig(e) {
+  const c = {};
+  for (const k of Object.keys(e)) if (!PHOTO_KEYS.has(k)) c[k] = e[k];
+  return stable(c);
+}
+const carriesPhoto = (e) => isDataUri(e.photo) || !!e.hasPhoto || !!e.hasPhotos || (Array.isArray(e.photos) && e.photos.some(isDataUri));
+export function uniqueIds(arr) {
+  if (!Array.isArray(arr)) return [];
+  const present = new Set(); // every id the input mentions: a re-key never collides with one
+  for (const e of arr) if (isRec(e) && e.id != null) present.add(e.id);
+  const out = [];
+  const taken = new Set();
+  const groups = new Map(); // id as sent -> [{ at, sig }] one per distinct record under it
+  for (const e of arr) {
+    if (!isRec(e) || e.id == null) { out.push(e); continue; }
+    const id = e.id;
+    let group = groups.get(id);
+    if (!group) { groups.set(id, [{ at: out.length, sig: null }]); taken.add(id); out.push(e); continue; }
+    const sig = contentSig(e);
+    if (group[0].sig === null) group[0].sig = contentSig(out[group[0].at]);
+    const same = group.find(g => g.sig === sig);
+    if (same) {
+      // the same record twice: keep the copy that still carries its photo, else the later one
+      if (!(carriesPhoto(out[same.at]) && !carriesPhoto(e))) out[same.at] = e;
+      continue;
+    }
+    let k = 1, rekeyed;
+    do { rekeyed = `${id}#${k++}`; } while (taken.has(rekeyed) || present.has(rekeyed));
+    taken.add(rekeyed);
+    group.push({ at: out.length, sig });
+    out.push({ ...e, id: rekeyed });
+  }
+  return out;
+}
+// Records only (drops null / non-object entries), each id once.
+const records = (arr) => uniqueIds((arr || []).filter(isRec));
+
 // Build a tombstone for a record (keeps the id + a few identifying fields so the
 // row stays readable in a backup, drops any photo payload).
 export function tombstoneOf(entry, deletedAt = new Date().toISOString()) {
@@ -58,7 +117,8 @@ export function dropStaleUnknown(incoming, exMap, since) {
 }
 
 export function mergePhotoArray(incoming, existing, { clearedAt = 0, restoredAt = 0 } = {}) {
-  const exMap = new Map((existing || []).map(e => [e.id, e]));
+  incoming = records(incoming); existing = records(existing); // one id, one record (uniqueIds)
+  const exMap = new Map(existing.map(e => [e.id, e]));
   incoming = dropStaleUnknown(incoming, exMap, Math.max(clearedAt || 0, restoredAt || 0));
   const incomingIds = new Set(incoming.map(e => e.id));
   const merged = incoming.map(inc => {
@@ -85,7 +145,8 @@ export function mergePhotoArray(incoming, existing, { clearedAt = 0, restoredAt 
 // preserved so a stale session never erases another session's additions.
 // Tombstones as above.
 export function mergeById(incoming, existing, { restoredAt = 0 } = {}) {
-  const exMap = new Map((existing || []).map(e => [e.id, e]));
+  incoming = records(incoming); existing = records(existing); // one id, one record (uniqueIds)
+  const exMap = new Map(existing.map(e => [e.id, e]));
   incoming = dropStaleUnknown(incoming, exMap, restoredAt);
   const incomingIds = new Set(incoming.map(e => e.id));
   const merged = incoming.map(inc => {
@@ -105,7 +166,8 @@ export function mergeById(incoming, existing, { restoredAt = 0 } = {}) {
 //  - write-once fields set by one device must not be wiped by a stale session.
 //  - tombstones as above (KV `_deleted` wins over an incoming live copy).
 export function mergeInvoices(incoming, existing, employeeId, { restoredAt = 0 } = {}) {
-  const kvList = existing || [];
+  incoming = records(incoming); // one id, one record (uniqueIds)
+  const kvList = records(existing);
   const existingMap = new Map(kvList.map(e => [e.id, e]));
   incoming = dropStaleUnknown(incoming, existingMap, restoredAt);
   const mergeInv = (inc) => {

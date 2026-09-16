@@ -34,12 +34,21 @@ export async function onRequestGet(context) {
   const own = await Promise.all(want.map(id => env.KV.get(photoKey(field, id))));
   const missing = [];
   want.forEach((id, i) => { if (isDataUri(own[i])) photos[id] = own[i]; else missing.push(id); });
-  // Fallback for records not migrated yet: read the array once.
+  // Fallback: read the array once. A record not migrated yet still carries the
+  // photo inline; a re-keyed duplicate (merge.uniqueIds, id "<id>#n") keeps the
+  // key its photo was externalized under as `photoKey`.
   if (missing.length) {
     const { value } = await readField(env.KV, field);
     if (Array.isArray(value)) {
       const miss = new Set(missing);
-      for (const e of value) if (e && miss.has(e.id) && isDataUri(e.photo)) photos[e.id] = e.photo;
+      const byKey = [];
+      for (const e of value) {
+        if (!e || !miss.has(e.id)) continue;
+        if (isDataUri(e.photo)) photos[e.id] = e.photo;
+        else if (e.photoKey && e.hasPhoto) byKey.push(e);
+      }
+      const alt = await Promise.all(byKey.map(e => env.KV.get(e.photoKey)));
+      byKey.forEach((e, i) => { if (isDataUri(alt[i])) photos[e.id] = alt[i]; });
     }
   }
   return Response.json({ photos }, {

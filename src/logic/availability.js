@@ -23,7 +23,7 @@
 // Event-type predicates and the per-item counting core are shared with the
 // checkout screens (src/logic/checkoutState.js) so "out" means the same thing
 // everywhere: picked - returned - lost, lane-aware, void tombstones ignored.
-import { isPickEvt, isReturnEvt, isVoidEvt, isLostEvt, itemCounts } from "./checkoutState.js";
+import { isPickEvt, isReturnEvt, isVoidEvt, isLostEvt, itemCounts, uniqueEvents } from "./checkoutState.js";
 export { isPickEvt, isReturnEvt, isVoidEvt, isLostEvt };
 
 export const jobFirstDate = (j) => [...((j && j.dates) || [])].sort()[0] || null;
@@ -155,7 +155,7 @@ const lostCache = new WeakMap();
 export function lostUnitsByEquipment(checkouts) {
   if (checkouts && typeof checkouts === "object" && lostCache.has(checkouts)) return lostCache.get(checkouts);
   const out = {};
-  for (const c of checkouts || []) {
+  for (const c of uniqueEvents(checkouts)) {
     if (!c || !c.eqId || !isLostEvt(c.type) || isVoidEvt(c.type)) continue;
     const q = (c.qty === undefined || c.qty === null) ? 1 : Math.max(0, Number(c.qty) || 0);
     if (!q) continue;

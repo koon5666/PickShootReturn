@@ -180,3 +180,26 @@ describe("geoGate (P1-5)", () => {
     expect(g.threshold).toBe(50);
   });
 });
+
+// ── One id, one event (security re-review 2026-09) ───────────────────────────
+import { uniqueEvents } from "./checkoutState.js";
+
+describe("uniqueEvents / itemCounts count each event id once", () => {
+  it("a pick event appended twice (same id) is one unit out, not two", () => {
+    const pick = ev("pick", "fx6", 1, 1000);
+    const st = jobCheckoutState(job(), [pick, { ...pick }, pick], {});
+    expect(st.items.fx6).toMatchObject({ picked: 1, out: 1 });
+    expect(st.outUnits).toBe(1);
+  });
+  it("distinct ids (a re-keyed twin from the server) both count; the last copy of an id is the one counted", () => {
+    const a = ev("return", "bat", 1, 2000, { requestId: "reqA" });
+    const b = { ...ev("return", "bat", 1, 2000, { requestId: "reqB" }), id: a.id + "#1" };
+    const co = [ev("pick", "bat", 2, 1000), a, b];
+    expect(jobCheckoutState(job(), co, {}).items.bat).toMatchObject({ picked: 2, returned: 2, out: 0 });
+    const voided = { ...a, type: "void", qty: 0 };
+    expect(uniqueEvents([a, voided])).toEqual([voided]);
+    expect(uniqueEvents([{ eqId: "x" }, a])).toHaveLength(2); // no id: always passes
+    const same = [a, b];
+    expect(uniqueEvents(same)).toBe(same); // nothing to do: same reference back
+  });
+});
