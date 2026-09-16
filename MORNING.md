@@ -1,5 +1,8 @@
 # Good morning. Here is what happened overnight (2026-09-17)
 
+> **Status update, later on 2026-09-17: DEPLOYED via /pcd.** `main` = 4a0135f, Pages deployment 9f1efb38, bundle `index-Bo7zwLF1.js`. Pages secrets `SESSION_SECRET` + `DIGEST_TOKEN` set (values in `~/psr-backups/2026-09-17_pre-review-fix/secrets.txt`). Old-code backups taken first (`backup-manual.json` 56 MiB with all 10 profiles, `data-full.json`), owner login verified live, photo migration run on prod (`checkouts` 20.82 MiB → 0.028 MiB, 98 photos moved, sample fetch OK), new-code backup `manual_mu3o5zrx` taken (98 photos, 10 profiles). The two local test servers were stopped.
+> **Still yours to do:** (1) `LINE_CHANNEL_SECRET` Pages secret (value from the LINE Developers console; the webhook refuses events until then, pushes via the access token still work); (2) the presence worker: `cd presence-worker && npx wrangler secret put DIGEST_TOKEN` (same value as above) and `npx wrangler deploy`, using a Workers-scoped token or the dashboard (the `.env` token is Pages-only, so the 09:00 overdue digest is not scheduled yet); (3) re-add calendar subscriptions with the new tokenised URL; (4) Settings > Admin accounts: set your display name and add counter staff.
+
 Branch **`fix/review-2026-09`** in `~/PickShootReturn`, 50+ commits on top of `main` (be05373).
 **Nothing pushed, nothing deployed, prod untouched.** Deploy only when you're happy, with `/pcd`, after the secrets in "Before deploying".
 
