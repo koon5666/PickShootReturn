@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { printableItems, validateDocument, docTotals, snapshotBillTo, resolveBillTo, canEditCompany, dateInTz, dueDateFrom, canMarkPaid, embedFlags, docTitle, fillableCompanyFields } from "./invoiceDoc.js";
+import { printableItems, validateDocument, docTotals, snapshotBillTo, resolveBillTo, dateInTz, dueDateFrom, canMarkPaid, embedFlags, docTitle, stampCompanyEdit } from "./invoiceDoc.js";
 
 const items = [
   { id: "a", description: "1st AC (12hr)", qty: 2, rate: "3500", vat: true },
@@ -74,13 +74,6 @@ describe("Bill To snapshot (P2-9)", () => {
     // legacy document without a snapshot still resolves live
     expect(resolveBillTo({ productionCompany: "Bangkok Pictures Co., Ltd." }, companies).address).toBe("99/1 Sukhumvit 55");
   });
-  it("canEditCompany: admin or the crew who added it", () => {
-    expect(canEditCompany(companies[0], { id: "admin", role: "admin" })).toBe(true);
-    expect(canEditCompany(companies[0], { id: "e1", role: "employee" })).toBe(true);
-    expect(canEditCompany(companies[0], { id: "e2", role: "employee" })).toBe(false);
-    expect(canEditCompany(companies[1], { id: "e1", role: "employee" })).toBe(false); // house-registered
-    expect(canEditCompany(companies[1], { id: "admin", role: "admin" })).toBe(true);
-  });
 });
 
 describe("dates / paid rules", () => {
@@ -109,13 +102,17 @@ describe("dates / paid rules", () => {
   });
 });
 
-describe("fillableCompanyFields (crew fill-in of empty billing fields on a shared company)", () => {
-  const me = { id: "e1", role: "employee" };
-  it("own company: everything; house company: only the blank billing fields; nothing blank: locked", () => {
-    expect(fillableCompanyFields({ id: "p", name: "Mine", addedBy: "e1" }, me)).toEqual(["name", "address", "taxId", "branch"]);
-    expect(fillableCompanyFields({ id: "p", name: "House", address: "" }, me)).toEqual(["address", "taxId", "branch"]);
-    expect(fillableCompanyFields({ id: "p", name: "House", address: "12 Rama IV", taxId: " " }, me)).toEqual(["taxId", "branch"]);
-    expect(fillableCompanyFields({ id: "p", name: "House", address: "A", taxId: "1", branch: "HQ", addedBy: "e2" }, me)).toEqual([]);
-    expect(fillableCompanyFields({ id: "p", name: "House" }, { id: "admin", role: "admin" })).toEqual(["name", "address", "taxId", "branch"]);
+describe("stampCompanyEdit (traceability that replaces the owner lock)", () => {
+  const me = { id: "e2", name: "Peerawish", role: "employee" };
+  it("stamps an edit to someone else's company", () => {
+    const out = stampCompanyEdit({ id: "p", name: "House", addedBy: "e1", addedByName: "Angkoon" }, me, 1700);
+    expect(out).toMatchObject({ addedBy: "e1", addedByName: "Angkoon", editedBy: "e2", editedByName: "Peerawish", editedAt: 1700 });
+  });
+  it("stamps an edit to a house-registered company (no addedBy)", () => {
+    expect(stampCompanyEdit({ id: "p", name: "House" }, me, 1700).editedBy).toBe("e2");
+  });
+  it("leaves the adder's own edit unstamped", () => {
+    const own = { id: "p", name: "Mine", addedBy: "e2" };
+    expect(stampCompanyEdit(own, me, 1700)).toBe(own);
   });
 });

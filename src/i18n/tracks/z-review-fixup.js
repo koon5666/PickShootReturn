@@ -13,8 +13,6 @@ export default {
     eqLostRemove: "Take out of stock ({from} to {to})",
     eqLostFound: "Found, back on the shelf",
     eqLostRemoveConfirm: "Take {n} unit(s) out of stock? Total units will become {to}.",
-    // P2-9 follow-up: crew fill-in of empty billing fields on a shared company
-    prodHouseFillIn: "Registered by {name}. You can fill in the empty billing fields; what is already there only they or an admin can change.",
     prodHouseHint: "Tap a production house to edit its billing address. Houses you added are yours to edit; on shared ones you can fill in what is still empty.",
     // P2-2 damage banner on pick rows
     pickDamageBanner: "Open damage report on this item: check with the house before taking it",
@@ -92,7 +90,6 @@ export default {
     eqLostRemove: "ตัดออกจากสต็อก ({from} เป็น {to})",
     eqLostFound: "เจอแล้ว เอากลับขึ้นชั้น",
     eqLostRemoveConfirm: "ตัด {n} ชิ้นออกจากสต็อก? จำนวนรวมจะเหลือ {to}",
-    prodHouseFillIn: "ลงทะเบียนโดย {name} กรอกช่องที่ยังว่างได้ ส่วนที่มีอยู่แล้วแก้ได้เฉพาะคนนั้นหรือแอดมิน",
     prodHouseHint: "แตะบริษัทผลิตเพื่อแก้ที่อยู่ออกบิล บริษัทที่คุณเพิ่มเองแก้ได้ทั้งหมด บริษัทที่ใช้ร่วมกันกรอกได้เฉพาะช่องที่ยังว่าง",
     pickDamageBanner: "ชิ้นนี้มีใบแจ้งเสียค้างอยู่ เช็กกับร้านก่อนหยิบ",
     countUnits: "{n} ชิ้น", countUnitsOne: "{n} ชิ้น",

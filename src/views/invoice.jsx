@@ -8,7 +8,7 @@ import { derivePrefix, sanitizePrefix, nextDocNo, rtxNoFromInv, receiptNoFor, fm
 import { printableItems, validateDocument, docTotals, snapshotBillTo, resolveBillTo, dateInTz, dueDateFrom, canMarkPaid, embedFlags, docTitle, WHT_DEFAULT_RATE } from "../logic/invoiceDoc.js";
 import { DEFAULT_POSITION_NAMES } from "../logic/positions.js";
 import { useToast } from "../components/toast.jsx";
-import { formatDay, tCount } from "../i18n/format.js";
+import { formatDay, formatDate, tCount } from "../i18n/format.js";
 import { JOB_STATUS_BADGE, j, api, actorName, Icon, icons, APP_TZ, today, fmtClock, compressImage, S, Modal, LangCtx, useRoleList, useT } from "../ui/shared.jsx";
 
 // ─── JOBS PAGE ────────────────────────────────────────────────────────────────
@@ -1256,6 +1256,8 @@ export function InvoicePage({ productionCompanies, setProductionCompanies, invoi
                           <p style={{ margin: 0, fontWeight: 700, fontSize: 15, color: "var(--text,#16324A)" }}>{co.name}</p>
                           {!co.address && <span style={{ fontSize: 10, fontWeight: 600, color: "#C53030", background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.3)", borderRadius: 4, padding: "1px 6px", letterSpacing: ".03em", flexShrink: 0 }}>Incomplete</span>}
                           {co.addedByName && <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted,#4E6B84)", background: "rgba(138,143,157,0.12)", border: "1px solid rgba(138,143,157,0.3)", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>{co.addedByName} added</span>}
+                          {/* Crew edit any shared house since 2026-09-22; the stamp says who touched it last. */}
+                          {co.editedBy && <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted,#4E6B84)", background: "rgba(138,143,157,0.12)", border: "1px solid rgba(138,143,157,0.3)", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>{t("editedByTag").replace("{name}", co.editedByName || t("teammate"))}{co.editedAt ? ` · ${formatDate(new Date(co.editedAt))}` : ""}</span>}
                         </div>
                         {co.address ? <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{co.address}</p>
                           : <p style={{ margin: "3px 0 0", fontSize: 12, color: "var(--text-muted,#8CA2B5)", fontStyle: "italic" }}>No billing address</p>}

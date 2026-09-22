@@ -4,7 +4,7 @@ import { PHOTO_FIELDS } from "../_lib/photos.js";
 import { isStale, VERSIONED } from "../_lib/versions.js";
 import { requireSession, stripCredentials } from "../_lib/auth.js";
 import { protectEmployees, protectRequests, adoptPlainAdminPin } from "../_lib/accounts.js";
-import { forbiddenFields, restrictOwn, mergeOwnedWhole, ownInvoices, OWNER_KEY, SERVER_OWNED_FIELDS, COMPANY_FILLABLE, CREW_MAX_NEW_RECORDS, newRecordCount } from "../_lib/roles.js";
+import { forbiddenFields, restrictOwn, mergeSharedWhole, ownInvoices, OWNER_KEY, SERVER_OWNED_FIELDS, CREW_MAX_NEW_RECORDS, newRecordCount } from "../_lib/roles.js";
 import { allocateNumbers } from "../_lib/docalloc.js";
 
 // Same-origin API: no Access-Control-Allow-* headers on purpose (P0-2).
@@ -48,8 +48,9 @@ const CORS = {};
 // returns a credential (adminPin / adminPinHash / employees[].pin|pinHash /
 // staff[].pinHash / member-register requestedPin*). PUT: an admin may write any
 // client field; an employee only checkouts / equipmentRequests / adminRequests /
-// invoices / reports / productionCompanies and inside them only their own records
-// (functions/_lib/roles.js). Employee credentials come from KV on every admin
+// invoices / reports / productionCompanies, and inside them only their own
+// records. The exception is productionCompanies, which every crew member may
+// edit in full (functions/_lib/roles.js). Employee credentials come from KV on every admin
 // employees write (a plaintext `pin` from an old client or the seed script is
 // hashed on the spot); `adminPin` sent by an admin becomes the hashed owner PIN.
 // Server-owned fields (adminPinHash, staff, calendarToken, auditLog) are never
@@ -153,11 +154,12 @@ export async function onRequestPut(context) {
     let value = body[k];
     if (ID_ARRAY_SET.has(k) && Array.isArray(value)) value = uniqueIds(value); // one id, one record
     const merged = (k === "invoices" || PHOTO_ARRAYS.has(k) || MERGE_ARRAYS.has(k)) && Array.isArray(value);
-    // Whole-value fields a crew session may write only inside its own records:
-    // productionCompanies (P2-9) and reports (a damage report belongs to the crew
-    // who filed it; a stale or hostile crew copy can neither rewrite nor drop
-    // another crew's report). Both merges are stale-safe, so a crew PUT of these
-    // is not version-checked (an admin write is).
+    // Whole-value fields written by a crew session: reports (a damage report
+    // belongs to the crew who filed it; a stale or hostile crew copy can neither
+    // rewrite nor drop another crew's report) and productionCompanies, which any
+    // crew member may EDIT in full: only the attribution and other crews'
+    // entries are held back (mergeSharedWhole). Both merges are stale-safe, so a
+    // crew PUT of these is not version-checked (an admin write is).
     const ownedWhole = !isAdmin && (k === "productionCompanies" || k === "reports") && Array.isArray(value);
     const needExisting = merged || ownedWhole || k === "employees" || PHOTO_FIELDS[k] || (VERSIONED.has(k) && sentV && (k in sentV));
     const cur = needExisting ? await readField(env.KV, k) : null;
@@ -192,7 +194,7 @@ export async function onRequestPut(context) {
       // every KV report survives; a crew may drop only a production house it added.
       value = k === "reports"
         ? mergeById(restrictOwn(value, existing, session.id, OWNER_KEY[k]), existing)
-        : mergeOwnedWhole(value, existing, session.id, OWNER_KEY[k], { fillable: COMPANY_FILLABLE }); // crew may fill an EMPTY address / tax id / branch on a house-registered company
+        : mergeSharedWhole(value, existing, session.id, OWNER_KEY[k]); // crew may edit ANY production house (owner lock lifted 2026-09-22); attribution and other crews' entries are still the server's
     } else if (k === "employees" && Array.isArray(value)) {
       value = await protectEmployees(value, existing);
       if (VERSIONED.has(k) && sentV && (k in sentV)) { currentV[k] = cur.v; if (isStale(k, sentV, cur.v)) conflicts.push(k); }

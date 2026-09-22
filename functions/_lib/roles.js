@@ -7,13 +7,15 @@
 //             KV has it (the client always sends the whole array it loaded), a
 //             foreign record KV does not know is dropped, and a record with no
 //             owner yet is stamped with the session id.
+//             productionCompanies is the exception (2026-09-22): the shared
+//             registry is editable by every crew member, see mergeSharedWhole.
 //   server-owned fields are never written through PUT by anyone.
 
 export const EMPLOYEE_PUT_FIELDS = new Set(["checkouts", "equipmentRequests", "adminRequests", "invoices", "reports", "productionCompanies"]);
 export const SERVER_OWNED_FIELDS = new Set(["adminPinHash", "staff", "calendarToken", "auditLog"]);
 // Which key names the owner of a record, per field. productionCompanies uses
-// addedBy (P2-9: a shared house added by the admin has none, so crew cannot
-// rename or re-address it; the one they added themselves they may edit).
+// addedBy, which since 2026-09-22 is attribution and delete scope only: crew may
+// edit any house, but drop from the shared list only the ones they added.
 export const OWNER_KEY = {
   checkouts: "employeeId", equipmentRequests: "employeeId", adminRequests: "employeeId",
   invoices: "employeeId", reports: "employeeId", productionCompanies: "addedBy",
@@ -50,39 +52,42 @@ export function restrictOwn(incoming, existing, ownerId, ownerKey) {
   return out;
 }
 
-// Fields a crew member may FILL IN on a record they do not own, when KV has
-// them empty (productionCompanies: a house auto-registered from a booking has no
-// billing address; the crew invoicing it needs one on the document). Existing
-// values are never overwritten, the name never changes.
-export const COMPANY_FILLABLE = ["address", "taxId", "branch"];
-const blank = (v) => v == null || String(v).trim() === "";
-export function fillEmpty(prev, inc, fields) {
-  if (!prev || !inc || !fields || !fields.length) return prev;
-  let out = prev;
-  for (const f of fields) {
-    if (blank(prev[f]) && !blank(inc[f])) { if (out === prev) out = { ...prev }; out[f] = String(inc[f]).trim(); }
+// productionCompanies written by a crew session (owner lock lifted 2026-09-22).
+// A crew member may now edit EVERY company, not only the one they added, so a
+// wrong billing address on their own invoice needs no admin. Two guards stay:
+//   * attribution is the server's: `addedBy` / `addedByName` of a company KV
+//     already holds are never rewritten by the client, and a company KV does not
+//     know is stamped with the session id whatever the payload claims;
+//   * a company the payload leaves out comes back unless the session added it,
+//     so a stale or hostile crew device can drop only its own entries, never the
+//     shared registry (the crew UI offers no delete at all).
+export function mergeSharedWhole(incoming, existing, ownerId, ownerKey) {
+  const kv = new Map((existing || []).filter(e => e && e.id != null).map(e => [e.id, e]));
+  const out = [];
+  const seen = new Set(); // one id, one record
+  for (const e of incoming || []) {
+    if (!e || typeof e !== "object") continue;
+    if (e.id != null) { if (seen.has(e.id)) continue; seen.add(e.id); }
+    const prev = e.id != null ? kv.get(e.id) : undefined;
+    if (prev) { // known company: take the edit, keep the server's attribution
+      const rec = { ...e };
+      for (const attr of [ownerKey, "addedByName"]) {
+        if (attr in prev) rec[attr] = prev[attr];       // whoever registered it keeps the credit
+        else delete rec[attr];                           // house-registered: stays unattributed
+      }
+      out.push(rec);
+      continue;
+    }
+    out.push({ ...e, [ownerKey]: ownerId }); // new: it is theirs, whatever it claims
   }
-  return out;
-}
-
-// Whole-value field written by an employee (productionCompanies): apply the
-// ownership filter, then bring back every KV record the payload left out unless
-// it is the session's own (that one was deleted on purpose). `fillable` lists
-// the empty fields of a foreign record the session may fill in (see fillEmpty).
-export function mergeOwnedWhole(incoming, existing, ownerId, ownerKey, { fillable = [] } = {}) {
-  let kept = restrictOwn(incoming, existing, ownerId, ownerKey);
-  if (fillable.length) {
-    const incById = new Map((incoming || []).filter(e => e && e.id != null).map(e => [e.id, e]));
-    kept = kept.map(e => (e && e.id != null && (e[ownerKey] ?? null) !== ownerId) ? fillEmpty(e, incById.get(e.id), fillable) : e);
-  }
-  const ids = new Set(kept.filter(e => e && e.id != null).map(e => e.id));
+  const ids = new Set(out.filter(e => e && e.id != null).map(e => e.id));
   for (const e of existing || []) {
     if (!e || e.id == null || ids.has(e.id)) continue;
-    if (ownerOf(e, ownerKey) === ownerId) continue; // own record removed by the session
-    ids.add(e.id); // a KV copy repeated under one id comes back once
-    kept.push(e);
+    if (ownerOf(e, ownerKey) === ownerId) continue; // own record removed on purpose
+    ids.add(e.id);
+    out.push(e);
   }
-  return kept;
+  return out;
 }
 
 // Invoices from an employee: only their own (an unowned one is stamped with the

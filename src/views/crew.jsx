@@ -5,7 +5,7 @@ import { DEFAULT_OT_TIERS, calcTotal, otExample } from "../logic/money.js";
 import { jobLastDate, effPickupDate, effReturnDate, isOpenReport } from "../logic/availability.js";
 import { isPickEvt, isVoidEvt, jobCheckoutState, outstandingQty, latestOpenPick, laneDone, geoGate, voidEvent, DEFAULT_DAY_START_HOUR, DEFAULT_GEO_THRESHOLD_M } from "../logic/checkoutState.js";
 import { derivePrefix, sanitizePrefix, rtxNoFromInv } from "../logic/docNumber.js";
-import { printableItems, canEditCompany, fillableCompanyFields } from "../logic/invoiceDoc.js";
+import { printableItems, stampCompanyEdit } from "../logic/invoiceDoc.js";
 import { useToast } from "../components/toast.jsx";
 import { formatDate, formatDateTime, formatDay, formatLongDay, tCount, shootTimeLabel, locationLabel, statusLabel } from "../i18n/format.js";
 import { kpiMax, kpiStars, isKpiAdd, visibleKpiRules } from "../logic/kpi.js";
@@ -679,32 +679,31 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
 
       {/* Production House add / edit — writes straight to productionCompanies, no admin approval */}
       {showAdminReqModal === "production-house" && (() => {
-        // Shared list: only the crew who added a company (or an admin) may edit it (P2-9). Others see it read-only.
+        // Shared list, no owner lock (2026-09-22): any crew member may fix any company's
+        // billing details, so a wrong address on their own invoice needs no admin.
+        const me = { id: employee.id, name: employee.name, role: "employee" };
         const editing = adminReqForm.id ? (productionCompanies || []).find(c => c.id === adminReqForm.id) : null;
-        const readOnly = !!editing && !canEditCompany(editing, { id: employee.id, role: "employee" });
-        // A shared company the crew does not own: its EMPTY billing fields can still
-        // be filled in (the house needs an address on the document); filled ones lock.
-        const editable = editing ? fillableCompanyFields(editing, { id: employee.id, role: "employee" }) : ["name", "address", "taxId", "branch"];
-        const locked = (key) => !editable.includes(key);
-        const canSave = !readOnly || editable.length > 0;
+        // Whose entry this is: an edit to a teammate's company still goes through,
+        // it is only announced so it is a conscious one.
+        const addedByOther = !!editing && (editing.addedBy ?? null) !== employee.id;
         const field = (key, label, ph, extra = {}) => (
           <div>
             <label style={S.label}>{label}</label>
-            <input style={{ ...S.input, ...(locked(key) ? { background: "var(--surface2,#EAF0F7)", color: "var(--text-muted,#5F7A91)" } : {}) }} value={adminReqForm[key] || ""} readOnly={locked(key)} onChange={e => setAdminReqForm(p => ({ ...p, [key]: e.target.value }))} placeholder={locked(key) ? "" : ph} {...extra} />
+            <input style={S.input} value={adminReqForm[key] || ""} onChange={e => setAdminReqForm(p => ({ ...p, [key]: e.target.value }))} placeholder={ph} {...extra} />
           </div>
         );
         return (
-        <Modal title={adminReqForm.id ? t("prodHouseEditTitle") : t("prodHouseAddTitle")} dirty={canSave && (editing ? ["name", "address", "taxId", "branch"].some(k => (adminReqForm[k] || "") !== (editing[k] || "")) : !!(adminReqForm.name || adminReqForm.address))} onClose={() => setShowAdminReqModal(null)}>
+        <Modal title={adminReqForm.id ? t("prodHouseEditTitle") : t("prodHouseAddTitle")} dirty={editing ? ["name", "address", "taxId", "branch"].some(k => (adminReqForm[k] || "") !== (editing[k] || "")) : !!(adminReqForm.name || adminReqForm.address)} onClose={() => setShowAdminReqModal(null)}>
           <div style={S.col}>
-            {readOnly && (
+            {addedByOther && (
               <div style={{ ...S.card, padding: "10px 14px", background: "rgba(var(--accent-rgb,37,99,235),0.05)", border: "1px solid rgba(var(--accent-rgb,37,99,235),0.2)" }}>
-                <p style={{ margin: 0, fontSize: 12, color: "var(--text,#16324A)", lineHeight: 1.5, display: "flex", gap: 6, alignItems: "flex-start" }}><Icon d={icons.lock} size={14} style={{ flexShrink: 0, marginTop: 2 }} /> <span>{t(editable.length ? "prodHouseFillIn" : "prodHouseReadOnly").replace("{name}", editing.addedByName || (editing.addedBy ? t("teammate") : companyName || t("theHouse")))}</span></p>
+                <p style={{ margin: 0, fontSize: 12, color: "var(--text,#16324A)", lineHeight: 1.5, display: "flex", gap: 6, alignItems: "flex-start" }}><Icon d={icons.alert} size={14} style={{ flexShrink: 0, marginTop: 2 }} /> <span>{t("prodHouseSharedEdit").replace("{name}", editing.addedByName || (editing.addedBy ? t("teammate") : companyName || t("theHouse")))}</span></p>
               </div>
             )}
             {field("name", t("prodHouseName"), "e.g. Thai Film Co.", { autoFocus: !adminReqForm.id })}
             <div>
               <label style={S.label}>{t("billingAddress")}</label>
-              <textarea style={{ ...S.input, height: 80, resize: "vertical", ...(locked("address") ? { background: "var(--surface2,#EAF0F7)", color: "var(--text-muted,#5F7A91)" } : {}) }} value={adminReqForm.address || ""} readOnly={locked("address")} onChange={e => setAdminReqForm(p => ({ ...p, address: e.target.value }))} placeholder={locked("address") ? "" : t("billingAddressPh")} autoFocus={!!adminReqForm.id && !locked("address")} />
+              <textarea style={{ ...S.input, height: 80, resize: "vertical" }} value={adminReqForm.address || ""} onChange={e => setAdminReqForm(p => ({ ...p, address: e.target.value }))} placeholder={t("billingAddressPh")} autoFocus={!!adminReqForm.id} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {field("taxId", t("prodHouseTaxId"), "0105551234567", { inputMode: "numeric", maxLength: 17 })}
@@ -712,8 +711,8 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
             </div>
             {adminReqMsg && <p style={{ fontSize: 12, color: adminReqMsg.ok ? "#2F855A" : "#C53030", margin: 0 }}>{adminReqMsg.text}</p>}
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>{canSave ? t("cancel") : t("back")}</button>
-              {canSave && <button style={S.btn("primary")} onClick={() => {
+              <button style={S.btn("ghost")} onClick={() => setShowAdminReqModal(null)}>{t("cancel")}</button>
+              <button style={S.btn("primary")} onClick={() => {
                 const name = (adminReqForm.name || "").trim();
                 const address = (adminReqForm.address || "").trim();
                 const taxId = (adminReqForm.taxId || "").trim();
@@ -721,16 +720,16 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
                 if (!name) { setAdminReqMsg({ ok: false, text: t("prodHouseNameRequired") }); return; }
                 setProductionCompanies(prev => {
                   const list = prev || [];
-                  // Shared company: only the empty fields are filled (the server enforces the same rule).
-                  if (adminReqForm.id && readOnly) return list.map(c => c.id === adminReqForm.id ? { ...c, ...Object.fromEntries(editable.map(k => [k, { address, taxId, branch }[k]])) } : c);
-                  if (adminReqForm.id) return list.map(c => c.id === adminReqForm.id ? { ...c, name, address, taxId, branch } : c);
+                  // Any company is fully editable; one added by someone else keeps its
+                  // attribution and gains a last-edited stamp (the server enforces both).
+                  if (adminReqForm.id) return list.map(c => c.id === adminReqForm.id ? stampCompanyEdit({ ...c, name, address, taxId, branch }, me) : c);
                   // Same name already registered (e.g. auto-added from a booking with no address) → fill it in, never duplicate
                   const dup = list.find(c => (c.name || "").trim().toLowerCase() === name.toLowerCase());
-                  if (dup) return list.map(c => c.id === dup.id ? { ...c, address: address || c.address || "", taxId: taxId || c.taxId || "", branch: branch || c.branch || "" } : c);
+                  if (dup) return list.map(c => c.id === dup.id ? stampCompanyEdit({ ...c, address: address || c.address || "", taxId: taxId || c.taxId || "", branch: branch || c.branch || "" }, me) : c);
                   return [...list, { id: "co" + Date.now(), name, address, taxId, branch, addedBy: employee.id, addedByName: employee.name }];
                 });
                 setShowAdminReqModal(null);
-              }}>{t("save")}</button>}
+              }}>{t("save")}</button>
             </div>
           </div>
         </Modal>
@@ -2046,7 +2045,7 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
                               ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)", whiteSpace: "pre-wrap" }}>{co.address}</p>
                               : <p style={{ margin: "2px 0 0", fontSize: 11, color: "#B7791F", fontStyle: "italic" }}>{t("noBillingAddress")}</p>}
                           </div>
-                          <Icon d={fillableCompanyFields(co, { id: employee.id, role: "employee" }).length ? icons.edit : icons.lock} size={14} color="var(--text-muted,#5F7A91)" />
+                          <Icon d={icons.edit} size={14} color="var(--text-muted,#5F7A91)" />
                         </div>
                       ))}
                       {legacyPending.map(req => (

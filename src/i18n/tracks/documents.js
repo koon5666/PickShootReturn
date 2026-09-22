@@ -59,8 +59,6 @@ export default {
     profilePrefix: "Invoice prefix", profilePrefixHint: "Your own document series: INV-{prefix}-YY-0001. Letters and digits only, up to 6. Required, so your numbers never mix with anyone else's.",
     profilePrefixDefault: "Suggested from your nickname.",
     prodHouseTaxId: "Tax ID", prodHouseBranch: "Branch", prodHouseBranchPh: "Head office or branch no.",
-    prodHouseReadOnly: "Added by {name}. Only they or an admin can edit it. Ask an admin if the address is wrong.",
-    prodHouseAskAdmin: "Ask an admin",
 
     // Positions / OT
     otExampleMult: "Example: ฿{dayRate} / {h}h = ฿{rph}/h, OT hour = ฿{rph} × {mult} = ฿{ot}",
@@ -122,8 +120,6 @@ export default {
     profilePrefix: "รหัสนำหน้าเลขเอกสาร", profilePrefixHint: "ชุดเลขเอกสารของคุณเอง: INV-{prefix}-YY-0001 ใช้ตัวอักษรอังกฤษและตัวเลข ไม่เกิน 6 ตัว จำเป็นต้องมี เพื่อไม่ให้เลขปนกับคนอื่น",
     profilePrefixDefault: "ตั้งให้จากชื่อเล่นของคุณ",
     prodHouseTaxId: "เลขผู้เสียภาษี", prodHouseBranch: "สาขา", prodHouseBranchPh: "สำนักงานใหญ่ หรือเลขสาขา",
-    prodHouseReadOnly: "เพิ่มโดย {name} แก้ไขได้เฉพาะคนนั้นหรือแอดมิน ถ้าที่อยู่ผิดให้แจ้งแอดมิน",
-    prodHouseAskAdmin: "แจ้งแอดมิน",
 
     otExampleMult: "ตัวอย่าง: ฿{dayRate} / {h} ชม. = ฿{rph}/ชม. โอทีชั่วโมงละ ฿{rph} × {mult} = ฿{ot}",
     otExampleFlat: "ตัวอย่าง: ทุกชั่วโมงหลัง {h} ชม. ได้ชั่วโมงละ ฿{ot}",

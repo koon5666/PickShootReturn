@@ -65,22 +65,21 @@ export function resolveBillTo(invoice, productionCompanies) {
   return snapshotBillTo(invoice?.productionCompany, productionCompanies);
 }
 
-// Who may edit a shared production company (P2-9): the admin, or the crew
-// member who added it. Companies with no `addedBy` were registered by the house.
-export function canEditCompany(company, actor) {
-  if (!company || !actor) return false;
-  if (actor.role === "admin" || actor.id === "admin") return true;
-  return !!company.addedBy && company.addedBy === actor.id;
-}
-// Billing fields a crew member may still FILL IN on a company they cannot edit:
-// the ones that are empty (a house auto-registered from a booking has no
-// address; the crew invoicing it needs one). Mirrors the server rule
-// (functions/_lib/roles.js COMPANY_FILLABLE): existing values never change.
-export const COMPANY_FILLABLE = ["address", "taxId", "branch"];
-export function fillableCompanyFields(company, actor) {
-  if (!company) return [];
-  if (canEditCompany(company, actor)) return ["name", ...COMPANY_FILLABLE];
-  return COMPANY_FILLABLE.filter(f => company[f] == null || String(company[f]).trim() === "");
+// The P2-9 owner lock on a production company was lifted 2026-09-22 at Koon's
+// request: a crew member fixing a wrong billing address on their own invoice
+// should not have to ask an admin first. Every field of every company is now
+// writable by anyone signed in, so there is no permission helper left to call;
+// `addedBy` survives as attribution and delete scope only (the server keeps it,
+// see functions/_lib/roles.js mergeSharedWhole).
+//
+// A company edited by someone other than the crew member who added it keeps its
+// original attribution and gains a last-edited stamp, so a wrong address is
+// traceable to whoever changed it (the owner lock used to provide that).
+export function stampCompanyEdit(company, actor, at = Date.now()) {
+  if (!company || !actor) return company;
+  const addedBy = company.addedBy ?? null;
+  if (addedBy != null && addedBy === actor.id) return company; // their own: no stamp needed
+  return { ...company, editedBy: actor.id, editedByName: actor.name || "", editedAt: at };
 }
 
 // YYYY-MM-DD for a timestamp in the app timezone (paidDate stamping, P0-8).

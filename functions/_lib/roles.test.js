@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { forbiddenFields, restrictOwn, mergeOwnedWhole, ownInvoices, EMPLOYEE_PUT_FIELDS, SERVER_OWNED_FIELDS, COMPANY_FILLABLE, fillEmpty } from "./roles.js";
+import { forbiddenFields, restrictOwn, mergeSharedWhole, ownInvoices, EMPLOYEE_PUT_FIELDS, SERVER_OWNED_FIELDS } from "./roles.js";
 import { mergePhotoArray, mergeInvoices, mergeById } from "./merge.js";
 import { FIELDS } from "./store.js";
 
@@ -57,31 +57,35 @@ describe("restrictOwn (crew writes inside a merged array)", () => {
   });
 });
 
-describe("mergeOwnedWhole (productionCompanies by crew, P2-9 rule)", () => {
+describe("mergeSharedWhole (productionCompanies by crew, owner lock lifted 2026-09-22)", () => {
   const kv = [
     { id: "p1", name: "Bangkok Pictures", address: "A" },                 // admin-added (no addedBy)
-    { id: "p2", name: "Hub", address: "B", addedBy: "e2" },               // another crew's
+    { id: "p2", name: "Hub", address: "B", addedBy: "e2", addedByName: "Peerawish" }, // another crew's
     { id: "p3", name: "Mine", address: "C", addedBy: "e1" },              // own
     { id: "p4", name: "Mine too", address: "D", addedBy: "e1" },          // own, about to be deleted
   ];
-  it("crew may add, edit and delete only what they added; everything else stays as KV has it", () => {
+  it("crew may edit EVERY house; attribution stays with whoever added it", () => {
     const incoming = [
-      { id: "p1", name: "RENAMED", address: "WRONG" },                    // tamper: ignored
-      { id: "p2", name: "Hub", address: "WRONG", addedBy: "e2" },          // tamper: ignored
-      { id: "p3", name: "Mine v2", address: "C2", addedBy: "e1" },         // own edit
-      { id: "p5", name: "New house", address: "E" },                       // new: stamped
+      { id: "p1", name: "Bangkok Pictures Co., Ltd.", address: "99 Rama IV" },                 // house-registered: edit goes through
+      { id: "p2", name: "Hub Studio", address: "12 Sukhumvit", addedBy: "e1", addedByName: "Me" }, // teammate's: edit goes through, attribution is NOT stolen
+      { id: "p3", name: "Mine v2", address: "C2", addedBy: "e1" },                             // own edit
+      { id: "p5", name: "New house", address: "E", addedBy: "e2" },                            // new: stamped with the session, whatever it claims
       // p4 missing -> deleted (own)
     ];
-    const out = mergeOwnedWhole(incoming, kv, "e1", "addedBy");
+    const out = mergeSharedWhole(incoming, kv, "e1", "addedBy");
     expect(out).toEqual([
-      { id: "p1", name: "Bangkok Pictures", address: "A" },
-      { id: "p2", name: "Hub", address: "B", addedBy: "e2" },
+      { id: "p1", name: "Bangkok Pictures Co., Ltd.", address: "99 Rama IV" },
+      { id: "p2", name: "Hub Studio", address: "12 Sukhumvit", addedBy: "e2", addedByName: "Peerawish" },
       { id: "p3", name: "Mine v2", address: "C2", addedBy: "e1" },
       { id: "p5", name: "New house", address: "E", addedBy: "e1" },
     ]);
   });
-  it("a stale crew copy missing another crew's new house does not delete it", () => {
-    const out = mergeOwnedWhole([{ id: "p3", name: "Mine", address: "C", addedBy: "e1" }], kv, "e1", "addedBy");
+  it("a last-edited stamp from the client rides along", () => {
+    const out = mergeSharedWhole([{ id: "p2", name: "Hub", address: "NEW", addedBy: "e2", addedByName: "Peerawish", editedBy: "e1", editedByName: "Angkoon", editedAt: 1700 }], kv, "e1", "addedBy");
+    expect(out.find(c => c.id === "p2")).toMatchObject({ address: "NEW", addedBy: "e2", editedBy: "e1", editedByName: "Angkoon", editedAt: 1700 });
+  });
+  it("a crew may drop only what they added; another crew's house survives a payload that omits it", () => {
+    const out = mergeSharedWhole([{ id: "p3", name: "Mine", address: "C", addedBy: "e1" }], kv, "e1", "addedBy");
     expect(out.map(c => c.id).sort()).toEqual(["p1", "p2", "p3"]);
   });
 });
@@ -135,24 +139,19 @@ describe("reports by crew (restrictOwn + mergeById, as data.js applies it): the 
   });
 });
 
-describe("crew may fill in EMPTY billing fields of a house-registered company (never overwrite)", () => {
+describe("crew may correct a billing field that is already filled in (the point of lifting the lock)", () => {
   const kv = [
     { id: "p1", name: "Bangkok Pictures", address: "" },                         // auto-registered from a booking, no address
     { id: "p2", name: "Hub", address: "12 Sukhumvit", taxId: "0105", addedBy: "e2" },
   ];
-  it("fills address / taxId / branch when KV has them blank; keeps name and any existing value", () => {
+  it("writes name / address / taxId / branch on a house nobody or somebody else registered", () => {
     const incoming = [
-      { id: "p1", name: "RENAMED", address: " 99 Rama IV ", taxId: "0105551234567", branch: "HQ" },
-      { id: "p2", name: "Hub", address: "WRONG", taxId: "WRONG", branch: "00000", addedBy: "e2" },
+      { id: "p1", name: "Bangkok Pictures Co., Ltd.", address: "99 Rama IV", taxId: "0105551234567", branch: "HQ" },
+      { id: "p2", name: "Hub", address: "40 Ratchada", taxId: "0107", branch: "00000", addedBy: "e2" },
     ];
-    const out = mergeOwnedWhole(incoming, kv, "e1", "addedBy", { fillable: COMPANY_FILLABLE });
-    expect(out.find(c => c.id === "p1")).toEqual({ id: "p1", name: "Bangkok Pictures", address: "99 Rama IV", taxId: "0105551234567", branch: "HQ" });
-    expect(out.find(c => c.id === "p2")).toEqual({ id: "p2", name: "Hub", address: "12 Sukhumvit", taxId: "0105", branch: "00000", addedBy: "e2" });
-  });
-  it("fillEmpty returns the same object when nothing is fillable", () => {
-    const prev = { id: "x", address: "A" };
-    expect(fillEmpty(prev, { address: "B" }, ["address"])).toBe(prev);
-    expect(fillEmpty(prev, { address: "" }, ["address"])).toBe(prev);
+    const out = mergeSharedWhole(incoming, kv, "e1", "addedBy");
+    expect(out.find(c => c.id === "p1")).toMatchObject({ name: "Bangkok Pictures Co., Ltd.", address: "99 Rama IV", taxId: "0105551234567", branch: "HQ" });
+    expect(out.find(c => c.id === "p2")).toMatchObject({ address: "40 Ratchada", taxId: "0107", branch: "00000", addedBy: "e2" });
   });
 });
 
@@ -190,7 +189,7 @@ describe("a crew payload repeating one id 300 times", () => {
     expect(mergeInvoices(own, kv, "e1").map(i => i.id).sort()).toEqual(["inv1", "inv2"]);
     expect(ownInvoices(copies({ id: "inv1", employeeId: "e1" }), kv, "e1")).toHaveLength(1); // defensive, no uniqueIds in front
     const houses = [{ id: "p1", name: "Bangkok Pictures", address: "A" }, { id: "p2", name: "Mine", addedBy: "e1" }];
-    const out = mergeOwnedWhole(uniqueIds([...copies(houses[0]), ...copies(houses[1])]), [...houses, ...houses], "e1", "addedBy", { fillable: COMPANY_FILLABLE });
+    const out = mergeSharedWhole(uniqueIds([...copies(houses[0]), ...copies(houses[1])]), [...houses, ...houses], "e1", "addedBy");
     expect(out).toEqual(houses);
   });
   it("newRecordCount counts ids KV does not hold plus id-less rows; the cap is what data.js refuses at 413", () => {
