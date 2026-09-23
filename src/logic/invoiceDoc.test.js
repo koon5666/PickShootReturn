@@ -22,18 +22,34 @@ describe("printableItems", () => {
 });
 
 describe("validateDocument", () => {
+  const named = { jobName: "Toyota TVC" };
   it("blocks a document with no priced line", () => {
-    expect(validateDocument({ items: [{ qty: 1, rate: "" }], docType: "invoice" })).toEqual({ ok: false, reason: "noRate" });
-    expect(validateDocument({ items: [], docType: "invoice" })).toEqual({ ok: false, reason: "noRate" });
-    expect(validateDocument({ items: [{ qty: 0, rate: "500" }], docType: "invoice" })).toEqual({ ok: false, reason: "noRate" });
+    expect(validateDocument({ ...named, items: [{ qty: 1, rate: "" }], docType: "invoice" })).toEqual({ ok: false, reason: "noRate" });
+    expect(validateDocument({ ...named, items: [], docType: "invoice" })).toEqual({ ok: false, reason: "noRate" });
+    expect(validateDocument({ ...named, items: [{ qty: 0, rate: "500" }], docType: "invoice" })).toEqual({ ok: false, reason: "noRate" });
   });
   it("passes with one priced line", () => {
-    expect(validateDocument({ items, docType: "invoice" })).toEqual({ ok: true });
+    expect(validateDocument({ ...named, items, docType: "invoice" })).toEqual({ ok: true });
   });
   it("a new receipt needs a linked paid invoice", () => {
-    expect(validateDocument({ items, docType: "receipt" })).toEqual({ ok: false, reason: "noLinkedInvoice" });
-    expect(validateDocument({ items, docType: "receipt", linkedInvId: "inv1" })).toEqual({ ok: true });
-    expect(validateDocument({ items, docType: "receipt", isEdit: true })).toEqual({ ok: true });
+    expect(validateDocument({ ...named, items, docType: "receipt" })).toEqual({ ok: false, reason: "noLinkedInvoice" });
+    expect(validateDocument({ ...named, items, docType: "receipt", linkedInvId: "inv1" })).toEqual({ ok: true });
+    expect(validateDocument({ ...named, items, docType: "receipt", isEdit: true })).toEqual({ ok: true });
+  });
+  // A job-less document is allowed since 2026-09-23, a nameless one is not: it would
+  // sit in the list and in the revenue grouping as a blank row.
+  it("a NEW document needs a job / work name", () => {
+    expect(validateDocument({ items, docType: "invoice" })).toEqual({ ok: false, reason: "noJobName" });
+    expect(validateDocument({ items, docType: "invoice", jobName: "   " })).toEqual({ ok: false, reason: "noJobName" });
+    expect(validateDocument({ items, docType: "invoice", jobName: null })).toEqual({ ok: false, reason: "noJobName" });
+    expect(validateDocument({ items, docType: "invoice", jobName: "Weekly billing" })).toEqual({ ok: true });
+  });
+  it("editing a document that predates the rule is never blocked by the name", () => {
+    expect(validateDocument({ items, docType: "invoice", isEdit: true })).toEqual({ ok: true });
+    expect(validateDocument({ items, docType: "invoice", isEdit: true, jobName: "" })).toEqual({ ok: true });
+  });
+  it("the name is checked before the rate, matching the order of the form", () => {
+    expect(validateDocument({ items: [], docType: "invoice" })).toEqual({ ok: false, reason: "noJobName" });
   });
 });
 

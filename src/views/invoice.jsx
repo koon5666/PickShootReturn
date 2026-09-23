@@ -498,9 +498,10 @@ export function InvoiceCreateModal({ job, existingInvoice, draft = null, employe
   const unpricedCount = items.filter(it => !((parseFloat((it.rate || "").toString().replace(/,/g, "")) || 0) > 0)).length;
 
   const save = () => {
-    const v = validateDocument({ items, docType, linkedInvId, isEdit: !!existingInvoice });
+    const v = validateDocument({ items, docType, linkedInvId, isEdit: !!existingInvoice, jobName });
     if (!v.ok) {
       if (v.reason === "noLinkedInvoice") { setSaveErr(t("docNoPaidInv")); return; }
+      if (v.reason === "noJobName") { setSaveErr(t("docSaveBlockedNoJobName")); return; }
       // Explicit zero quote is allowed after a confirm (P2-4); an invoice/receipt is not.
       if (!(docType === "quotation" && window.confirm(t("docZeroConfirm")))) { setSaveErr(t("docSaveBlockedNoRate")); return; }
     }
@@ -575,7 +576,7 @@ export function InvoiceCreateModal({ job, existingInvoice, draft = null, employe
                 <p style={{ fontSize: 11, color: "#B7791F", margin: "5px 0 0", lineHeight: 1.5 }}>⚠ {isAdminCreator ? t("docMissingBankAdmin") : t("docMissingBank")}</p>
               )}
             </div>
-            <div><label style={S.label}>{t("docJobName")}</label><input style={S.input} value={jobName} onChange={e => setJobName(e.target.value)} /></div>
+            <div><label style={S.label}>{t("docJobName")}</label><input style={{ ...S.input, ...(jobName.trim() || existingInvoice ? {} : { borderColor: "#C53030" }) }} value={jobName} onChange={e => setJobName(e.target.value)} placeholder={t("docJobNamePh")} /></div>
             <div>
               <label style={S.label}>{t("docProdCompany")}</label>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

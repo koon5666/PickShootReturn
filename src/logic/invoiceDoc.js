@@ -22,9 +22,14 @@ export function printableItems(invoice) {
 
 // Save gate (P2-4): a document needs at least one line with rate > 0. The
 // caller may still allow an explicit zero quote after a confirm.
-//   { ok: true } | { ok: false, reason: "noRate" | "noLinkedInvoice" }
-export function validateDocument({ items, docType, linkedInvId, isEdit }) {
+// A NEW document also needs a job / work name: since 2026-09-23 a document can
+// be raised with no job attached at all, and a nameless one would land in the
+// list and in the revenue grouping as a blank row. Editing an older document
+// that predates the rule is never blocked by it.
+//   { ok: true } | { ok: false, reason: "noRate" | "noLinkedInvoice" | "noJobName" }
+export function validateDocument({ items, docType, linkedInvId, isEdit, jobName }) {
   if (docType === "receipt" && !isEdit && !linkedInvId) return { ok: false, reason: "noLinkedInvoice" };
+  if (!isEdit && !String(jobName == null ? "" : jobName).trim()) return { ok: false, reason: "noJobName" };
   const priced = (items || []).filter(it => num(it?.rate) > 0 && num(it?.qty) > 0);
   if (priced.length === 0) return { ok: false, reason: "noRate" };
   return { ok: true };

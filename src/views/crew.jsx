@@ -1950,9 +1950,16 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
 
           return (
             <div style={S.col}>
-              <div>
-                <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("myInvoices")}</h1>
-                <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{tCount(t, "invCountTotal", allMyInvoices.length).replace("{total}", allMyInvoices.reduce((s, inv) => s + calcTotal(inv), 0).toLocaleString())}</p>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <h1 style={{ ...S.pageTitle, fontSize: 18, marginBottom: 2 }}>{t("myInvoices")}</h1>
+                  <p style={{ ...S.pageSubtitle, marginBottom: 0, fontSize: 12 }}>{tCount(t, "invCountTotal", allMyInvoices.length).replace("{total}", allMyInvoices.reduce((s, inv) => s + calcTotal(inv), 0).toLocaleString())}</p>
+                </div>
+                {/* A document needs no job at all: same job billed per day or per week is
+                    several documents, and each must mint its own number (crew ask 2026-09-23). */}
+                <button data-testid="invoice-new-blank" style={{ ...S.btn("primary", "md"), flexShrink: 0 }} onClick={() => setInvoiceModal({ job: null, existing: null })}>
+                  <Icon d={icons.plus} size={14} /> {t("crewNewDoc")}
+                </button>
               </div>
 
               {/* Revenue Summary */}
@@ -2071,22 +2078,22 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
                   )}
                 </div>
                 {confirmedJobs.length === 0
-                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: "8px 0 0" }}>{t("crewNoJobsToInvoice")}</p>
+                  ? <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: "8px 0 0" }}>{t("crewNoJobsToInvoice")} {t("crewNoJobsUseNew")}</p>
                   : confirmedJobs.map(job => {
-                    // Any live document of mine for this job, regardless of the list filter (P2-4).
-                    const hasInvoice = allMyInvoices.some(inv => inv.jobId === job.id);
+                    // Documents of mine already raised against this job, regardless of the list filter (P2-4).
+                    // The count is information, NOT a gate: one job is billed per day or per week as
+                    // several documents, so the button stays (crew ask 2026-09-23).
+                    const jobDocs = allMyInvoices.filter(inv => inv.jobId === job.id).length;
                     return (
-                      <div key={job.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
-                        <div style={{ flex: 1 }}>
+                      <div key={job.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 0", borderBottom: "1px solid var(--divider-color,#D8E1EC)" }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{job.name}{isOtherJob(job) && <span style={{ ...S.badge("gray"), marginLeft: 6 }}>{t("crewOtherJobBadge")}</span>}</p>
                           <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}>{job.production} · {(job.dates || []).slice(0, 2).map(d => formatDay(d)).join(", ")}</p>
+                          {jobDocs > 0 && <p style={{ margin: "3px 0 0", fontSize: 11, color: "var(--text-muted,#5F7A91)" }}><span style={{ ...S.badge("green"), fontSize: 9, marginRight: 5 }}>✓ {t("invoicedBadge")}</span>{tCount(t, "countDocs", jobDocs)}</p>}
                         </div>
-                        {hasInvoice
-                          ? <span style={S.badge("green", "md")}>✓ {t("invoicedBadge")}</span>
-                          : <button style={S.btn("primary", "md")} onClick={() => setInvoiceModal({ job, existing: null })}>
-                              <Icon d={icons.invoice} size={14} /> {t("createInvoice")}
-                            </button>
-                        }
+                        <button style={{ ...S.btn(jobDocs > 0 ? "ghost" : "primary", "md"), flexShrink: 0 }} onClick={() => setInvoiceModal({ job, existing: null })}>
+                          <Icon d={jobDocs > 0 ? icons.plus : icons.invoice} size={14} /> {jobDocs > 0 ? t("crewAnotherDoc") : t("createInvoice")}
+                        </button>
                       </div>
                     );
                   })
