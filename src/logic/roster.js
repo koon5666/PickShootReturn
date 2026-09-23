@@ -85,6 +85,14 @@ export function jobChangeSet(before, after) {
 
 export const shouldNotify = (changes) => (changes || []).length > 0;
 
+// The RECAP rides only on the changes that move a job in or out of the book:
+// a brand new job, or a status flip (Confirmed / Pencil / Declined / Cancelled).
+// A location, shoot-time, date or roster tweak still pushes, but sends the
+// header alone, so the calendar is not re-posted for a detail nobody asked
+// about (Koon 2026-09-24).
+export const RECAP_CHANGES = ["new", "status"];
+export const wantsRecap = (changes) => (changes || []).some(c => RECAP_CHANGES.includes(c));
+
 // Who a push goes to when there is no group: the assigned crew's LINE ids, or
 // every employee with one when the job is open. Returns [] when nothing applies.
 export function pushRecipients(job, employees, lineGroupId) {
@@ -119,7 +127,7 @@ export function buildJobMessage(job, { changes = ["new"], employees = [], format
   const contact = [job.contactPerson, job.contactPlatform ? `Via ${job.contactPlatform}` : ""].filter(v => String(v || "").trim()).join(" ");
   if (contact) lines.push(`👤 ${contact}`);
   lines.push(`📍 ${locationStr}`);
-  if (jobs && today) {
+  if (jobs && today && wantsRecap(changes)) {
     // Budget is measured against what the header and link already cost, so the
     // finished message can never cross LINE's limit however big the book gets.
     const overhead = lines.join("\n").length + `\n\nJob summary\n`.length + `\n\n🔗 ${appUrl}`.length;

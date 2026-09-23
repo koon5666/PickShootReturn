@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeCrew, cleanTime, hasRoster, isOnRoster, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage, pushEmployeeIds, compressDays, jobSummaryLines, fitRecapBlocks } from "./roster.js";
+import { normalizeCrew, cleanTime, hasRoster, isOnRoster, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage, pushEmployeeIds, compressDays, jobSummaryLines, fitRecapBlocks, wantsRecap } from "./roster.js";
 
 const emps = [{ id: "e1", name: "Nong", lineUserId: "U1" }, { id: "e2", name: "Arthit" }, { id: "e3", name: "Ploy", lineUserId: "U3" }];
 const job = (extra = {}) => ({ id: "j1", name: "TVC", production: "Indie", dates: ["2026-09-20", "2026-09-21"], status: "Confirmed", location: "Local (Bangkok)", ...extra });
@@ -332,5 +332,52 @@ describe("overseas plane + no contact detail in the recap (2026-09-24)", () => {
     const msg = buildJobMessage(job, { changes: ["new"], jobs: [job], today });
     expect(msg).toContain("👤 P'Bee Via Line");            // header keeps it
     expect(msg).toContain("10 Factory01, Nivea ✈️ ✅");     // recap does not
+  });
+});
+
+describe("the recap rides only on added / confirmed / penciled / declined (2026-09-24)", () => {
+  const jobs = [
+    { id: "j1", name: "PEPSI", production: "Film Fact", status: "Pencil", dates: ["2026-06-15", "2026-06-16"], location: "Local (Bangkok)", contactPerson: "P'Poo", contactPlatform: "WhatsApp" },
+    { id: "j2", name: "KFC", production: "Taprod", status: "Confirmed", dates: ["2026-06-20"], location: "Local (Bangkok)" },
+  ];
+  const msgFor = (changes) => buildJobMessage(jobs[0], { changes, jobs, today: "2026-06-01", appUrl: "https://x" });
+
+  it("wantsRecap: only a new job or a status flip", () => {
+    expect(wantsRecap(["new"])).toBe(true);
+    expect(wantsRecap(["status"])).toBe(true);
+    expect(wantsRecap(["status", "dates"])).toBe(true);   // a flip that also moved dates
+    expect(wantsRecap(["dates"])).toBe(false);
+    expect(wantsRecap(["location"])).toBe(false);
+    expect(wantsRecap(["roster"])).toBe(false);
+    expect(wantsRecap(["time"])).toBe(false);
+    expect(wantsRecap(["dates", "location", "roster", "time"])).toBe(false);
+    expect(wantsRecap([])).toBe(false);
+    expect(wantsRecap(undefined)).toBe(false);
+  });
+  it("a new job carries the recap", () => {
+    expect(msgFor(["new"])).toContain("Job summary");
+  });
+  it("Confirmed / Pencil / Declined / Cancelled all arrive as a status change, so all carry it", () => {
+    for (const status of ["Confirmed", "Pencil", "Declined", "Cancelled"]) {
+      const job = { ...jobs[0], status };
+      const msg = buildJobMessage(job, { changes: ["status"], jobs: [job, jobs[1]], today: "2026-06-01" });
+      expect(msg).toContain(`[Status → ${status}]`);
+      expect(msg).toContain("Job summary");
+    }
+  });
+  it("a location, time, date or crew tweak still pushes, but as the header alone", () => {
+    for (const changes of [["dates"], ["location"], ["roster"], ["time"], ["dates", "location"]]) {
+      const msg = msgFor(changes);
+      expect(msg).not.toContain("Job summary");
+      expect(msg).toContain("[");                         // the headline is still there
+      expect(msg.trimEnd().endsWith("🔗 https://x")).toBe(true);
+      expect(msg).toContain("👤 P'Poo Via WhatsApp");      // and the contact the admin needs
+    }
+  });
+  it("a header-only message has no blank line left where the recap was", () => {
+    expect(msgFor(["location"])).toBe([
+      "✏️ [Updated] PEPSI", "🎬 Film Fact", "📅 2026-06-15, 2026-06-16",
+      "👤 P'Poo Via WhatsApp", "📍 Local (Bangkok)", "", "🔗 https://x",
+    ].join("\n"));
   });
 });
