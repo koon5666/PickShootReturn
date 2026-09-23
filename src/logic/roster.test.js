@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeCrew, cleanTime, hasRoster, isOnRoster, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage, pushEmployeeIds, compressDays, jobSummaryLines } from "./roster.js";
+import { normalizeCrew, cleanTime, hasRoster, isOnRoster, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage, pushEmployeeIds, compressDays, jobSummaryLines, fitRecapBlocks } from "./roster.js";
 
 const emps = [{ id: "e1", name: "Nong", lineUserId: "U1" }, { id: "e2", name: "Arthit" }, { id: "e3", name: "Ploy", lineUserId: "U3" }];
 const job = (extra = {}) => ({ id: "j1", name: "TVC", production: "Indie", dates: ["2026-09-20", "2026-09-21"], status: "Confirmed", location: "Local (Bangkok)", ...extra });
@@ -132,24 +132,24 @@ describe("jobSummaryLines", () => {
   it("groups by month and renders Koon's line format", () => {
     expect(jobSummaryLines(jobs, { today })).toEqual([
       "June",
-      "1-5 Taprod, TBA, P'ple Via Line ✏️",
-      "15,16 Film Fact, KFC, P'Poo Via WhatsApp ✏️",
-      "17,18 Film Fact, Pepsi, P'Poo Via WhatsApp ✅",
+      "1-5 Taprod, TBA ✏️",
+      "15,16 Film Fact, KFC ✏️",
+      "17,18 Film Fact, Pepsi ✅",
       "",
       "July",
-      "8-10 Living Films, TBA, P'mon Via Line ✏️",
+      "8-10 Living Films, TBA ✏️",
     ]);
   });
   it("stars exactly the job that triggered the message, and nothing else", () => {
     const out = jobSummaryLines(jobs, { today, starId: "j2" });
-    expect(out.filter(l => l.startsWith("*"))).toEqual(["*15,16 Film Fact, KFC, P'Poo Via WhatsApp ✏️"]);
+    expect(out.filter(l => l.startsWith("*"))).toEqual(["*15,16 Film Fact, KFC ✏️"]);
     // no star id -> the very same recap, no marker anywhere (this is what makes it
     // vanish from the NEXT message without anything being cleared)
     expect(jobSummaryLines(jobs, { today }).some(l => l.startsWith("*"))).toBe(false);
   });
   it("keeps a job whole while any day is still ahead, drops it once all have passed", () => {
     // today sits inside j1 (June 1-5): the whole run still prints
-    expect(jobSummaryLines(jobs, { today: "2026-06-03" })[1]).toBe("1-5 Taprod, TBA, P'ple Via Line ✏️");
+    expect(jobSummaryLines(jobs, { today: "2026-06-03" })[1]).toBe("1-5 Taprod, TBA ✏️");
     // past its last day it is gone, the rest stays
     const later = jobSummaryLines(jobs, { today: "2026-06-06" });
     expect(later.some(l => l.includes("Taprod"))).toBe(false);
@@ -164,11 +164,11 @@ describe("jobSummaryLines", () => {
   it("a job spanning the month boundary shows under each month ahead, not behind", () => {
     const span = [J("s", "Nike", "Living", "Confirmed", ["2026-06-29","2026-06-30","2026-07-01","2026-07-02"], "P'mon", "Line")];
     expect(jobSummaryLines(span, { today: "2026-06-28" })).toEqual([
-      "June", "29,30 Living, Nike, P'mon Via Line ✅", "", "July", "1,2 Living, Nike, P'mon Via Line ✅",
+      "June", "29,30 Living, Nike ✅", "", "July", "1,2 Living, Nike ✅",
     ]);
     // once July has started the June half is not a recap any more
     expect(jobSummaryLines(span, { today: "2026-07-01" })).toEqual([
-      "July", "1,2 Living, Nike, P'mon Via Line ✅",
+      "July", "1,2 Living, Nike ✅",
     ]);
   });
   it("survives missing fields without printing holes", () => {
@@ -195,8 +195,8 @@ describe("buildJobMessage with the recap", () => {
       "",
       "Job summary",
       "June",
-      "*15,16 Film Fact, PEPSI, P'Poo Via WhatsApp ✏️",
-      "20 Taprod, KFC, P'ple Via Line ✅",
+      "*15,16 Film Fact, PEPSI ✏️",
+      "20 Taprod, KFC ✅",
       "",
       "🔗 https://x",
     ].join("\n"));
@@ -210,5 +210,127 @@ describe("buildJobMessage with the recap", () => {
     const msg = buildJobMessage(jobs[0], { changes: ["new"], appUrl: "https://x" });
     expect(msg).not.toMatch(/Job summary/);
     expect(msg.endsWith("🔗 https://x")).toBe(true);
+  });
+});
+
+describe("recap character budget (safety net, never fires on a real book)", () => {
+  const ymd = (y, m, d) => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const book = (n) => Array.from({ length: n }, (_, i) => ({
+    id: "j" + i, name: "Client " + i, production: "Production House " + i, status: i % 2 ? "Pencil" : "Confirmed",
+    contactPerson: "P'Contact" + i, contactPlatform: "WhatsApp", location: "Local (Bangkok)",
+    dates: [ymd(2026, 9 + (i % 4), 1 + (i % 27))],
+  }));
+  const LINE_LIMIT = 5000;
+
+  it("a realistic forward book is nowhere near the limit and is never trimmed", () => {
+    const jobs = book(20);
+    const msg = buildJobMessage(jobs[0], { changes: ["new"], jobs, today: "2026-09-24" });
+    expect(msg.length).toBeLessThan(1600);
+    expect(msg).not.toMatch(/\+\d+ more in/);
+  });
+  it("an absurd book still produces a message LINE will accept", () => {
+    for (const n of [200, 500, 2000]) {
+      const jobs = book(n);
+      const msg = buildJobMessage(jobs[0], { changes: ["new"], jobs, today: "2026-09-24" });
+      expect(msg.length).toBeLessThanOrEqual(LINE_LIMIT);
+      expect(msg).toMatch(/\+\d+ more in \w+/);       // says what it left out
+      expect(msg).toMatch(/^✏️ \[New Job\]|^✅ \[New Job\]/); // header survives
+      expect(msg.trimEnd().endsWith("🔗 https://pickshootreturn.pages.dev")).toBe(true);
+    }
+  });
+  it("trims the FURTHEST months first, so the near ones always survive", () => {
+    const jobs = book(500);
+    const msg = buildJobMessage(jobs[0], { changes: ["new"], jobs, today: "2026-09-24" });
+    expect(msg).toContain("September");                        // nearest month kept
+    expect(msg).toMatch(/\+\d+ more in October to December/);   // furthest months are the ones dropped
+    expect(msg).not.toMatch(/^December$/m);
+  });
+  it("the starred job survives trimming: it is in the nearest month, which is kept", () => {
+    const jobs = book(500);
+    // a trigger that is actually ahead of today, so it belongs in a forward recap
+    const trigger = { ...jobs[0], id: "trigger", name: "TRIGGER", dates: ["2026-09-25"] };
+    const msg = buildJobMessage(trigger, { changes: ["new"], jobs: [...jobs, trigger], today: "2026-09-24" });
+    const starred = msg.split("\n").filter(l => l.startsWith("*"));
+    expect(starred).toHaveLength(1);
+    expect(starred[0]).toContain("TRIGGER");
+    expect(msg.length).toBeLessThanOrEqual(5000);
+  });
+  it("a job edited whose days have all passed is announced but is not in the forward recap", () => {
+    const jobs = book(20);
+    const past = { ...jobs[0], id: "past", name: "WRAPPED", dates: ["2026-09-01"] };
+    const msg = buildJobMessage(past, { changes: ["status"], jobs: [...jobs, past], today: "2026-09-24" });
+    expect(msg).toMatch(/\[Status → /);                 // the header still announces it
+    expect(msg).toContain("WRAPPED");                   // by name, in the header
+    expect(msg.split("\n").filter(l => l.startsWith("*"))).toHaveLength(0); // nothing starred in a forward list
+  });
+  it("fitRecapBlocks leaves a small recap completely alone", () => {
+    const blocks = [{ month: "September", lines: ["1,2 A, B, C Via Line ✏️"] }];
+    expect(fitRecapBlocks(blocks, 4200)).toEqual(["September", "1,2 A, B, C Via Line ✏️"]);
+  });
+  it("one oversized month sheds its own rows rather than vanishing", () => {
+    const blocks = [{ month: "September", lines: Array.from({ length: 200 }, (_, i) => `${i + 1} Row ${i} padding padding padding`) }];
+    const out = fitRecapBlocks(blocks, 600);
+    expect(out.join("\n").length).toBeLessThanOrEqual(600);
+    expect(out[0]).toBe("September");
+    expect(out[out.length - 1]).toMatch(/^\+\d+ more in September$/);
+  });
+});
+
+describe("overseas plane + no contact detail in the recap (2026-09-24)", () => {
+  const base = { id: "j1", name: "Nivea", production: "Factory01", status: "Confirmed", contactPerson: "P'Bee", contactPlatform: "Line" };
+  const today = "2026-06-01";
+  it("the recap never carries the contact person or channel", () => {
+    const out = jobSummaryLines([{ ...base, location: "Local (Bangkok)", dates: ["2026-06-10"] }], { today });
+    expect(out).toEqual(["June", "10 Factory01, Nivea ✅"]);
+    expect(out.join("\n")).not.toMatch(/P'Bee|Via /);
+  });
+  it("Overseas flies the plane, Local and Out of Town do not", () => {
+    const at = (location) => jobSummaryLines([{ ...base, location, dates: ["2026-06-10"] }], { today })[1];
+    expect(at("Overseas")).toBe("10 Factory01, Nivea ✈️ ✅");   // no country recorded yet
+    expect(at("Local (Bangkok)")).toBe("10 Factory01, Nivea ✅");
+    expect(at("Out of Town")).toBe("10 Factory01, Nivea ✅");
+    expect(at(undefined)).toBe("10 Factory01, Nivea ✅");
+  });
+  it("an Overseas job names the country", () => {
+    const job = { ...base, location: "Overseas", locationCity: "Tokyo", dates: ["2026-06-10", "2026-06-11"] };
+    expect(jobSummaryLines([job], { today })[1]).toBe("10,11 Factory01, Nivea ✈️ Tokyo ✅");
+  });
+  it("the country is only shown where the job actually flies", () => {
+    // Out of Town carries a province in the same field; it must not leak onto the line
+    const job = { ...base, location: "Out of Town", locationCity: "Chiang Mai", dates: ["2026-06-10"] };
+    expect(jobSummaryLines([job], { today })[1]).toBe("10 Factory01, Nivea ✅");
+  });
+  it("a per-date override names its own country, and two stops name both", () => {
+    const job = { ...base, location: "Overseas", locationCity: "Tokyo",
+      dates: ["2026-06-10", "2026-06-11", "2026-06-12"],
+      dateOverrides: { "2026-06-12": { location: "Overseas", locationCity: "Seoul" } } };
+    expect(jobSummaryLines([job], { today })[1]).toBe("10-12 Factory01, Nivea ✈️ Tokyo/Seoul ✅");
+  });
+  it("the country follows the month, like the plane does", () => {
+    const job = { ...base, location: "Local (Bangkok)", dates: ["2026-06-10", "2026-07-05"],
+      dateOverrides: { "2026-07-05": { location: "Overseas", locationCity: "Hanoi" } } };
+    expect(jobSummaryLines([job], { today })).toEqual([
+      "June", "10 Factory01, Nivea ✅",
+      "", "July", "5 Factory01, Nivea ✈️ Hanoi ✅",
+    ]);
+  });
+  it("a per-date override decides the day, so the plane follows the trip month by month", () => {
+    const job = { ...base, location: "Local (Bangkok)", dates: ["2026-06-10", "2026-07-05", "2026-07-06"],
+      dateOverrides: { "2026-07-05": { location: "Overseas" } } };
+    expect(jobSummaryLines([job], { today })).toEqual([
+      "June", "10 Factory01, Nivea ✅",          // local month, no plane
+      "", "July", "5,6 Factory01, Nivea ✈️ ✅",   // the month with the overseas day
+    ]);
+  });
+  it("an Overseas job whose days are all overridden back to local does not fly", () => {
+    const job = { ...base, location: "Overseas", dates: ["2026-06-10", "2026-06-11"],
+      dateOverrides: { "2026-06-10": { location: "Out of Town" }, "2026-06-11": { location: "Local (Bangkok)" } } };
+    expect(jobSummaryLines([job], { today })[1]).toBe("10,11 Factory01, Nivea ✅");
+  });
+  it("the contact still rides in the HEADER of the job that changed", () => {
+    const job = { ...base, location: "Overseas", dates: ["2026-06-10"] };
+    const msg = buildJobMessage(job, { changes: ["new"], jobs: [job], today });
+    expect(msg).toContain("👤 P'Bee Via Line");            // header keeps it
+    expect(msg).toContain("10 Factory01, Nivea ✈️ ✅");     // recap does not
   });
 });

@@ -120,7 +120,10 @@ export function buildJobMessage(job, { changes = ["new"], employees = [], format
   if (contact) lines.push(`👤 ${contact}`);
   lines.push(`📍 ${locationStr}`);
   if (jobs && today) {
-    const recap = jobSummaryLines(jobs, { today, starId: job.id });
+    // Budget is measured against what the header and link already cost, so the
+    // finished message can never cross LINE's limit however big the book gets.
+    const overhead = lines.join("\n").length + `\n\nJob summary\n`.length + `\n\n🔗 ${appUrl}`.length;
+    const recap = fitRecapBlocks(jobSummaryBlocks(jobs, { today, starId: job.id }), Math.max(400, RECAP_MAX_CHARS - overhead));
     if (recap.length) lines.push("", "Job summary", ...recap);
   }
   lines.push("", `🔗 ${appUrl}`);
@@ -163,16 +166,39 @@ const monthName = (ym) => {
   return new Date(Date.UTC(y, (m || 1) - 1, 1)).toLocaleString("en-GB", { month: "long", timeZone: "UTC" });
 };
 
-// One line per (month, job): "15,16 Film Fact, KFC, P'Poo Via WhatsApp ✏️".
-function summaryLine(job, days, starred) {
-  const who = [job.production || "TBA", job.name || "TBA", job.contactPerson].filter(v => String(v || "").trim());
-  const via = String(job.contactPlatform || "").trim();
-  return `${starred ? "*" : ""}${compressDays(days)} ${who.join(", ")}${via ? ` Via ${via}` : ""} ${STATUS_MARK[job.status] || ""}`.trimEnd();
+// Overseas days of ONE line (a line covers one month of one job), and where they
+// are. A per-date override wins over the job default for both the location and
+// the country, so a job that is local in September and abroad in October flies
+// the plane only on the October line, and a trip with two stops names both.
+function overseasOn(job, dates) {
+  const overrides = job.dateOverrides || {};
+  let flies = false;
+  const countries = [];
+  for (const ds of dates || []) {
+    const ov = overrides[ds] || {};
+    if (!/overseas/i.test(ov.location || job.location || "")) continue;
+    flies = true;
+    const country = String(ov.locationCity || job.locationCity || "").trim();
+    if (country && !countries.includes(country)) countries.push(country);
+  }
+  return { flies, countries };
+}
+
+// One line per (month, job): "27,28 Suneta House, Grab ✈️ Tokyo ✏️".
+// Contact person and channel are deliberately NOT here (Koon 2026-09-24): the
+// group only needs who is shooting what and when, the contact is admin detail
+// and stays in the header block of the job that changed.
+function summaryLine(job, days, starred, dates) {
+  const who = [job.production || "TBA", job.name || "TBA"].filter(v => String(v || "").trim());
+  const { flies, countries } = overseasOn(job, dates);
+  // The plane still flies when no country was recorded; it just has nothing to name.
+  const trip = flies ? ` ✈️${countries.length ? ` ${countries.join("/")}` : ""}` : "";
+  return `${starred ? "*" : ""}${compressDays(days)} ${who.join(", ")}${trip} ${STATUS_MARK[job.status] || ""}`.trimEnd();
 }
 
 // The recap body as lines (no heading, no trailing link). `today` is a
 // YYYY-MM-DD string in the app timezone so the cutoff never guesses the device.
-export function jobSummaryLines(jobs, { today: todayStr, starId = null } = {}) {
+export function jobSummaryBlocks(jobs, { today: todayStr, starId = null } = {}) {
   const cutoffMonth = String(todayStr || "").slice(0, 7);
   const months = new Map(); // "YYYY-MM" -> [{ job, days, first }]
   for (const job of jobs || []) {
@@ -185,19 +211,71 @@ export function jobSummaryLines(jobs, { today: todayStr, starId = null } = {}) {
       const ym = d.slice(0, 7);
       if (ym < cutoffMonth) continue; // a month already behind us is not a recap
       if (!byMonth.has(ym)) byMonth.set(ym, []);
-      byMonth.get(ym).push(parseInt(d.slice(8, 10), 10));
+      byMonth.get(ym).push(d);
     }
-    for (const [ym, days] of byMonth) {
+    for (const [ym, monthDates] of byMonth) {
+      const days = monthDates.map(d => parseInt(d.slice(8, 10), 10));
       if (!months.has(ym)) months.set(ym, []);
-      months.get(ym).push({ job, days, first: Math.min(...days) });
+      months.get(ym).push({ job, days, dates: monthDates, first: Math.min(...days) });
     }
   }
-  const lines = [];
+  const blocks = [];
   for (const ym of [...months.keys()].sort()) {
     const rows = months.get(ym).sort((a, b) => a.first - b.first || String(a.job.name || "").localeCompare(String(b.job.name || "")));
-    if (lines.length) lines.push("");
-    lines.push(monthName(ym));
-    for (const r of rows) lines.push(summaryLine(r.job, r.days, r.job.id === starId && starId != null));
+    blocks.push({ month: monthName(ym), lines: rows.map(r => summaryLine(r.job, r.days, r.job.id === starId && starId != null, r.dates)) });
   }
+  return blocks;
+}
+
+// Flat recap body, months separated by a blank line.
+export function jobSummaryLines(jobs, opts = {}) {
+  return flattenBlocks(jobSummaryBlocks(jobs, opts));
+}
+
+function flattenBlocks(blocks) {
+  const lines = [];
+  for (const b of blocks) {
+    if (lines.length) lines.push("");
+    lines.push(b.month, ...b.lines);
+  }
+  return lines;
+}
+
+// LINE rejects a push over 5000 characters and the whole message is lost, the
+// job notification with it. Koon's real book is nowhere near that (a 9-job
+// forward calendar is ~560 characters, the ceiling is around 150 forward jobs),
+// so this is a safety net, not a working limit: it keeps the newest months and
+// says how many jobs it had to leave out.
+export const RECAP_MAX_CHARS = 4200;
+
+// Drop whole trailing months until `blocks` fit in `budget` characters, then, if
+// even one month is too big, drop lines off the end of it. Returns the lines to
+// print plus a one-line note naming what was left out, or null when nothing was.
+export function fitRecapBlocks(blocks, budget = RECAP_MAX_CHARS) {
+  const size = (ls) => ls.reduce((n, l) => n + l.length + 1, 0);
+  const kept = [...blocks];
+  let droppedJobs = 0;
+  const droppedMonths = [];
+  const note = () => droppedJobs
+    ? `+${droppedJobs} more in ${droppedMonths[0]}${droppedMonths.length > 1 ? ` to ${droppedMonths[droppedMonths.length - 1]}` : ""}`
+    : null;
+  const fits = () => {
+    const n = note();
+    return size(flattenBlocks(kept)) + (n ? n.length + 2 : 0) <= budget;
+  };
+  while (kept.length > 1 && !fits()) {
+    const gone = kept.pop();
+    droppedJobs += gone.lines.length;
+    droppedMonths.unshift(gone.month);
+  }
+  // One month on its own is still too long: shed its last rows.
+  while (kept.length === 1 && kept[0].lines.length > 1 && !fits()) {
+    kept[0].lines.pop();
+    droppedJobs += 1;
+    if (droppedMonths[0] !== kept[0].month) droppedMonths.unshift(kept[0].month);
+  }
+  const lines = flattenBlocks(kept);
+  const n = note();
+  if (n) lines.push("", n);
   return lines;
 }

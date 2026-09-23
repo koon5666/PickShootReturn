@@ -1108,10 +1108,25 @@ export function InvoicePage({ productionCompanies, setProductionCompanies, invoi
   };
 
   // ── Regenerate INV = explicit "Create invoice from job/quote" (goes through the modal) ─
+  // No longer refuses when the job already has one: a job is billed per day or per
+  // week as several documents (crew hit the same wall, 2026-09-23).
   const handleRegenerateInv = (jobId) => {
     const job = (jobs || []).find(j => j.id === jobId);
-    if (!job || job.status !== "Confirmed" || liveAdminDoc(jobId, "invoice")) return;
+    if (!job || job.status !== "Confirmed") return;
     openInvoiceFromJob(job);
+  };
+
+  // A house document attached to NO job: the same freedom the crew got. The
+  // modal takes it from here; the number is still only reserved on Save.
+  const openBlankDoc = (docType) => {
+    setAdminDraft({
+      id: `${docType}-blank-${Date.now()}`, docType, jobId: "", jobName: "", productionCompany: "",
+      shootDates: [], position: adminPositions[0]?.name || "", status: "Pending",
+      items: adminPositions.length > 0 ? [] : DEFAULT_ITEMS.map(it => ({ ...it, id: `${it.id}-blank-${Date.now()}` })),
+      callWrap: {}, invoiceHeader: houseHeader(), showWatermark: false,
+      vatEnabled: false, vatType: "exclusive",
+    });
+    setAdminEditInvoice(null); setAdminCreateModal(true);
   };
 
   // ── Mark Paid / Undo Paid (P0-8): confirm dialog, ฿0 refused, paidDate in APP_TZ, no auto receipt ─
@@ -1189,6 +1204,12 @@ export function InvoicePage({ productionCompanies, setProductionCompanies, invoi
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button style={{ ...S.btn("ghost"), fontSize: 12, padding: "7px 14px" }} onClick={() => setMyInfoPanelOpen(true)}><Icon d={icons.user} size={14} /> My Info</button>
+          {/* A house document needs no job: same freedom the crew got (2026-09-23). */}
+          {(activeTab === "quo" || activeTab === "inv") && (
+            <button data-testid="admin-new-doc" style={S.btn("primary")} onClick={() => openBlankDoc(activeTab === "quo" ? "quotation" : "invoice")}>
+              <Icon d={icons.plus} size={15} /> {activeTab === "quo" ? "New quote" : "New invoice"}
+            </button>
+          )}
           {activeTab === "companies" && <button style={S.btn("primary")} onClick={() => open()}><Icon d={icons.plus} size={15} /> Add Company</button>}
         </div>
       </div>
@@ -1446,9 +1467,10 @@ export function InvoicePage({ productionCompanies, setProductionCompanies, invoi
             const renderGroup = (group) => {
               const empNames = [...new Set(group.docs.map(d => d.employeeName).filter(Boolean))].join(", ");
               const jobForGroup = activeTab === "inv" ? (jobs || []).find(j => j.id === group.key) : null;
-              const groupMissingAdminInv = jobForGroup?.status === "Confirmed" &&
-                !group.docs.some(d => d.employeeId === "admin") &&
-                !invoices.some(i => !i._deleted && i.jobId === group.key && (i.docType === "invoice" || !i.docType) && i.employeeId === "admin");
+              const houseInvCount = invoices.filter(i => !i._deleted && i.jobId === group.key && (i.docType === "invoice" || !i.docType) && i.employeeId === "admin").length;
+              // A Confirmed job can always be invoiced again: the count is information,
+              // not a gate, so one job billed weekly is several numbered documents.
+              const canBillJob = jobForGroup?.status === "Confirmed";
               return (
                 <div key={group.key} style={S.card}>
                   <div style={{ marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--divider-color,#D8E1EC)", display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -1456,8 +1478,10 @@ export function InvoicePage({ productionCompanies, setProductionCompanies, invoi
                       <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>{group.jobName}{group.productionCompany ? <span style={{ color: "var(--text-muted,#4E6B84)", fontWeight: 400, margin: "0 5px" }}>·</span> : null}{group.productionCompany ? <span>{group.productionCompany}</span> : null}</p>
                       {empNames ? <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#4E6B84)" }}>{empNames}</p> : null}
                     </div>
-                    {groupMissingAdminInv && (
-                      <button style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px", flexShrink: 0 }} onClick={() => handleRegenerateInv(group.key)}>{t("createInvoiceFromJob")}</button>
+                    {canBillJob && (
+                      <button data-testid="admin-bill-job" style={{ ...S.btn("ghost"), fontSize: 10, padding: "3px 8px", flexShrink: 0 }} onClick={() => handleRegenerateInv(group.key)}>
+                        {houseInvCount > 0 ? `${t("crewAnotherDoc")} (${houseInvCount})` : t("createInvoiceFromJob")}
+                      </button>
                     )}
                   </div>
                   {group.docs.map((inv, idx, arr) => {
