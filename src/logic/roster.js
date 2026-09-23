@@ -105,26 +105,99 @@ export function pushEmployeeIds(job, employees) {
 }
 
 // Text of the job push. `changes` from jobChangeSet decides the headline.
-export function buildJobMessage(job, { changes = ["new"], employees = [], formatDates, appUrl = "https://pickshootreturn.pages.dev" } = {}) {
+// Header block per Koon 2026-09-23: headline, production, dates, contact + via,
+// location. The crew roster and call times were dropped from this message; the
+// recap below them is what the group actually reads. Pass `jobs` + `today` to
+// append it (see jobSummaryLines); without them the message is the header alone.
+export function buildJobMessage(job, { changes = ["new"], employees = [], formatDates, appUrl = "https://pickshootreturn.pages.dev", jobs = null, today = null } = {}) {
   const isNew = changes.includes("new");
   const emoji = job.status === "Confirmed" ? "✅" : job.status === "Cancelled" ? "❌" : "✏️";
   const action = isNew ? "New Job" : changes.includes("status") ? `Status → ${job.status}` : changes.includes("roster") && changes.length === 1 ? "Crew updated" : "Updated";
   const dateStr = formatDates ? formatDates(job.dates || []) : sortedDates(job).join(", ");
   const locationStr = (job.location || "") + (job.locationCity ? ` · ${job.locationCity}` : "");
-  const lines = [`${emoji} [${action}] ${job.name}`, `🎬 ${job.production || "-"}`, `📅 ${dateStr}`, `📍 ${locationStr}`];
-  const names = crewNames(job, employees);
-  if (names.length) lines.push(`👥 ${names.join(", ")}`);
-  const times = normalizeCrew(job.crew).filter(r => r.callTime || r.pickupTime);
-  if (times.length) {
-    const byId = new Map((employees || []).map(e => [e.id, e]));
-    for (const r of times) {
-      const nm = byId.get(r.employeeId)?.name || r.employeeId;
-      const parts = [];
-      if (r.pickupTime) parts.push(`pickup ${r.pickupTime}`);
-      if (r.callTime) parts.push(`call ${r.callTime}`);
-      lines.push(`⏰ ${nm}: ${parts.join(", ")}`);
+  const lines = [`${emoji} [${action}] ${job.name}`, `🎬 ${job.production || "-"}`, `📅 ${dateStr}`];
+  const contact = [job.contactPerson, job.contactPlatform ? `Via ${job.contactPlatform}` : ""].filter(v => String(v || "").trim()).join(" ");
+  if (contact) lines.push(`👤 ${contact}`);
+  lines.push(`📍 ${locationStr}`);
+  if (jobs && today) {
+    const recap = jobSummaryLines(jobs, { today, starId: job.id });
+    if (recap.length) lines.push("", "Job summary", ...recap);
+  }
+  lines.push("", `🔗 ${appUrl}`);
+  return lines.join("\n");
+}
+
+// ─── JOB SUMMARY (LINE recap, 2026-09-23) ────────────────────────────────────
+// Every job push carries a recap of what is still on the calendar, so the group
+// reads one message instead of scrolling back through the thread.
+//
+// Rules settled with Koon:
+//   * only Pencil and Confirmed are listed. A Declined or Cancelled job simply
+//     stops appearing, which is how the group sees it is gone.
+//   * a job stays in full while ANY of its days is today or later; one whose
+//     last day has passed drops out. Days are never trimmed inside a live job.
+//   * months before the current one are not printed: a job straddling the month
+//     boundary still shows its remaining days under the months ahead.
+//   * exactly one job carries the "*" marker, the one that triggered this
+//     message. Nothing is stored, so the marker is gone from the next message
+//     without anything having to clear it.
+
+const STATUS_MARK = { Confirmed: "✅", Pencil: "✏️" };
+
+// Day numbers as the group writes them: a run of 3+ becomes "8-13", a pair stays
+// "15,16" (matching how Koon's own summaries read).
+export function compressDays(days) {
+  const sorted = [...new Set((days || []).filter(n => Number.isFinite(n)))].sort((a, b) => a - b);
+  const out = [];
+  for (let i = 0; i < sorted.length;) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+    if (j >= i + 2) { out.push(`${sorted[i]}-${sorted[j]}`); i = j + 1; }
+    else { out.push(String(sorted[i])); i++; }
+  }
+  return out.join(",");
+}
+
+const monthName = (ym) => {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, 1)).toLocaleString("en-GB", { month: "long", timeZone: "UTC" });
+};
+
+// One line per (month, job): "15,16 Film Fact, KFC, P'Poo Via WhatsApp ✏️".
+function summaryLine(job, days, starred) {
+  const who = [job.production || "TBA", job.name || "TBA", job.contactPerson].filter(v => String(v || "").trim());
+  const via = String(job.contactPlatform || "").trim();
+  return `${starred ? "*" : ""}${compressDays(days)} ${who.join(", ")}${via ? ` Via ${via}` : ""} ${STATUS_MARK[job.status] || ""}`.trimEnd();
+}
+
+// The recap body as lines (no heading, no trailing link). `today` is a
+// YYYY-MM-DD string in the app timezone so the cutoff never guesses the device.
+export function jobSummaryLines(jobs, { today: todayStr, starId = null } = {}) {
+  const cutoffMonth = String(todayStr || "").slice(0, 7);
+  const months = new Map(); // "YYYY-MM" -> [{ job, days, first }]
+  for (const job of jobs || []) {
+    if (!job || !STATUS_MARK[job.status]) continue;
+    const dates = [...(job.dates || [])].filter(Boolean).sort();
+    if (!dates.length) continue;
+    if (dates[dates.length - 1] < todayStr) continue; // every day has passed
+    const byMonth = new Map();
+    for (const d of dates) {
+      const ym = d.slice(0, 7);
+      if (ym < cutoffMonth) continue; // a month already behind us is not a recap
+      if (!byMonth.has(ym)) byMonth.set(ym, []);
+      byMonth.get(ym).push(parseInt(d.slice(8, 10), 10));
+    }
+    for (const [ym, days] of byMonth) {
+      if (!months.has(ym)) months.set(ym, []);
+      months.get(ym).push({ job, days, first: Math.min(...days) });
     }
   }
-  lines.push(`🔗 ${appUrl}`);
-  return lines.join("\n");
+  const lines = [];
+  for (const ym of [...months.keys()].sort()) {
+    const rows = months.get(ym).sort((a, b) => a.first - b.first || String(a.job.name || "").localeCompare(String(b.job.name || "")));
+    if (lines.length) lines.push("");
+    lines.push(monthName(ym));
+    for (const r of rows) lines.push(summaryLine(r.job, r.days, r.job.id === starId && starId != null));
+  }
+  return lines;
 }

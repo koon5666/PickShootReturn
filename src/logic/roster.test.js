@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeCrew, cleanTime, hasRoster, isOnRoster, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage, pushEmployeeIds } from "./roster.js";
+import { normalizeCrew, cleanTime, hasRoster, isOnRoster, jobVisibility, splitJobsForEmployee, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, buildJobMessage, pushEmployeeIds, compressDays, jobSummaryLines } from "./roster.js";
 
 const emps = [{ id: "e1", name: "Nong", lineUserId: "U1" }, { id: "e2", name: "Arthit" }, { id: "e3", name: "Ploy", lineUserId: "U3" }];
 const job = (extra = {}) => ({ id: "j1", name: "TVC", production: "Indie", dates: ["2026-09-20", "2026-09-21"], status: "Confirmed", location: "Local (Bangkok)", ...extra });
@@ -76,18 +76,22 @@ describe("pushRecipients", () => {
 });
 
 describe("buildJobMessage", () => {
-  it("mentions the crew, their times and picks the headline from the change set", () => {
-    const j = job({ crew: [{ employeeId: "e1", role: "1st AC", callTime: "07:00", pickupTime: "06:00" }, { employeeId: "e2", role: "Gaffer" }] });
+  it("picks the headline from the change set and carries the contact line", () => {
+    // The crew roster and call times left this message on 2026-09-23 (Koon): the
+    // header is headline / production / dates / contact / location, then the recap.
+    const j = job({ crew: [{ employeeId: "e1", role: "1st AC", callTime: "07:00", pickupTime: "06:00" }, { employeeId: "e2", role: "Gaffer" }], contactPerson: "P'Poo", contactPlatform: "WhatsApp" });
     const msg = buildJobMessage(j, { changes: ["new"], employees: emps, formatDates: d => d.join("/") });
     expect(msg).toContain("[New Job] TVC");
-    expect(msg).toContain("👥 Nong (1st AC), Arthit (Gaffer)");
-    expect(msg).toContain("⏰ Nong: pickup 06:00, call 07:00");
     expect(msg).toContain("📅 2026-09-20/2026-09-21");
+    expect(msg).toContain("👤 P'Poo Via WhatsApp");
+    expect(msg).not.toContain("👥");
+    expect(msg).not.toContain("⏰");
     expect(msg).not.toContain("—");
     expect(buildJobMessage(j, { changes: ["status"] })).toContain("[Status → Confirmed]");
     expect(buildJobMessage(j, { changes: ["roster"] })).toContain("[Crew updated]");
     expect(buildJobMessage(j, { changes: ["dates", "roster"] })).toContain("[Updated]");
-    expect(buildJobMessage(job(), { changes: ["new"] })).not.toContain("👥");
+    // no contact on the job: no empty line where it would have been
+    expect(buildJobMessage(job(), { changes: ["new"] })).not.toContain("👤");
   });
 });
 
@@ -96,5 +100,115 @@ describe("pushEmployeeIds (per-user LINE without lineUserId on the client, P3-6)
   it("open job: everyone; rostered job: the roster only", () => {
     expect(pushEmployeeIds({ crew: [] }, emps)).toEqual(["e1", "e2"]);
     expect(pushEmployeeIds({ crew: [{ employeeId: "e2", role: "Grip" }] }, emps)).toEqual(["e2"]);
+  });
+});
+
+// ─── Job summary recap in the LINE push (2026-09-23) ─────────────────────────
+describe("compressDays", () => {
+  it("collapses a run of 3+ and leaves a pair as a pair", () => {
+    expect(compressDays([1, 2, 3, 4, 5])).toBe("1-5");
+    expect(compressDays([15, 16])).toBe("15,16");          // a pair reads better than 15-16
+    expect(compressDays([8, 9, 10, 11, 12, 13, 15, 16])).toBe("8-13,15,16");
+    expect(compressDays([20])).toBe("20");
+    expect(compressDays([])).toBe("");
+  });
+  it("sorts, dedupes and ignores rubbish", () => {
+    expect(compressDays([5, 1, 3, 2, 5, 4])).toBe("1-5");
+    expect(compressDays([3, null, undefined, NaN, 4, 5])).toBe("3-5");
+  });
+});
+
+describe("jobSummaryLines", () => {
+  const J = (id, name, production, status, dates, contactPerson, contactPlatform) =>
+    ({ id, name, production, status, dates, contactPerson, contactPlatform });
+  const jobs = [
+    J("j1", "TBA", "Taprod", "Pencil", ["2026-06-01","2026-06-02","2026-06-03","2026-06-04","2026-06-05"], "P'ple", "Line"),
+    J("j2", "KFC", "Film Fact", "Pencil", ["2026-06-15","2026-06-16"], "P'Poo", "WhatsApp"),
+    J("j3", "Pepsi", "Film Fact", "Confirmed", ["2026-06-17","2026-06-18"], "P'Poo", "WhatsApp"),
+    J("j4", "TBA", "Living Films", "Pencil", ["2026-07-08","2026-07-09","2026-07-10"], "P'mon", "Line"),
+  ];
+  const today = "2026-06-01"; // inside j1, so every fixture job is still live
+
+  it("groups by month and renders Koon's line format", () => {
+    expect(jobSummaryLines(jobs, { today })).toEqual([
+      "June",
+      "1-5 Taprod, TBA, P'ple Via Line ✏️",
+      "15,16 Film Fact, KFC, P'Poo Via WhatsApp ✏️",
+      "17,18 Film Fact, Pepsi, P'Poo Via WhatsApp ✅",
+      "",
+      "July",
+      "8-10 Living Films, TBA, P'mon Via Line ✏️",
+    ]);
+  });
+  it("stars exactly the job that triggered the message, and nothing else", () => {
+    const out = jobSummaryLines(jobs, { today, starId: "j2" });
+    expect(out.filter(l => l.startsWith("*"))).toEqual(["*15,16 Film Fact, KFC, P'Poo Via WhatsApp ✏️"]);
+    // no star id -> the very same recap, no marker anywhere (this is what makes it
+    // vanish from the NEXT message without anything being cleared)
+    expect(jobSummaryLines(jobs, { today }).some(l => l.startsWith("*"))).toBe(false);
+  });
+  it("keeps a job whole while any day is still ahead, drops it once all have passed", () => {
+    // today sits inside j1 (June 1-5): the whole run still prints
+    expect(jobSummaryLines(jobs, { today: "2026-06-03" })[1]).toBe("1-5 Taprod, TBA, P'ple Via Line ✏️");
+    // past its last day it is gone, the rest stays
+    const later = jobSummaryLines(jobs, { today: "2026-06-06" });
+    expect(later.some(l => l.includes("Taprod"))).toBe(false);
+    expect(later.some(l => l.includes("Film Fact, KFC"))).toBe(true);
+  });
+  it("lists only Pencil and Confirmed, so a decline reads as the job vanishing", () => {
+    const declined = jobs.map(j => j.id === "j3" ? { ...j, status: "Declined" } : j);
+    expect(jobSummaryLines(declined, { today }).some(l => l.includes("Pepsi"))).toBe(false);
+    const cancelled = jobs.map(j => j.id === "j3" ? { ...j, status: "Cancelled" } : j);
+    expect(jobSummaryLines(cancelled, { today }).some(l => l.includes("Pepsi"))).toBe(false);
+  });
+  it("a job spanning the month boundary shows under each month ahead, not behind", () => {
+    const span = [J("s", "Nike", "Living", "Confirmed", ["2026-06-29","2026-06-30","2026-07-01","2026-07-02"], "P'mon", "Line")];
+    expect(jobSummaryLines(span, { today: "2026-06-28" })).toEqual([
+      "June", "29,30 Living, Nike, P'mon Via Line ✅", "", "July", "1,2 Living, Nike, P'mon Via Line ✅",
+    ]);
+    // once July has started the June half is not a recap any more
+    expect(jobSummaryLines(span, { today: "2026-07-01" })).toEqual([
+      "July", "1,2 Living, Nike, P'mon Via Line ✅",
+    ]);
+  });
+  it("survives missing fields without printing holes", () => {
+    const bare = [{ id: "b", status: "Pencil", dates: ["2026-06-20"] }];
+    expect(jobSummaryLines(bare, { today })).toEqual(["June", "20 TBA, TBA ✏️"]);
+    expect(jobSummaryLines([{ id: "n", status: "Pencil", dates: [] }], { today })).toEqual([]);
+    expect(jobSummaryLines(null, { today })).toEqual([]);
+  });
+});
+
+describe("buildJobMessage with the recap", () => {
+  const jobs = [
+    { id: "j1", name: "PEPSI", production: "Film Fact", status: "Pencil", dates: ["2026-06-15","2026-06-16"], contactPerson: "P'Poo", contactPlatform: "WhatsApp", location: "Local (Bangkok)" },
+    { id: "j2", name: "KFC", production: "Taprod", status: "Confirmed", dates: ["2026-06-20"], contactPerson: "P'ple", contactPlatform: "Line", location: "Local (Bangkok)" },
+  ];
+  it("matches the shape Koon asked for", () => {
+    const msg = buildJobMessage(jobs[0], { changes: ["new"], jobs, today: "2026-06-10", appUrl: "https://x" });
+    expect(msg).toBe([
+      "✏️ [New Job] PEPSI",
+      "🎬 Film Fact",
+      "📅 2026-06-15, 2026-06-16",
+      "👤 P'Poo Via WhatsApp",
+      "📍 Local (Bangkok)",
+      "",
+      "Job summary",
+      "June",
+      "*15,16 Film Fact, PEPSI, P'Poo Via WhatsApp ✏️",
+      "20 Taprod, KFC, P'ple Via Line ✅",
+      "",
+      "🔗 https://x",
+    ].join("\n"));
+  });
+  it("drops the crew roster and call times from this message", () => {
+    const withCrew = { ...jobs[0], crew: [{ employeeId: "e1", role: "1st AC", callTime: "07:00", pickupTime: "06:00" }] };
+    const msg = buildJobMessage(withCrew, { changes: ["new"], employees: [{ id: "e1", name: "Nong" }], jobs, today: "2026-06-10" });
+    expect(msg).not.toMatch(/👥|⏰|Nong/);
+  });
+  it("without jobs + today it is the header alone, so old callers still work", () => {
+    const msg = buildJobMessage(jobs[0], { changes: ["new"], appUrl: "https://x" });
+    expect(msg).not.toMatch(/Job summary/);
+    expect(msg.endsWith("🔗 https://x")).toBe(true);
   });
 });

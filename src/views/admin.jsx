@@ -443,11 +443,15 @@ export function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, e
       }
     }
     setConflicts(null);
-    if (editTarget) {
-      setJobs(p => p.map(j => j.id === editTarget.id ? { ...j, ...clean } : j));
-    } else {
-      setJobs(p => [...p, { ...clean, id: "job" + Date.now(), assignedEquipment: [] }]);
-    }
+    // The saved job is built here, not inside the updater, because the recap in the
+    // push has to contain THIS job exactly as it was just saved (it is starred in it).
+    const savedJob = editTarget
+      ? { ...editTarget, ...clean }
+      : { ...clean, id: "job" + Date.now(), assignedEquipment: [] };
+    setJobs(p => editTarget ? p.map(j => j.id === savedJob.id ? { ...j, ...clean } : j) : [...p, savedJob]);
+    const nextJobs = editTarget
+      ? (jobs || []).map(j => j.id === savedJob.id ? savedJob : j)
+      : [...(jobs || []), savedJob];
     // LINE push only when something the crew cares about changed (new job, dates,
     // status, location, roster); a contact-person tweak stays silent (P1-10).
     if (!lineNotifyMuted && shouldNotify(changes)) {
@@ -462,10 +466,10 @@ export function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, e
         });
         return Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
       };
-      const msg = buildJobMessage(clean, { changes, employees: employees || [], formatDates });
-      const to = pushRecipients(clean, employees || [], lineGroupId);
+      const msg = buildJobMessage(savedJob, { changes, employees: employees || [], formatDates, jobs: nextJobs, today: today() });
+      const to = pushRecipients(savedJob, employees || [], lineGroupId);
       // No group connected: the roster (or everyone) on their own LINE, resolved server-side (P3-6).
-      const employeeIds = to.length ? [] : pushEmployeeIds(clean, employees || []).filter(id => (employees || []).some(e => e && e.id === id && e.lineLinked));
+      const employeeIds = to.length ? [] : pushEmployeeIds(savedJob, employees || []).filter(id => (employees || []).some(e => e && e.id === id && e.lineLinked));
       if (to.length > 0 || employeeIds.length > 0) api.notify({ userIds: to, employeeIds, message: msg });
     }
     onClose();
