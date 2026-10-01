@@ -1,6 +1,9 @@
 // LINE push relay. Session required (P0-2): it used to be an open relay that
 // anyone could burn the shared monthly push quota through.
-import { requireSession } from "../_lib/auth.js";
+// Admin only since 2026-10-01: the app's notifications are email now and LINE
+// carries only the 08:00 group summary, so the one remaining caller is the
+// Settings "Send test" button. A crew session can no longer spend LINE quota.
+import { requireAdmin } from "../_lib/auth.js";
 import { readField } from "../_lib/store.js";
 import { resolveLineUserIds } from "../_lib/linelink.js";
 
@@ -11,7 +14,7 @@ export async function onRequestOptions() {
 }
 
 export async function onRequestPost(context) {
-  const auth = await requireSession(context);
+  const auth = await requireAdmin(context);
   if (!auth.ok) return auth.response;
   const { request, env } = context;
   const token = env.LINE_CHANNEL_ACCESS_TOKEN;

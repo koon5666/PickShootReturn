@@ -3,6 +3,7 @@
 // (the URL id must equal the session id); an admin may read any and write any
 // (the house profile is profile_admin). Same-origin only, no CORS headers.
 import { requireSession } from "../../_lib/auth.js";
+import { indexProfileEmail } from "../../_lib/email.js";
 
 const MAX_BYTES = 4_000_000; // well under KV's 25 MiB; a profile with 3 images
 
@@ -44,6 +45,7 @@ export async function onRequestPut(context) {
     try { parsed = JSON.parse(text); } catch { return Response.json({ ok: false, error: "invalid JSON body" }, { status: 400 }); }
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return Response.json({ ok: false, error: "profile must be an object" }, { status: 400 });
     await env.KV.put(`profile_${empId}`, text);
+    await indexProfileEmail(env.KV, empId, parsed); // email notifications read this small key, not the blob
     return Response.json({ ok: true });
   } catch (err) {
     return Response.json({ ok: false, error: String(err) }, { status: 500 });

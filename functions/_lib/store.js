@@ -18,6 +18,9 @@ export const FIELDS = [
   "adminPinHash", "staff", "calendarToken", "auditLog",
   "theme", // { style, palette } per tenant (P3-8)
   "roleList", // house's own crew roles, one per line (P3-4 F18); empty/absent = the built-in department list
+  // notifications (2026-10-01): server-owned, written by /api/email and /api/daily-summary only
+  "adminEmail", // where house emails go (requests, reports, sign-ups, invoices)
+  "lineSummary", // { enabled } the 08:00 LINE group summary; absent = on
 ];
 
 // Fields whose photos the client renders immediately on boot, so GET re-inlines

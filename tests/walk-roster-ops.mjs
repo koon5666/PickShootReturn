@@ -57,7 +57,10 @@ async function newPage(viewport, { keepStorage = false } = {}) {
   page.on("response", r => { if (r.status() >= 400 && r.status() !== 409 && !/\/api\/session|\/api\/profile\/|\/api\/notify/.test(r.url())) errors.push(`http ${r.status()} ${r.url()}`); });
   await page.setRequestInterception(true);
   page.on("request", req => {
-    if (req.url().includes("/api/notify") && req.method() === "POST") { try { notifyCalls.push(JSON.parse(req.postData() || "{}")); } catch { notifyCalls.push({}); } }
+    // 2026-10-01: job changes are EMAILED to the whole crew (LINE carries only the
+    // 08:00 summary), so the "push" captured here is the POST /api/email body.
+    if (req.url().endsWith("/api/email") && req.method() === "POST") { try { notifyCalls.push(JSON.parse(req.postData() || "{}")); } catch { notifyCalls.push({}); } }
+    if (req.url().includes("/api/notify") && req.method() === "POST") errors.push("the app still pushed to LINE: /api/notify");
     if (blockData && req.url().includes("/api/data")) return req.abort("failed");
     req.continue();
   });
@@ -185,7 +188,7 @@ try {
 
   // ── ADMIN: crew roster on a job (P1-10) ─────────────────────────────────
   await kvAdmin.put("/api/data", { lineGroupId: "Gwalk" });
-  await step("admin: put Nong (1st AC, pickup 06:30, call 07:30) on Netflix; KV crew + checkoutRoles; LINE push once", async () => {
+  await step("admin: put Nong (1st AC, pickup 06:30, call 07:30) on Netflix; KV crew + checkoutRoles; one email", async () => {
     await page.reload({ waitUntil: "networkidle0" });
     await waitText("Overview");
     await clickText("Job Bookings"); await waitText("Job Bookings");
@@ -214,20 +217,21 @@ try {
     if (j.crew[0].employeeId !== nong.id || j.crew[0].role !== "1st AC" || j.crew[0].callTime !== "07:30" || j.crew[0].pickupTime !== "06:30") fail(`crew row wrong: ${JSON.stringify(j.crew[0])}`);
     if (JSON.stringify(j.checkoutRoles) !== JSON.stringify({ barcode: [nong.id], photo: [nong.id] })) fail(`checkoutRoles not defaulted from roster: ${JSON.stringify(j.checkoutRoles)}`);
     if (!(await hasText("Nong (1st AC)"))) fail("job card does not list the crew");
-    if (notifyCalls.length !== 1) fail(`expected exactly 1 LINE push for a roster change, got ${notifyCalls.length}`);
-    if (!/Crew updated/.test(notifyCalls[0].message) || !/Nong \(1st AC\)/.test(notifyCalls[0].message) || !/pickup 06:30, call 07:30/.test(notifyCalls[0].message)) fail(`push text wrong: ${notifyCalls[0].message}`);
-    if (JSON.stringify(notifyCalls[0].userIds) !== JSON.stringify(["Gwalk"])) fail("push should go to the group");
+    if (notifyCalls.length !== 1) fail(`expected exactly 1 email for a roster change, got ${notifyCalls.length}`);
+    const mail = JSON.stringify(notifyCalls[0].message);
+    if (!/^\[Job updated\]/.test(notifyCalls[0].message.subject) || !/Crew added/.test(mail) || !/Nong/.test(mail) || !/1st AC · call 07:30 · pickup 06:30/.test(mail)) fail(`email text wrong: ${mail}`);
+    if (!notifyCalls[0].to || notifyCalls[0].to.allCrew !== true) fail("job email should go to the whole crew");
     await shot("admin-job-card-crew");
-    console.log("  ok  roster saved, lanes defaulted, one push: " + notifyCalls[0].message.split("\n")[0]);
+    console.log("  ok  roster saved, lanes defaulted, one email: " + notifyCalls[0].message.subject);
   });
-  await step("admin: a contact-person edit sends NO push; a date change does", async () => {
+  await step("admin: a contact-person edit sends NO email; a date change does", async () => {
     notifyCalls.length = 0;
     await clickSel('[data-testid="job-edit-job2"]');
     await waitText("Edit Job");
     await page.type('input[placeholder="Name"]', " x");
     await clickText("Save Job", "button", false);
     await sleep(800);
-    if (notifyCalls.length !== 0) fail(`contact edit pushed ${notifyCalls.length} LINE message(s)`);
+    if (notifyCalls.length !== 0) fail(`contact edit sent ${notifyCalls.length} email(s)`);
     await clickSel('[data-testid="job-edit-job2"]');
     await waitText("Edit Job");
     // toggle one more shoot day (the 28th of the shown month, never in the seed)
@@ -235,9 +239,9 @@ try {
     await clickText("Save Job", "button", false);
     await sleep(800);
     if (await hasText("Gear conflict")) { await clickText("Save anyway", "button", false); await sleep(800); }
-    if (notifyCalls.length !== 1) fail(`date change should push once, got ${notifyCalls.length}`);
-    if (!/\[Updated\]/.test(notifyCalls[0].message)) fail(`date change headline: ${notifyCalls[0].message.split("\n")[0]}`);
-    console.log("  ok  push gate: contact edit silent, date change pushes");
+    if (notifyCalls.length !== 1) fail(`date change should email once, got ${notifyCalls.length}`);
+    if (!/^\[Job updated\]/.test(notifyCalls[0].message.subject) || !/Shoot days/.test(JSON.stringify(notifyCalls[0].message.sections[0]))) fail(`date change email: ${notifyCalls[0].message.subject}`);
+    console.log("  ok  email gate: contact edit silent, date change emails");
   });
 
   // ── ADMIN: reports (P2-16) ──────────────────────────────────────────────

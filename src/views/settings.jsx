@@ -6,7 +6,7 @@ import { tCount } from "../i18n/format.js";
 import { api, Icon, icons, TIMEZONES, S, orderNav, useT, calendarUrl } from "../ui/shared.jsx";
 
 // ─── SETTINGS PANEL ───────────────────────────────────────────────────────────
-export function SettingsPage({ companyName, setCompanyName, roleList, setRoleList, user, onUserUpdate, staff, setStaff, calendarToken, setCalendarToken, lineGroupId, setLineGroupId, lineNotifyMuted, setLineNotifyMuted, createBackup, restoreBackup, clearHistory, migratePhotos, timezone, setTimezone, timeFormat, setTimeFormat, saveSettingsNow, verificationConfig, setVerificationConfig, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, navOrder, setNavOrder, checkoutsCount, setCheckouts, invoicePresets, setInvoicePresets, chatEnabled, setChatEnabled, onClose }) {
+export function SettingsPage({ companyName, setCompanyName, roleList, setRoleList, user, onUserUpdate, staff, setStaff, calendarToken, setCalendarToken, lineGroupId, setLineGroupId, createBackup, restoreBackup, clearHistory, migratePhotos, timezone, setTimezone, timeFormat, setTimeFormat, saveSettingsNow, verificationConfig, setVerificationConfig, themeStyle, setThemeStyle, themePalette, setThemePalette, lang, setLang, navOrder, setNavOrder, checkoutsCount, setCheckouts, invoicePresets, setInvoicePresets, chatEnabled, setChatEnabled, onClose }) {
   useEffect(() => { document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, []);
   const t = useT();
   const [rolesText, setRolesText] = useState(() => roleListText(roleList)); // edited as text, saved as lines (P3-4)
@@ -23,6 +23,18 @@ export function SettingsPage({ companyName, setCompanyName, roleList, setRoleLis
   useEffect(() => { setOwnerName((staff || []).find(x => x.id === "owner")?.name || ""); }, [staff]);
   const [calBusy, setCalBusy] = useState(false);
   const [lineTest, setLineTest] = useState(null); // null | "sending" | { ok, text }
+  // Notifications (2026-10-01): house email + the 08:00 LINE summary switch, both server-side.
+  const [emailStatus, setEmailStatus] = useState(null); // GET /api/email
+  const [houseEmail, setHouseEmail] = useState("");
+  const [emailMsg, setEmailMsg] = useState(null);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [dailySum, setDailySum] = useState(null); // GET /api/daily-summary
+  const [sumPreviewOpen, setSumPreviewOpen] = useState(false);
+  const [sumPost, setSumPost] = useState(null);
+  useEffect(() => {
+    api.emailStatus().then(st => { if (st && st.ok) { setEmailStatus(st); setHouseEmail(st.adminEmail || ""); } });
+    api.dailySummary().then(d => { if (d && d.ok) setDailySum(d); });
+  }, []);
   const [backupStatus, setBackupStatus] = useState(null);
   const [lastBackupAt, setLastBackupAt] = useState(() => { try { return localStorage.getItem("psr_last_backup"); } catch { return null; } });
   const [saveState, setSaveState] = useState(null);
@@ -347,20 +359,38 @@ export function SettingsPage({ companyName, setCompanyName, roleList, setRoleLis
             )}
           </div>
         )}
-        <div
-          onClick={() => { const next = !lineNotifyMuted; setLineNotifyMuted(next); try { localStorage.setItem("psr_notify_muted", next ? "1" : "0"); } catch {} }}
-          style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 8, background: lineNotifyMuted ? "rgba(197,48,48,0.07)" : "rgba(47,133,90,0.05)", border: `1px solid ${lineNotifyMuted ? "rgba(197,48,48,0.25)" : "rgba(47,133,90,0.15)"}`, cursor: "pointer", userSelect: "none" }}>
-          <div style={{ width: 36, height: 20, borderRadius: 10, background: lineNotifyMuted ? "#C53030" : "#2F855A", position: "relative", flexShrink: 0, transition: "background .2s" }}>
-            <div style={{ position: "absolute", top: 2, left: lineNotifyMuted ? 2 : 18, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(22,50,74,0.1)" }} />
+        {/* 08:00 daily summary (2026-10-01): the ONLY LINE post; a house setting, not per phone. */}
+        <div style={{ padding: "12px 14px", borderRadius: 8, background: dailySum?.enabled === false ? "rgba(197,48,48,0.06)" : "rgba(47,133,90,0.05)", border: `1px solid ${dailySum?.enabled === false ? "rgba(197,48,48,0.25)" : "rgba(47,133,90,0.15)"}` }}>
+          <div data-testid="line-summary-toggle" role="switch" aria-checked={dailySum?.enabled !== false}
+            onClick={async () => { if (!dailySum) return; const next = dailySum.enabled === false; const r = await api.setDailySummary(next).catch(() => null); if (r && r.ok) setDailySum(d => ({ ...d, enabled: r.enabled })); }}
+            style={{ display: "flex", alignItems: "center", gap: 12, cursor: dailySum ? "pointer" : "default", userSelect: "none" }}>
+            <div style={{ width: 36, height: 20, borderRadius: 10, background: dailySum?.enabled === false ? "#C53030" : "#2F855A", position: "relative", flexShrink: 0, transition: "background .2s", opacity: dailySum ? 1 : 0.5 }}>
+              <div style={{ position: "absolute", top: 2, left: dailySum?.enabled === false ? 2 : 18, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .2s", boxShadow: "0 1px 3px rgba(22,50,74,0.1)" }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text,#16324A)" }}>{t("lineSummaryTitle")}</p>
+              <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>{dailySum?.enabled === false ? t("lineSummaryOff") : t("lineSummaryOn")}</p>
+            </div>
           </div>
-          <div style={{ flex: 1 }}>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: lineNotifyMuted ? "#C53030" : "#2F855A" }}>
-              {lineNotifyMuted ? t("settingsLineMuted") : t("settingsLineActive")}
-            </p>
-            <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>
-              {lineNotifyMuted ? t("settingsLineMutedDesc") : t("settingsLineActiveDesc")}
-            </p>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+            <button data-testid="line-summary-preview" style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => { if (sumPreviewOpen) { setSumPreviewOpen(false); return; } api.dailySummary().then(d => { if (d && d.ok) setDailySum(d); setSumPreviewOpen(true); }); }}>{t("lineSummaryPreview")}</button>
+            {lineGroupId && dailySum?.enabled !== false && (
+              <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} disabled={sumPost === "sending"} onClick={async () => {
+                if (!window.confirm(t("lineSummaryPostConfirm"))) return;
+                setSumPost("sending");
+                const r = await api.postDailySummary();
+                setSumPost(r && r.ok ? { ok: !!r.posted, text: r.posted ? t("lineSummaryPosted") : t("lineSummarySkipped").replace("{reason}", r.lineReason || r.skipped || "-") } : { ok: false, text: (r && r.error) || "Failed" });
+                api.dailySummary().then(d => { if (d && d.ok) setDailySum(d); });
+              }}>{sumPost === "sending" ? "Sending…" : t("lineSummaryPostNow")}</button>
+            )}
           </div>
+          {sumPost && sumPost !== "sending" && <p style={{ margin: "8px 0 0", fontSize: 12, color: sumPost.ok ? "#2F855A" : "#C53030" }}>{sumPost.text}</p>}
+          {sumPreviewOpen && dailySum && (
+            dailySum.text
+              ? <pre data-testid="line-summary-text" style={{ margin: "10px 0 0", padding: 10, borderRadius: 8, background: "var(--surface-2,#F4F7FB)", border: "1px solid var(--divider-color,#D8E1EC)", fontSize: 11, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 320, overflow: "auto", fontFamily: "inherit" }}>{dailySum.text}</pre>
+              : <p data-testid="line-summary-text" style={{ margin: "10px 0 0", fontSize: 12, color: "var(--text-muted,#5F7A91)" }}>{t("lineSummarySkipped").replace("{reason}", dailySum.skipped || "-")}</p>
+          )}
+          <p style={{ margin: "10px 0 0", fontSize: 11, color: "var(--text-muted,#7B8FA3)" }}>{t("lineSummaryOnlyNote")}</p>
         </div>
         <div style={{ fontSize: 12, color: "var(--text-muted,#5F7A91)", lineHeight: 1.8, marginTop: 14 }}>
           <strong style={{ color: "var(--text,#16324A)", display: "block", marginBottom: 6 }}>Connect a Group Chat (one-time):</strong>
@@ -373,6 +403,46 @@ export function SettingsPage({ companyName, setCompanyName, roleList, setRoleLis
         <p style={{ fontSize: 11, color: "var(--text-muted,#7B8FA3)", marginTop: 10 }}>
           {lineGroupId ? t("settingsLineGroupConnected") : t("settingsLineGroupNotConnected")}
         </p>
+      </div>
+
+      {/* Email notifications (2026-10-01): every per-event notification is an email. */}
+      <div style={{ ...S.card, marginBottom: 20 }} data-testid="email-card">
+        <p style={S.sectionTitle}>{t("emailCardTitle")}</p>
+        <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--text-muted,#5F7A91)", lineHeight: 1.6 }}>{t("emailCardDesc")}</p>
+        <label style={S.label}>{t("emailHouseAddress")}</label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input data-testid="admin-email-input" type="email" inputMode="email" autoComplete="email" style={{ ...S.input, flex: 1, minWidth: 200 }} placeholder={t("emailHousePh")} value={houseEmail} onChange={e => { setHouseEmail(e.target.value); setEmailMsg(null); }} />
+          <button data-testid="admin-email-save" style={S.btn("primary")} disabled={emailBusy || houseEmail.trim() === (emailStatus?.adminEmail || "")} onClick={async () => {
+            setEmailBusy(true);
+            const r = await api.setAdminEmail(houseEmail.trim()).catch(() => null);
+            setEmailBusy(false);
+            if (r && r.ok) { setEmailMsg({ ok: true, text: t("emailSaved") }); setEmailStatus(st => st ? { ...st, adminEmail: r.adminEmail } : st); setHouseEmail(r.adminEmail || ""); }
+            else setEmailMsg({ ok: false, text: r && r.status === 400 ? t("emailInvalid") : t("emailSaveFailed") });
+          }}>{t("emailSave")}</button>
+          <button data-testid="admin-email-test" style={S.btn("ghost")} disabled={emailBusy || !emailStatus?.adminEmail} onClick={async () => {
+            setEmailBusy(true);
+            const r = await api.testEmail();
+            setEmailBusy(false);
+            setEmailMsg(r && r.ok ? { ok: true, text: t("emailTestSent").replace("{to}", r.to || emailStatus.adminEmail) } : { ok: false, text: t("emailTestFailed").replace("{error}", (r && r.error) || "-") });
+            api.emailStatus().then(st => { if (st && st.ok) setEmailStatus(st); });
+          }}>{t("emailSendTest")}</button>
+        </div>
+        {emailMsg && <p style={{ margin: "8px 0 0", fontSize: 12, color: emailMsg.ok ? "#2F855A" : "#C53030" }}>{emailMsg.text}</p>}
+        {emailStatus && (
+          <div style={{ marginTop: 14, fontSize: 12, color: "var(--text-muted,#5F7A91)", lineHeight: 1.7 }}>
+            <p style={{ margin: 0 }}>
+              {emailStatus.provider === "resend" ? t("emailProviderResend").replace("{from}", emailStatus.from) : emailStatus.provider === "dry-run" ? t("emailProviderDry") : t("emailProviderNone")}
+              {emailStatus.provider === "dry-run" && <> <a href="/api/email-outbox" target="_blank" rel="noreferrer" style={{ color: "var(--accent,#2563EB)", fontWeight: 600 }}>{t("emailOpenOutbox")}</a></>}
+            </p>
+            <p style={{ margin: 0 }}>{t("emailToday").replace("{n}", emailStatus.today?.count ?? 0).replace("{cap}", emailStatus.today?.cap ?? "-")}</p>
+            {(() => {
+              const missing = (emailStatus.crew || []).filter(c => !c.hasEmail);
+              return missing.length
+                ? <p data-testid="email-missing" style={{ margin: "6px 0 0", color: "#C53030" }}><strong>{t("emailMissingTitle").replace("{n}", missing.length)}</strong> {missing.map(c => c.name).join(", ")}</p>
+                : <p style={{ margin: "6px 0 0", color: "#2F855A" }}>{t("emailAllHave")}</p>;
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Internal Chat toggle */}

@@ -55,6 +55,24 @@ export const api = {
   getProfile: (empId) => fetch(`/api/profile/${empId}`).then(r => r.ok ? r.json() : null),
   putProfile: (empId, profileObj) => fetch(`/api/profile/${empId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(profileObj) }),
   notify: (body) => fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {}),
+  // Email notifications (2026-10-01): { to, message } from src/logic/emailMessages.js.
+  // Never throws; resolves { ok, sent, skipped, error } (or { ok:false } offline).
+  // A mail that did not go out (daily cap, Resend down, house address not set)
+  // raises "psr-email-failed" so the shell can say so instead of failing silently.
+  // { quiet: true } = the caller reports the failure itself.
+  email: (payload, opts = {}) => post("/api/email", payload).then(j).catch(() => ({ ok: false, error: "offline" })).then(r => {
+    const noHouse = r && r.ok && !r.sent && (r.skipped || []).some(x => x.id === "admin");
+    if (!opts.quiet && r && (noHouse || (!r.ok && r.error !== "offline"))) {
+      try { window.dispatchEvent(new CustomEvent("psr-email-failed", { detail: { error: noHouse ? "house email not set (Settings)" : String(r.error || r.status || "error").slice(0, 160) } })); } catch {}
+    }
+    return r;
+  }),
+  emailStatus: () => fetch("/api/email", { cache: "no-store" }).then(j).catch(() => null),
+  setAdminEmail: (adminEmail) => fetch("/api/email", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminEmail }) }).then(j),
+  testEmail: () => post("/api/email", { test: true }).then(j).catch(() => ({ ok: false, error: "offline" })),
+  dailySummary: () => fetch("/api/daily-summary", { cache: "no-store" }).then(j).catch(() => null),
+  postDailySummary: () => post("/api/daily-summary", { force: true }).then(j).catch(() => ({ ok: false, error: "offline" })),
+  setDailySummary: (enabled) => fetch("/api/daily-summary", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }) }).then(j),
   shareInvoice: (html) => fetch("/api/invoice-share", { method: "POST", headers: { "Content-Type": "text/html" }, body: html }).then(r => { if (!r.ok) throw new Error("share failed"); return r.json(); }),
   // Owner-only share status / revoke (needs the token returned by shareInvoice).
   shareStatus: (key, token) => fetch(`/api/invoice-share?key=${encodeURIComponent(key)}&token=${encodeURIComponent(token)}`).then(r => r.ok ? r.json() : { found: false }).catch(() => ({ found: false })),

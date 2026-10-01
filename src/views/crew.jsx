@@ -10,6 +10,7 @@ import { useToast } from "../components/toast.jsx";
 import { formatDate, formatDateTime, formatDay, formatLongDay, tCount, shootTimeLabel, locationLabel, statusLabel } from "../i18n/format.js";
 import { kpiMax, kpiStars, isKpiAdd, visibleKpiRules } from "../logic/kpi.js";
 import { myRosterEntry, jobVisibility, splitJobsForEmployee, crewNames } from "../logic/roster.js";
+import { earlyRequestEmail, damageReportEmail, gearRequestEmail, geoReturnRequestEmail, invoiceEmail } from "../logic/emailMessages.js";
 import { JOB_STATUS_BADGE, j, api, actorName, Icon, icons, APP_TZ, today, fmtClock, haversineMeters, addDaysStr, kpiPeriod, kpiScore, kpiEventsInPeriod, StarRating, compressImage, S, Modal, usePhotoCapture, GeoPhoto, ReturnDetailsFields, QRScanner, LangCtx, useRoleList, useT, LangPill, calcAvailable, calcAvailableSpan, describeReasons, AvReasons, printQRForItems, EQ_SORT_OPTIONS, calendarUrl } from "../ui/shared.jsx";
 import { makeSignatureTransparent, fmtInvoiceNo, buildInvoiceHTML, printInvoice, PaidDialog, applyPaidChange, issueReceiptFor, InvoiceCreateModal } from "./invoice.jsx";
 import { JobDetailModal, DashboardCalendar } from "./calendar.jsx";
@@ -42,7 +43,10 @@ export function StepBar({ currentStep }) {
 }
 
 // ─── EMPLOYEE VIEW ────────────────────────────────────────────────────────────
-export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, setProductionCompanies, companyName, setLang, onLogout, calendarToken, employees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, lineNotifyMuted, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, offlinePendingCount = 0, putProfile = api.putProfile, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
+// Same shape the server accepts (functions/_lib/email.js isEmail).
+const EMAIL_OK = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]{2,}$/;
+
+export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckouts, reports, setReports, invoices, setInvoices, productionCompanies, setProductionCompanies, companyName, setLang, onLogout, calendarToken, employees, equipmentRequests, setEquipmentRequests, adminRequests, setAdminRequests, lineGroupId, kpiConfig, kpiEvents, punishments, verificationConfig, saveNow, offlineMode, offlinePendingCount = 0, putProfile = api.putProfile, invoicePresets, chatEnabled, chatUnread, onOpenChat }) {
   const t = useT();
   const lang = useContext(LangCtx);
   const [tab, setTab] = useState("today"); // today | calendar | profile | gear | invoice
@@ -76,8 +80,6 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
   const [signature, setSignature] = useState(null);
   const [positions, setPositions] = useState([]); // [{ id, name, dayRate, hoursPerDay, variableOT, otMultiplier, otTiers }]
   const houseRoles = useRoleList(lang); // house list when the admin set one, departments otherwise (P3-4)
-  const [lineLink, setLineLink] = useState(null); // { linked, code, expiresAt } from /api/line-link (P3-6)
-  useEffect(() => { if (tab === "profile" && !offlineMode) api.lineLink().then(r => { if (r && r.ok) setLineLink(r); }).catch(() => {}); }, [tab]); // eslint-disable-line
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [invoiceModal, setInvoiceModal] = useState(null); // null | { job, existing }
   const [expandedInv, setExpandedInv] = useState(null);
@@ -104,6 +106,7 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
   const promptPayRef = useRef(null);
   const signatureRef = useRef(null);
   const [profileSaveStatus, setProfileSaveStatus] = useState(null); // null | "saving" | "saved" | "error"
+  const [emailErr, setEmailErr] = useState(null); // null | "missing" | "invalid" (email required, 2026-10-01)
   // scanAe: item currently being QR-scanned (barcode lane)
   const [scanAe, setScanAe] = useState(null);
   // barcodeResults: { [eqId]: "ok" } — barcode lane completions this session (for "both" mode)
@@ -148,11 +151,9 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
   const earlyReqPending = (type, jobId) => (adminRequests || []).some(r => r.type === type && r.status === "pending" && r.jobId === jobId && r.employeeId === employee.id);
   const submitEarlyRequest = (type, job) => {
     const label = type === "early-pickup" ? "Early pickup" : "Early return";
-    setAdminRequests(p => [...(p || []), { id: "ar" + Date.now(), type, status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: job.id, jobName: job.name, requestedDate: todayStr, name: `${label}: ${job.name}` }]);
-    if (lineGroupId && !lineNotifyMuted) {
-      const emoji = type === "early-pickup" ? "⏰" : "🔙";
-      api.notify({ userIds: [lineGroupId], message: `${emoji} [${label} Request] ${employee.name}\n🎬 ${job.name}\n📅 ${formatDate(todayStr)}\n🔗 https://pickshootreturn.pages.dev` });
-    }
+    const req = { id: "ar" + Date.now(), type, status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: job.id, jobName: job.name, requestedDate: todayStr, name: `${label}: ${job.name}` };
+    setAdminRequests(p => [...(p || []), req]);
+    api.email(earlyRequestEmail(req, { job, tz: APP_TZ })); // the house hears it by email (2026-10-01)
   };
 
   // ── Verification mode helpers ────────────────────────────────────────────────
@@ -210,6 +211,19 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
 
   const saveProfile = async () => {
     if (!profileLoaded) return;
+    // Email is required (2026-10-01): job changes, approvals and reminders are
+    // emailed now, so a crew profile without one would hear nothing. The house
+    // profile (admin) is exempt; the house address lives in Settings.
+    const em = String(profileInfo.email || "").trim();
+    const emErr = isAdmin ? null : !em ? "missing" : !EMAIL_OK.test(em) ? "invalid" : null;
+    setEmailErr(emErr);
+    if (emErr) {
+      setProfileSaveStatus("error");
+      setTimeout(() => setProfileSaveStatus(null), 3500);
+      const el = document.querySelector('[data-testid="profile-email"]');
+      if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.focus({ preventScroll: true }); }
+      return;
+    }
     setProfileSaveStatus("saving");
     try {
       const cleanPositions = positions
@@ -283,7 +297,9 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
       withdrawPendingGeo(ae.eqId); // a retry at the shop supersedes the earlier remote attempt
       setItemResults(r => ({ ...r, [ae.eqId]: "ok" }));
     } else {
-      setAdminRequests(p => [...(p || []), { id: "ar" + now + ae.eqId, type: "geo-return", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: selectedJob.__reqId ? null : selectedJob.id, requestId: selectedJob.__reqId || null, jobName: selectedJob.name, eqId: ae.eqId, eqName: eq?.name || ae.eqId, name: eq?.name || ae.eqId, qty, condition, ...(note ? { note } : {}), photo: dataUrl || null, returnLocation: loc || null, pickupLocation: pickupCo?.location || null, distance: gate.distance, homeDistance: gate.homeDistance, threshold: gate.threshold, tolerance: gate.tolerance, reason: gate.reason }]);
+      const geoReq = { id: "ar" + now + ae.eqId, type: "geo-return", status: "pending", submittedAt: new Date().toISOString(), employeeId: employee.id, employeeName: employee.name, jobId: selectedJob.__reqId ? null : selectedJob.id, requestId: selectedJob.__reqId || null, jobName: selectedJob.name, eqId: ae.eqId, eqName: eq?.name || ae.eqId, name: eq?.name || ae.eqId, qty, condition, ...(note ? { note } : {}), photo: dataUrl || null, returnLocation: loc || null, pickupLocation: pickupCo?.location || null, distance: gate.distance, homeDistance: gate.homeDistance, threshold: gate.threshold, tolerance: gate.tolerance, reason: gate.reason };
+      setAdminRequests(p => [...(p || []), geoReq]);
+      api.email(geoReturnRequestEmail(geoReq, { tz: APP_TZ })); // the house reviews it; heard by email (2026-10-01)
       setItemResults(r => ({ ...r, [ae.eqId]: "pending" }));
     }
   };
@@ -669,10 +685,7 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
       {showReportModal && (
         <ReportModal employee={employee} equipment={equipment} jobs={jobs} checkouts={checkouts} onSubmit={(report) => {
           setReports(p => [...p, report]);
-          if (lineGroupId && !lineNotifyMuted) {
-            const msg = `🚨 [Damage Report] ${employee.name}\n📷 ${report.eqName || "—"}\n📝 ${report.description}\n🔗 https://pickshootreturn.pages.dev`;
-            api.notify({ userIds: [lineGroupId], message: msg });
-          }
+          api.email(damageReportEmail(report, { tz: APP_TZ })); // the house hears it by email (2026-10-01)
           setShowReportModal(false);
         }} onClose={() => setShowReportModal(false)} />
       )}
@@ -1173,21 +1186,7 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
                         resolvedAt: null,
                       };
                       setEquipmentRequests(p => [...p, newReq]);
-                      if (lineGroupId && !lineNotifyMuted) {
-                        const itemLabel = items.map(it => `${it.eqName}${it.qty > 1 ? ` ×${it.qty}` : ""}`).join(", ");
-                        const groups = {};
-                        [...(gearReqForm.useDates || [])].sort().forEach(d => {
-                          const dt = new Date(d + "T00:00:00");
-                          const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
-                          const label = dt.toLocaleString("en-GB", { month: "short" });
-                          if (!groups[key]) groups[key] = { label, days: [] };
-                          groups[key].days.push(dt.getDate());
-                        });
-                        const dateStr = Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
-                        const purposeStr = gearReqForm.purpose === "work" ? `Job: ${gearReqForm.jobName}${gearReqForm.productionName ? ` (${gearReqForm.productionName})` : ""}` : "Purpose: Practice";
-                        const msg = `📦 [Gear Request] ${employee.name}\n🎥 ${itemLabel}${dateStr ? `\n📅 ${dateStr}` : ""}\n💼 ${purposeStr}\n🔗 https://pickshootreturn.pages.dev`;
-                        api.notify({ userIds: [lineGroupId], message: msg });
-                      }
+                      api.email(gearRequestEmail(newReq, { tz: APP_TZ })); // the house hears it by email (2026-10-01)
                       setGearReqForm({ useDates: [], purpose: "practice", productionName: "", jobName: "", reason: "", selectedGear: {} });
                       setShowGearRequest(false);
                     }}>{t("submitRequest")}</button>
@@ -1538,7 +1537,16 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
                   { key: "phone", label: t("phone"), type: "tel", placeholder: t("phonePh") },
                   { key: "email", label: t("email"), type: "email", placeholder: t("emailPh") },
                   { key: "lineId", label: t("lineId"), type: "text", placeholder: t("lineIdPh") },
-                ].map(f => (
+                ].map(f => f.key === "email" && !isAdmin ? (
+                  <div key={f.key}>
+                    <label style={S.label}>{f.label} <span style={{ color: "#C53030" }}>*</span></label>
+                    <input data-testid="profile-email" style={{ ...S.input, ...(emailErr ? { borderColor: "#C53030", boxShadow: "0 0 0 3px rgba(197,48,48,0.12)" } : {}) }} type="email" inputMode="email" autoComplete="email" placeholder={f.placeholder} value={profileInfo.email}
+                      onChange={e => { const v = e.target.value; setProfileInfo(p => ({ ...p, email: v })); if (emailErr) setEmailErr(!v.trim() ? "missing" : EMAIL_OK.test(v.trim()) ? null : "invalid"); }} />
+                    <p style={{ fontSize: 11, margin: "4px 0 0", lineHeight: 1.5, color: emailErr ? "#C53030" : "var(--text-muted,#5F7A91)" }}>
+                      {emailErr === "missing" ? t("profileEmailRequired") : emailErr === "invalid" ? t("profileEmailInvalid") : t("profileEmailHint")}
+                    </p>
+                  </div>
+                ) : (
                   <div key={f.key}>
                     <label style={S.label}>{f.label}</label>
                     <input style={S.input} type={f.type} placeholder={f.placeholder} value={profileInfo[f.key]}
@@ -1768,33 +1776,17 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
               </div>
             </div>
 
-            {/* LINE notifications (P3-6): link this account to a LINE user through the OA */}
-            <div style={S.card} data-testid="line-link-card">
-              <p style={{ ...S.sectionTitle, display: "flex", alignItems: "center", gap: 6 }}><Icon d={icons.bell} size={13} /> {t("lineLinkTitle")}</p>
-              <div style={S.col}>
-                {lineLink?.linked ? (
-                  <>
-                    <p style={{ fontSize: 13, color: "#2F855A", margin: 0, lineHeight: 1.6, display: "flex", gap: 6, alignItems: "flex-start" }}><Icon d={icons.check} size={15} style={{ flexShrink: 0, marginTop: 2 }} /> <span>{t("lineLinked")}</span></p>
-                    <div><button style={S.btn("ghost", "md")} onClick={async () => { const r = await api.lineUnlink().catch(() => null); if (r && r.ok) setLineLink(r); }}>{t("lineUnlink")}</button></div>
-                  </>
-                ) : (
-                  <>
-                    <p style={{ fontSize: 13, color: "var(--text-muted,#5F7A91)", margin: 0, lineHeight: 1.7 }}>{t("lineLinkedNo")} {t("lineLinkHintCrew")}</p>
-                    {lineLink?.code ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                        <div>
-                          <p style={{ ...S.label, margin: 0 }}>{t("lineLinkCode")}</p>
-                          <p data-testid="line-link-code" style={{ margin: "2px 0 0", fontSize: 26, fontWeight: 800, letterSpacing: "0.12em", fontFamily: "monospace", color: "var(--accent,#2563EB)" }}>{lineLink.code}</p>
-                        </div>
-                        <button style={S.btn("ghost", "md")} onClick={async () => { const r = await api.lineLink().catch(() => null); if (r && r.ok) setLineLink(r); }}>{t("lineLinkRefresh")}</button>
-                      </div>
-                    ) : (
-                      <div><button style={S.btn("primary", "md")} data-testid="line-link-get" onClick={async () => { const r = await api.lineLinkCode().catch(() => null); if (r && r.ok) setLineLink(r); }}>{t("lineLinkGetCode")}</button></div>
-                    )}
-                  </>
-                )}
+            {/* Notifications (2026-10-01): by email to the address above. The per-user
+                LINE link (P3-6) is retired from this screen: LINE now carries only the
+                house group's 08:00 summary, nothing personal. */}
+            {!isAdmin && (
+              <div style={S.card} data-testid="notify-email-card">
+                <p style={{ ...S.sectionTitle, display: "flex", alignItems: "center", gap: 6 }}><Icon d={icons.bell} size={13} /> {t("profileNotifyTitle")}</p>
+                <p style={{ fontSize: 13, color: profileInfo.email && EMAIL_OK.test(profileInfo.email.trim()) ? "var(--text-muted,#5F7A91)" : "#C53030", margin: 0, lineHeight: 1.7 }}>
+                  {profileInfo.email && EMAIL_OK.test(profileInfo.email.trim()) ? t("profileNotifyByEmail").replace("{email}", profileInfo.email.trim()) : t("profileNotifyNoEmail")}
+                </p>
               </div>
-            </div>
+            )}
 
             {/* Calendar Sync */}
             <div style={S.card}>
@@ -1826,7 +1818,7 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
                 disabled={profileSaveStatus === "saving"}
                 onClick={saveProfile}
               >
-                {profileSaveStatus === "saving" ? t("profileSaving") : profileSaveStatus === "saved" ? t("profileSaved") : profileSaveStatus === "queued" ? t("profileSaveQueued") : profileSaveStatus === "error" ? t("profileSaveFail") : t("profileSaveBtn")}
+                {profileSaveStatus === "saving" ? t("profileSaving") : profileSaveStatus === "saved" ? t("profileSaved") : profileSaveStatus === "queued" ? t("profileSaveQueued") : profileSaveStatus === "error" ? (emailErr ? t("profileEmailSaveBlocked") : t("profileSaveFail")) : t("profileSaveBtn")}
               </button>
             </div>
 
@@ -1922,8 +1914,14 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
               const shareUrl = `https://pickshootreturn.pages.dev/api/invoice-view/${key}`;
               const name = profileInfo.firstName ? `${profileInfo.firstName} ${profileInfo.lastName || ""}`.trim() : employee.name;
               const total = calcTotal(inv);
-              const msg = `🧾 Invoice · ${name}\n📄 ${fmtInvoiceNo(inv)}\n🎬 ${inv.jobName || "—"}${inv.productionCompany ? ` · ${inv.productionCompany}` : ""}\n💰 ฿${total.toLocaleString()}\n📋 ${inv.status || "Pending"}\n🔗 ${shareUrl}\n⏳ 72h`;
-              await api.notify({ userIds: [lineGroupId], message: msg });
+              // Emailed to the house address (2026-10-01: LINE carries only the 08:00 summary).
+              const sent = await api.email(invoiceEmail(inv, { name, docNo: fmtInvoiceNo(inv), total, shareUrl, expiresAt, tz: APP_TZ }), { quiet: true });
+              if (!sent.ok || !sent.sent) {
+                const noHouse = (sent.skipped || []).some(x => x.id === "admin");
+                toast(t(noHouse ? "emailNoHouseAddress" : "shareFailed"), { kind: "error" });
+                setInvSending(null);
+                return;
+              }
               // Remember the link (with its revoke token) on the document so it can be inspected / revoked later.
               setInvoices(p => p.map(i => i.id === inv.id ? { ...i, share: { key, token, createdAt: Date.now(), expiresAt } } : i));
               setShareInfo(si => ({ ...si, [inv.id]: { views: 0, expiresAt, expired: false } }));
@@ -2166,7 +2164,7 @@ export function EmployeeView({ employee, jobs, equipment, checkouts, setCheckout
                               <button style={S.btn("primary", "md")} onClick={() => printInvoice({ invoice: inv, employee, profileInfo, promptPayQR, idCard, signature, productionCompanies, companyName })}>
                                 <Icon d={icons.print} size={14} /> {t("printBtn")}
                               </button>
-                              {lineGroupId && !isVoid && (
+                              {!isVoid && (
                                 <button
                                   disabled={invSending === inv.id}
                                   style={{ ...S.btn("ghost", "md"), opacity: invSending === inv.id ? 0.6 : 1 }}

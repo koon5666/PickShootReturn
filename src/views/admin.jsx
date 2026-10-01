@@ -7,8 +7,8 @@ import { filterHistory, historyCsv, downloadText } from "../logic/history.js";
 import { isPickEvt, isReturnEvt, isLostEvt, isVoidEvt, jobCheckoutState, outstandingQty, laneDone, conditionKey, DEFAULT_DAY_START_HOUR } from "../logic/checkoutState.js";
 import { formatDate, formatDateTime, tCount, statusLabel } from "../i18n/format.js";
 import { kpiMax, kpiStars, isKpiAdd, buildKpiEvent } from "../logic/kpi.js";
-import { normalizeCrew, hasRoster, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, pushRecipients, pushEmployeeIds, buildJobMessage, EMPTY_CREW_ROW } from "../logic/roster.js";
-import { outcomeRecipients, gearOutcomeMessage } from "../logic/requestPush.js";
+import { normalizeCrew, hasRoster, defaultCheckoutRoles, crewNames, jobChangeSet, shouldNotify, EMPTY_CREW_ROW } from "../logic/roster.js";
+import { jobEmail, gearOutcomeEmail } from "../logic/emailMessages.js";
 import { utilisation, utilisationCsv, overdueCsv, customerHistory, customerHistoryCsv, customerNames, crewStatement, crewStatementCsv, periodPreset, monthOf } from "../logic/reports.js";
 import { JOB_STATUSES, JOB_STATUS_BADGE, SHOOT_TIMES, LOCATIONS, j, api, actorName, Icon, icons, APP_TZ, today, addDaysStr, kpiPeriod, kpiScore, kpiEventsInPeriod, StarRating, compressImage, S, useMinWidth, Modal, LazyPhoto, AvailBar, usePhotoCapture, GeoPhoto, ReturnDetailsFields, QRScanner, LangCtx, useRoleList, useT, calcAvailable, jobHoldDatesOf, calcAvailableSpan, describeReasons, AvChip, AvReasons, printQRForItems, EQ_SORT_OPTIONS } from "../ui/shared.jsx";
 import { DashboardCalendar } from "./calendar.jsx";
@@ -369,7 +369,7 @@ export function ProductionCombobox({ value, onChange, companies }) {
 }
 
 // ─── SHARED JOB FORM MODAL ────────────────────────────────────────────────────
-export function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, lineGroupId, lineNotifyMuted, onClose, equipment, checkouts, equipmentRequests, reports }) {
+export function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, employees, lineGroupId, onClose, equipment, checkouts, equipmentRequests, reports }) {
   const t = useT();
   const [conflicts, setConflicts] = useState(null); // P1-9: gear conflicts found on save
   const conflictRef = useRef(null);
@@ -449,29 +449,11 @@ export function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, e
       ? { ...editTarget, ...clean }
       : { ...clean, id: "job" + Date.now(), assignedEquipment: [] };
     setJobs(p => editTarget ? p.map(j => j.id === savedJob.id ? { ...j, ...clean } : j) : [...p, savedJob]);
-    const nextJobs = editTarget
-      ? (jobs || []).map(j => j.id === savedJob.id ? savedJob : j)
-      : [...(jobs || []), savedJob];
-    // LINE push only when something the crew cares about changed (new job, dates,
-    // status, location, roster); a contact-person tweak stays silent (P1-10).
-    if (!lineNotifyMuted && shouldNotify(changes)) {
-      const formatDates = (dates) => {
-        const groups = {};
-        [...(dates || [])].sort().forEach(d => {
-          const dt = new Date(d + "T00:00:00");
-          const key = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`;
-          const label = dt.toLocaleString("en-GB", { month: "short" });
-          if (!groups[key]) groups[key] = { label, days: [] };
-          groups[key].days.push(dt.getDate());
-        });
-        return Object.keys(groups).sort().map(k => `${groups[k].label} ${groups[k].days.join(",")}`).join(". ");
-      };
-      const msg = buildJobMessage(savedJob, { changes, employees: employees || [], formatDates, jobs: nextJobs, today: today() });
-      const to = pushRecipients(savedJob, employees || [], lineGroupId);
-      // No group connected: the roster (or everyone) on their own LINE, resolved server-side (P3-6).
-      const employeeIds = to.length ? [] : pushEmployeeIds(savedJob, employees || []).filter(id => (employees || []).some(e => e && e.id === id && e.lineLinked));
-      if (to.length > 0 || employeeIds.length > 0) api.notify({ userIds: to, employeeIds, message: msg });
-    }
+    // Email every crew member when something they care about changed (new job,
+    // dates, status incl. declined / cancelled, location, time, roster); a
+    // contact-person tweak stays silent (P1-10). 2026-10-01: email, not LINE;
+    // the LINE group gets the job summary once a day at 08:00 instead.
+    if (shouldNotify(changes)) api.email(jobEmail(savedJob, { before: editTarget || null, changes, employees: employees || [], equipment: equipment || [], by: actorName() }));
     onClose();
   };
 
@@ -680,7 +662,7 @@ export function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, e
   );
 }
 
-export function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees, lineGroupId, lineNotifyMuted, verificationConfig, equipmentRequests, reports }) {
+export function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompanies, employees, lineGroupId, verificationConfig, equipmentRequests, reports }) {
   const t = useT();
   const [modal, setModal] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
@@ -882,7 +864,7 @@ export function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompan
 
       {/* Form Modal */}
       {modal === "form" && (
-        <JobFormModal editTarget={editTarget} jobs={jobs} setJobs={setJobs} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} onClose={() => setModal(null)} equipment={equipment} checkouts={checkouts} equipmentRequests={equipmentRequests} reports={reports} />
+        <JobFormModal editTarget={editTarget} jobs={jobs} setJobs={setJobs} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} onClose={() => setModal(null)} equipment={equipment} checkouts={checkouts} equipmentRequests={equipmentRequests} reports={reports} />
       )}
 
       {/* Assign Equipment Modal — kanban style */}
@@ -1063,7 +1045,7 @@ export function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompan
 }
 
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
-export function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, lineNotifyMuted, deleteRecord, reports, onReceive, onOpenReports }) {
+export function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, deleteRecord, reports, onReceive, onOpenReports }) {
   const t = useT();
   const wide = useMinWidth(1024);   // 2-column layout (P2-11)
   const phone = !useMinWidth(768);  // FAB + jump banner only here
@@ -1117,14 +1099,10 @@ export function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckout
   })();
   const toggleActivity = (key) => setExpandedActivityKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
-  // Gear request outcome (P3-6 + 2026-09-16): the group heard the request go in
-  // (crew.jsx "[Gear Request]"), so it hears the APPROVAL; a denial reaches only
-  // the requester, on their own LINE when linked (resolved server-side).
-  // Recipients + wording: src/logic/requestPush.js (unit tested).
+  // Gear request outcome: an email to the requester, approved or denied, with
+  // every detail (2026-10-01: email, not LINE). Wording: src/logic/emailMessages.js.
   const pushRequestOutcome = (req, ok) => {
-    const to = outcomeRecipients({ ok, lineGroupId, lineNotifyMuted, employees, employeeId: req.employeeId });
-    if (!to) return;
-    api.notify({ ...to, message: gearOutcomeMessage(req, ok, { t, formatDate }) });
+    if (req.employeeId) api.email(gearOutcomeEmail(req, ok, { by: actorName(), tz: APP_TZ }));
   };
   const approveRequest = (req) => {
     // Approval only unlocks the request — the employee still picks up with photo verification
@@ -1692,7 +1670,7 @@ export function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckout
           productionCompanies={productionCompanies}
           employees={employees}
           lineGroupId={lineGroupId}
-          lineNotifyMuted={lineNotifyMuted}
+         
           equipment={equipment}
           checkouts={checkouts}
           equipmentRequests={equipmentRequests}

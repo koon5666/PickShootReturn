@@ -12,7 +12,7 @@
 //   server-owned fields are never written through PUT by anyone.
 
 export const EMPLOYEE_PUT_FIELDS = new Set(["checkouts", "equipmentRequests", "adminRequests", "invoices", "reports", "productionCompanies"]);
-export const SERVER_OWNED_FIELDS = new Set(["adminPinHash", "staff", "calendarToken", "auditLog"]);
+export const SERVER_OWNED_FIELDS = new Set(["adminPinHash", "staff", "calendarToken", "auditLog", "adminEmail", "lineSummary"]);
 // Which key names the owner of a record, per field. productionCompanies uses
 // addedBy, which since 2026-09-22 is attribution and delete scope only: crew may
 // edit any house, but drop from the shared list only the ones they added.

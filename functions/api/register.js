@@ -6,7 +6,7 @@
 import { secretMissing, secretMissingResponse, originOk, readJson, clientIp, PIN_RE, hashPin } from "../_lib/auth.js";
 import { rateCheck, rateFail, rateKey } from "../_lib/ratelimit.js";
 import { readField, writeField } from "../_lib/store.js";
-import { notifyGroup } from "../_lib/line.js";
+import { normalizeMessage, deliver, cleanEmail } from "../_lib/email.js";
 
 export async function onRequestPost({ request, env }) {
   if (secretMissing(env)) return secretMissingResponse();
@@ -36,7 +36,25 @@ export async function onRequestPost({ request, env }) {
   }
   const req = { id: "ar" + Date.now(), type: "member-register", status: "pending", submittedAt: new Date().toISOString(), name, contact, requestedPinHash: await hashPin(pin) };
   await writeField(env.KV, "adminRequests", [...list, req]);
-  const { value: groupId } = await readField(env.KV, "lineGroupId");
-  if (groupId) await notifyGroup(env, groupId, `🙋 New crew request / มีคนขอเข้าทีม: ${name}\n📱 ${contact}\nApprove in Pick Shoot Return > Dashboard > Approvals / อนุมัติได้ที่หน้า Dashboard`);
+  // The house hears it by email (2026-10-01: LINE carries only the 08:00 summary).
+  const { value: adminEmail } = await readField(env.KV, "adminEmail");
+  const to = cleanEmail(adminEmail);
+  // This route is public: at most 5 sign-up emails a day, so a bot hammering the
+  // form cannot spend the day's email allowance that real notifications need.
+  const regKey = `email:reg:${new Date().toISOString().slice(0, 10)}`;
+  const regSent = parseInt(await env.KV.get(regKey), 10) || 0;
+  if (to && regSent < 5) {
+    await env.KV.put(regKey, String(regSent + 1), { expirationTtl: 2 * 86400 });
+    const appUrl = new URL(request.url).origin;
+    const msg = normalizeMessage({
+      subject: `New crew request: ${name}`,
+      heading: "New crew request / มีคนขอเข้าทีม",
+      intro: "Someone asked to join the crew. Approve or decline it in Dashboard > Approvals.\nมีคนขอเข้าทีม อนุมัติหรือปฏิเสธได้ที่หน้า Dashboard > คำขออนุมัติ",
+      tone: "info",
+      sections: [{ title: "Request", rows: [["Name / ชื่อ", name], ["Contact / ติดต่อ", contact], ["Sent / ส่งเมื่อ", new Date().toLocaleString("en-GB", { timeZone: "Asia/Bangkok", dateStyle: "medium", timeStyle: "short" })]] }],
+      link: { url: "/", label: "Review in Pick Shoot Return" },
+    }, { appUrl });
+    await deliver(env, msg, [{ email: to, id: "admin" }], { replyTo: cleanEmail(contact) }).catch(() => null);
+  }
   return Response.json({ ok: true, id: req.id, name });
 }

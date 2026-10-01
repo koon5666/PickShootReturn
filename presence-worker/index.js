@@ -130,16 +130,16 @@ export class PresenceDO {
 }
 
 export default {
-  // 09:00 Bangkok (02:00 UTC, wrangler.toml [triggers]): ask the Pages app to send
-  // the overdue-gear LINE digest (functions/api/overdue-digest.js). Needs the
+  // 08:00 Bangkok (01:00 UTC, wrangler.toml [triggers]): ask the Pages app to send
+  // the 08:00 daily LINE summary (functions/api/daily-summary.js). Needs the
   // same DIGEST_TOKEN secret on this worker and on the Pages project; APP_URL
   // overrides the target (default = production).
   async scheduled(event, env, ctx) {
-    const url = (env.APP_URL || "https://pickshootreturn.pages.dev") + "/api/overdue-digest";
-    if (!env.DIGEST_TOKEN) { console.warn("overdue digest: DIGEST_TOKEN not set on the presence worker"); return; }
+    const url = (env.APP_URL || "https://pickshootreturn.pages.dev") + "/api/daily-summary";
+    if (!env.DIGEST_TOKEN) { console.warn("daily summary: DIGEST_TOKEN not set on the presence worker"); return; }
     ctx.waitUntil(fetch(url, { method: "POST", headers: { "X-Digest-Token": env.DIGEST_TOKEN, "Content-Type": "application/json" }, body: "{}" })
-      .then(async r => console.log("overdue digest", r.status, (await r.text()).slice(0, 200)))
-      .catch(e => console.error("overdue digest failed", e && e.message)));
+      .then(async r => console.log("daily summary", r.status, (await r.text()).slice(0, 200)))
+      .catch(e => console.error("daily summary failed", e && e.message)));
   },
 
   async fetch(request, env) {

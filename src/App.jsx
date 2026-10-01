@@ -5,7 +5,7 @@ import { stillOutList, buildReceiveEvents } from "./logic/availability.js";
 import { ToastProvider } from "./components/toast.jsx";
 import { setFormatLang, formatDate } from "./i18n/format.js";
 import { buildSavePayload, dirtyFields, queueProfile, drainProfileQueue } from "./logic/offline.js";
-import { outcomeRecipients, earlyOutcomeMessage } from "./logic/requestPush.js";
+import { earlyOutcomeEmail, geoReturnOutcomeEmail } from "./logic/emailMessages.js";
 import { api, setActor, actorName, SESSION_KEY, PENDING_KEY, CACHE_KEY, DATA_FIELDS, readCachedTheme, normalizeTheme, writeCache, buildThemeCss, Icon, icons, APP_TZ, setTimePrefs, today, compressImage, S, orderNav, LangCtx, RolesCtx, useT, LangPill } from "./ui/shared.jsx";
 
 // ─── LAZY VIEW CHUNKS (P3-8) ──────────────────────────────────────────────────
@@ -780,7 +780,6 @@ export default function App() {
   // verificationConfig: { mode: "none"|"photo"|"barcode"|"both" }
   // Derived from photoVerification on first load if verificationConfig hasn't been saved yet.
   const [verificationConfig, setVerificationConfig] = useState({ mode: "photo" });
-  const [lineNotifyMuted, setLineNotifyMuted] = useState(() => { try { return localStorage.getItem("psr_notify_muted") === "1"; } catch { return false; } });
   const [loaded, setLoaded] = useState(false);
 
   // Browser tab title: "Pick Shoot Return - {company name}" once data is loaded
@@ -849,6 +848,13 @@ export default function App() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setSyncToast(null), kind === "error" ? 9000 : 5000);
   };
+
+  // Email notifications (2026-10-01): say so when one did not go out (api.email).
+  useEffect(() => {
+    const onFail = (e) => showToast("error", "emailFailedToast", { error: (e && e.detail && e.detail.error) || "-" });
+    window.addEventListener("psr-email-failed", onFail);
+    return () => window.removeEventListener("psr-email-failed", onFail);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Session presence (Durable Objects WebSocket) ──────────────────────────
   const [concurrentSessions, setConcurrentSessions] = useState([]);
@@ -1687,28 +1693,30 @@ export default function App() {
     return { ok: true, created: !!r.created };
   };
 
-  const isLineLinked = (empId) => (employees || []).some(e => e && e.id === empId && e.lineLinked); // P3-6: GET exposes only the flag
-  // Tell the crew member the outcome of an admin request.
-  //   geo-return (P1-5): LINE push to the group when one is connected and to the
-  //   requester's own LINE when linked (P3-6), both outcomes, plus the in-app
-  //   status on their "Returns waiting for approval" card.
-  //   early-pickup / early-return (2026-09-16): the group heard the request go
-  //   in (crew.jsx submitEarlyRequest), so it hears the approval; a rejection
-  //   reaches only the linked requester. Rule + wording: src/logic/requestPush.js.
+  // Tell the crew member the outcome of an admin request, by email (2026-10-01:
+  // LINE carries only the 08:00 group summary). Every detail is in the mail:
+  // src/logic/emailMessages.js. geo-return = a return made outside the GPS
+  // radius (P1-5); early-pickup / early-return = asked to move the job's window.
   const notifyRequester = (req, outcome) => {
-    if (lineNotifyMuted) return;
+    if (!req || !req.employeeId) return;
     const ok = outcome === "approved";
+    const by = actorName();
     if (req.type === "early-pickup" || req.type === "early-return") {
-      const to = outcomeRecipients({ ok, lineGroupId, lineNotifyMuted, employees, employeeId: req.employeeId });
-      if (to) api.notify({ ...to, message: earlyOutcomeMessage(req, ok, { t: _tRoot, formatDate }) });
-      return;
+      const job = (jobs || []).find(j => j && j.id === req.jobId) || null;
+      api.email(earlyOutcomeEmail(req, ok, { job, by, tz: APP_TZ }));
+    } else if (req.type === "geo-return") {
+      // "Approve all" decides several returns in one tick: gather one crew
+      // member's outcomes for a moment and send them as ONE email.
+      const key = `${req.employeeId}|${ok ? 1 : 0}`;
+      const q = geoOutcomeQueue.current;
+      const entry = q.get(key) || { reqs: [], timer: null };
+      entry.reqs.push(req);
+      clearTimeout(entry.timer);
+      entry.timer = setTimeout(() => { q.delete(key); api.email(geoReturnOutcomeEmail(entry.reqs, ok, { by, tz: APP_TZ })); }, 1500);
+      q.set(key, entry);
     }
-    if (req.type !== "geo-return") return;
-    if (!lineGroupId && !isLineLinked(req.employeeId)) return; // nobody to reach
-    const dist = req.distance == null ? "" : req.distance < 1000 ? ` (${req.distance} m)` : ` (${(req.distance / 1000).toFixed(1)} km)`;
-    // Group when connected, plus the requester's own LINE when linked (P3-6, resolved server-side).
-    api.notify({ userIds: lineGroupId ? [lineGroupId] : [], employeeIds: req.employeeId ? [req.employeeId] : [], message: `${ok ? "✅" : "❌"} [${_tRoot(ok ? "notifyReturnApproved" : "notifyReturnRejected")}] ${req.employeeName}\n📦 ${req.eqName || req.name || req.eqId}${req.qty > 1 ? ` ×${req.qty}` : ""}\n🎬 ${req.jobName || ""}${dist}\n🔗 https://pickshootreturn.pages.dev` });
   };
+  const geoOutcomeQueue = useRef(new Map());
 
   // Tell other tabs / devices to re-GET after a server-side change that did not
   // go through the save effect (restore, clear history, tombstone).
@@ -1859,7 +1867,7 @@ export default function App() {
         </div>
       ) : user.role === "employee" ? (
         <ViewBoundary><Suspense fallback={<ViewLoading />}>
-          <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={onLogout} calendarToken={calendarToken} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} offlinePendingCount={offlinePending.length + profileQueueSize} putProfile={putProfileQueued} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
+          <EmployeeView employee={user} jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} reports={reports} setReports={setReports} invoices={invoices} setInvoices={setInvoices} productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} companyName={companyName} setLang={setLang} onLogout={onLogout} calendarToken={calendarToken} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} setAdminRequests={setAdminRequests} lineGroupId={lineGroupId} kpiConfig={kpiConfig} kpiEvents={kpiEvents} punishments={punishments} verificationConfig={verificationConfig} saveNow={saveSettingsNow} offlineMode={offlineMode} offlinePendingCount={offlinePending.length + profileQueueSize} putProfile={putProfileQueued} invoicePresets={invoicePresets} chatEnabled={chatEnabled} chatUnread={chatUnread} onOpenChat={() => setChatOpen(true)} />
         </Suspense></ViewBoundary>
       ) : (
         <div id="admin-layout" style={S.app}>
@@ -1907,9 +1915,9 @@ export default function App() {
               </div>
             )}
             <ViewBoundary><Suspense fallback={<ViewLoading />}>
-            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} deleteRecord={deleteRecord} reports={reports} onReceive={receiveStillOut} onOpenReports={openDamageReports} />}
+            {activePage === "dashboard" && <DashboardPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} productionCompanies={productionCompanies} employees={employees} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} adminRequests={adminRequests} approveAdminRequest={approveAdminRequest} rejectAdminRequest={rejectAdminRequest} pendingAdminCount={pendingAdminRequests.length} lineGroupId={lineGroupId} deleteRecord={deleteRecord} reports={reports} onReceive={receiveStillOut} onOpenReports={openDamageReports} />}
             {activePage === "equipment" && <EquipmentPage equipment={equipment} setEquipment={setEquipment} jobs={jobs} checkouts={checkouts} reports={reports} setReports={setReports} equipmentRequests={equipmentRequests} productionCompanies={productionCompanies} initialTab={eqInitialTab} onConsumeInitialTab={() => setEqInitialTab(null)} />}
-            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} lineNotifyMuted={lineNotifyMuted} verificationConfig={verificationConfig} equipmentRequests={equipmentRequests} reports={reports} />}
+            {activePage === "jobs" && <JobsPage jobs={jobs} setJobs={setJobs} equipment={equipment} checkouts={checkouts} productionCompanies={productionCompanies} employees={employees} lineGroupId={lineGroupId} verificationConfig={verificationConfig} equipmentRequests={equipmentRequests} reports={reports} />}
             {activePage === "invoice" && <InvoicePage productionCompanies={productionCompanies} setProductionCompanies={setProductionCompanies} invoices={invoices} setInvoices={setInvoices} employees={employees} companyName={companyName} user={user} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} jobs={jobs} setJobs={setJobs} adminRequests={adminRequests} saveNow={saveSettingsNow} />}
             {activePage === "team" && <TeamPage employees={employees} setEmployees={setEmployees} setEmployeePin={setEmployeePinAndAdopt} equipmentRequests={equipmentRequests} setEquipmentRequests={setEquipmentRequests} checkouts={checkouts} setCheckouts={setCheckouts} equipment={equipment} kpiConfig={kpiConfig} setKpiConfig={setKpiConfig} kpiEvents={kpiEvents} setKpiEvents={setKpiEvents} punishments={punishments} setPunishments={setPunishments} deleteRecord={deleteRecord} onOpenRequests={goDashboard("gear-requests-card")} />}
             {activePage === "checkout" && <AdminCheckoutPage jobs={jobs} equipment={equipment} checkouts={checkouts} setCheckouts={setCheckouts} verificationConfig={verificationConfig} employees={employees} equipmentRequests={equipmentRequests} reports={reports} />}
@@ -1917,7 +1925,7 @@ export default function App() {
             </Suspense></ViewBoundary>
           </main>
           {isMobile && <AdminBottomNav activePage={activePage} setActivePage={setActivePage} unresolvedCount={unresolvedCount} navOrder={navOrder} />}
-          {settingsPanelOpen && <ViewBoundary overlay><Suspense fallback={<ViewLoading overlay />}><SettingsPage companyName={companyName} setCompanyName={setCompanyName} roleList={roleList} setRoleList={setRoleList} user={user} onUserUpdate={setUser} staff={staff} setStaff={setStaff} calendarToken={calendarToken} setCalendarToken={setCalendarToken} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} lineNotifyMuted={lineNotifyMuted} setLineNotifyMuted={setLineNotifyMuted} createBackup={createBackup} restoreBackup={restoreBackup} clearHistory={clearHistory} migratePhotos={migratePhotos} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} chatEnabled={chatEnabled} setChatEnabled={setChatEnabled} onClose={() => setSettingsPanelOpen(false)} /></Suspense></ViewBoundary>}
+          {settingsPanelOpen && <ViewBoundary overlay><Suspense fallback={<ViewLoading overlay />}><SettingsPage companyName={companyName} setCompanyName={setCompanyName} roleList={roleList} setRoleList={setRoleList} user={user} onUserUpdate={setUser} staff={staff} setStaff={setStaff} calendarToken={calendarToken} setCalendarToken={setCalendarToken} lineGroupId={lineGroupId} setLineGroupId={setLineGroupId} createBackup={createBackup} restoreBackup={restoreBackup} clearHistory={clearHistory} migratePhotos={migratePhotos} timezone={timezone} setTimezone={setTimezone} timeFormat={timeFormat} setTimeFormat={setTimeFormat} saveSettingsNow={saveSettingsNow} verificationConfig={verificationConfig} setVerificationConfig={setVerificationConfig} themeStyle={themeStyle} setThemeStyle={setThemeStyle} themePalette={themePalette} setThemePalette={setThemePalette} lang={lang} setLang={setLang} navOrder={navOrder} setNavOrder={setNavOrder} checkoutsCount={checkouts.length} setCheckouts={setCheckouts} invoicePresets={invoicePresets} setInvoicePresets={setInvoicePresets} chatEnabled={chatEnabled} setChatEnabled={setChatEnabled} onClose={() => setSettingsPanelOpen(false)} /></Suspense></ViewBoundary>}
         </div>
       )}
       {/* Global chat window — visible across admin and employee views */}
