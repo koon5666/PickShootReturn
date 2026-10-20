@@ -1150,8 +1150,12 @@ export function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckout
         )}
       </div>
 
+      {/* Calendar first (2026-10-20): the house lands on the dashboard and wants the
+          schedule before anything else, so it sits full width above both columns. */}
+      <DashboardCalendar jobs={jobs} equipment={equipment} onEdit={(job) => setDashJobModal(job)} />
+
       {/* Two columns from 1024px (P2-11): a "Needs action" rail on the left, the
-          schedule (stats, calendar, bookings, activity) on the right. Narrower
+          schedule (stats, bookings, activity) on the right. Narrower
           screens stack the rail first so the actionable cards stay above the fold. */}
       <div data-testid="dash-grid" style={wide ? { display: "grid", gridTemplateColumns: "minmax(360px, 5fr) minmax(0, 7fr)", gap: 16, alignItems: "start" } : { display: "flex", flexDirection: "column", gap: 16 }}>
       <div data-testid="needs-action-rail" style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
@@ -1439,9 +1443,6 @@ export function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckout
           </div>
         );
       })()}
-
-      {/* Calendar */}
-      <DashboardCalendar jobs={jobs} equipment={equipment} onEdit={(job) => setDashJobModal(job)} />
 
       {/* Equipment status: bookings (assignment-based) vs gear physically out (checkout-based) */}
       {(() => {
