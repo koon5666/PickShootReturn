@@ -6,6 +6,7 @@ import { requireSession, stripCredentials } from "../_lib/auth.js";
 import { protectEmployees, protectRequests, adoptPlainAdminPin } from "../_lib/accounts.js";
 import { forbiddenFields, restrictOwn, mergeSharedWhole, ownInvoices, OWNER_KEY, SERVER_OWNED_FIELDS, CREW_MAX_NEW_RECORDS, newRecordCount } from "../_lib/roles.js";
 import { allocateNumbers } from "../_lib/docalloc.js";
+import { sweepExpiredPencils } from "../_lib/pencilSweep.js";
 
 // Same-origin API: no Access-Control-Allow-* headers on purpose (P0-2).
 const CORS = {};
@@ -80,6 +81,10 @@ export async function onRequestGet(context) {
   if (!auth.ok) return auth.response;
   const url = new URL(request.url);
   const full = url.searchParams.get("full") === "1" && auth.session.role === "admin"; // escape hatch: full payload w/ photos (admin)
+  // Pencil expiry (2026-10-20): the first open of the day stores Declined on every
+  // Pencil whose last shoot day has passed, so this GET already carries it. One KV
+  // read on every later open; a failure never blocks the load.
+  try { await sweepExpiredPencils(env.KV); } catch { /* next open or the 08:00 cron retries */ }
   const { values, versions } = await readAllFields(env.KV);
   const out = stripCredentials(values);
   if (auth.session.role !== "admin") {

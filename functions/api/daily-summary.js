@@ -11,6 +11,7 @@ import { readAllFields, writeField } from "../_lib/store.js";
 import { todayIn } from "../_lib/digest.js";
 import { buildDailySummary, overdueEmailMessage, summaryAlreadySent } from "../_lib/dailySummary.js";
 import { notifyGroup } from "../_lib/line.js";
+import { sweepExpiredPencils } from "../_lib/pencilSweep.js";
 import { normalizeMessage, emailOf, deliver, cleanEmail, APP_URL } from "../_lib/email.js";
 
 const LAST_KEY = "digest:daily";
@@ -55,9 +56,12 @@ export async function onRequestPost(context) {
     force = !!(await readJson(request)).force;
   }
   const appUrl = env.APP_URL || APP_URL;
+  // Expired pencils turn Declined before the summary is composed (2026-10-20).
+  let pencils = null;
+  try { pencils = await sweepExpiredPencils(env.KV); } catch (e) { pencils = { error: String(e && e.message || e) }; }
   const { summary, today, groupId, enabled, employees, adminEmail, companyName } = await compose(env, appUrl);
   const last = await env.KV.get(LAST_KEY, "json");
-  if (!force && summaryAlreadySent(last, today)) return Response.json({ ok: true, skipped: "already sent today", today, last });
+  if (!force && summaryAlreadySent(last, today)) return Response.json({ ok: true, skipped: "already sent today", today, last, pencils });
 
   // LINE: the one group post.
   let line = { posted: false, reason: null };
@@ -88,7 +92,7 @@ export async function onRequestPost(context) {
 
   const record = { day: today, at: Date.now(), posted: line.posted, lineReason: line.reason, emailed, emailedDay: alreadyEmailed || emailed || !Object.keys(summary.overdueByEmployee).length ? today : (last && last.emailedDay) || null, counts: summary.counts };
   await env.KV.put(LAST_KEY, JSON.stringify(record));
-  return Response.json({ ok: true, today, ...record, emailErrors });
+  return Response.json({ ok: true, today, ...record, emailErrors, pencils });
 }
 
 export async function onRequestPut(context) {

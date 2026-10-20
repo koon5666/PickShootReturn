@@ -12,6 +12,7 @@ import { jobEmail, gearOutcomeEmail } from "../logic/emailMessages.js";
 import { utilisation, utilisationCsv, overdueCsv, customerHistory, customerHistoryCsv, customerNames, crewStatement, crewStatementCsv, periodPreset, monthOf } from "../logic/reports.js";
 import { JOB_STATUSES, JOB_STATUS_BADGE, SHOOT_TIMES, LOCATIONS, j, api, actorName, Icon, icons, APP_TZ, today, addDaysStr, kpiPeriod, kpiScore, kpiEventsInPeriod, StarRating, compressImage, S, useMinWidth, Modal, LazyPhoto, AvailBar, usePhotoCapture, GeoPhoto, ReturnDetailsFields, QRScanner, LangCtx, useRoleList, useT, calcAvailable, jobHoldDatesOf, calcAvailableSpan, describeReasons, AvChip, AvReasons, printQRForItems, EQ_SORT_OPTIONS } from "../ui/shared.jsx";
 import { DashboardCalendar } from "./calendar.jsx";
+import { isAutoDeclined } from "../logic/pencilExpiry.js";
 
 export function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setReports, equipmentRequests, productionCompanies, initialTab, onConsumeInitialTab }) {
   const t = useT();
@@ -424,6 +425,8 @@ export function JobFormModal({ editTarget, jobs, setJobs, productionCompanies, e
       pickupDate: form.pickupDate && form.pickupDate < sorted[0] ? form.pickupDate : "",
       returnDate: form.returnDate && form.returnDate > sorted[sorted.length - 1] ? form.returnDate : "",
       crew: normalizeCrew(form.crew),
+      // The "auto: pencil expired" stamp only means something while the job stays Declined.
+      autoDeclined: form.status === "Declined" ? form.autoDeclined : undefined,
     };
     // The roster is the default for the checkout lanes: a new roster (or a changed
     // one) re-derives checkoutRoles; the Assign Gear modal can still override it.
@@ -784,6 +787,7 @@ export function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompan
                     return (
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
                         <span style={S.badge(statusColor[job.status] || "gray")}>{job.status}</span>
+                        {isAutoDeclined(job) && <span style={S.badge("gray")} title={t("jobAutoDeclinedHint")} data-testid="job-auto-declined">{t("jobAutoDeclined")}</span>}
                         <span style={S.badge(locationColor[job.location] || "gray")}>{job.location}{job.locationCity ? ` · ${job.locationCity}` : ""}{ovCount > 0 ? " ±" : ""}</span>
                         <span style={S.badge("gray")}>{job.shootTime}{ovCount > 0 ? " ±" : ""}</span>
                         {job.checkoutMode === "daily" && <span style={S.badge("blue")}>{t("jobDailyReturn")}</span>}

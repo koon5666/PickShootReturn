@@ -6,6 +6,8 @@
 // X-WR-TIMEZONE comes from the tenant's saved timezone (P3-8, functions/_lib/tz.js).
 import { readField } from "../_lib/store.js";
 import { calendarTimezone } from "../_lib/tz.js";
+import { todayIn } from "../_lib/digest.js";
+import { isExpiredPencil, jobsWithGearOut } from "../../src/logic/pencilExpiry.js";
 
 function esc(str) {
   return (str || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
@@ -32,11 +34,17 @@ export async function onRequestGet({ env, request }) {
   if (!(typeof token === "string" && token.length >= 32 && sent === token)) {
     return new Response("calendar token required", { status: 403, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
   }
-  const [jobs, savedTz] = await Promise.all([
+  const [jobs, savedTz, checkouts] = await Promise.all([
     env.KV.get("jobs", "json").then(v => v || []),
     env.KV.get("timezone", "json").catch(() => null),
+    env.KV.get("checkouts", "json").then(v => v || []).catch(() => []),
   ]);
   const tz = calendarTimezone(savedTz);
+  // 2026-10-20: Declined jobs leave the calendar like Cancelled ones (they used to
+  // go out as STATUS:CONFIRMED), and so does a Pencil whose last shoot day has
+  // passed, even before the daily sweep has stored it as Declined.
+  const today = todayIn(tz);
+  const gearOut = jobsWithGearOut(checkouts);
   const stamp = new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15) + "Z";
 
   const lines = [
@@ -53,7 +61,8 @@ export async function onRequestGet({ env, request }) {
   ];
 
   for (const job of jobs) {
-    if (job.status === "Cancelled") continue;
+    if (!job || job._deleted || job.status === "Cancelled" || job.status === "Declined") continue;
+    if (isExpiredPencil(job, today, gearOut)) continue;
     for (const date of (job.dates || [])) {
       const descParts = [];
       if (job.production) descParts.push(`Production: ${job.production}`);
