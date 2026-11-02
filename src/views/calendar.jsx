@@ -2,12 +2,21 @@
 // and the crew view, so it is its own small chunk.
 import { useState } from "react";
 import { formatDate } from "../i18n/format.js";
-import { JOB_STATUS_BADGE, j, Icon, icons, today, S, Modal } from "../ui/shared.jsx";
+import { JOB_STATUS_BADGE, j, Icon, icons, today, S, Modal, useT } from "../ui/shared.jsx";
+
+const filled = (v) => String(v || "").trim();
+
+// Koon 2026-11-02: production house first, then job name, then contact person,
+// on the calendar bar and at the top of the job dialog.
+const barParts = (job) => [job.production, job.name, job.contactPerson].map(filled).filter(Boolean);
 
 // ─── JOB DETAIL MODAL ────────────────────────────────────────────────────────
 export function JobDetailModal({ job, equipment, onClose, onEdit }) {
+  const t = useT();
   if (!job) return null;
   const statusColor = JOB_STATUS_BADGE;
+  const production = filled(job.production);
+  const contact = filled(job.contactPerson);
   return (
     <Modal title="Job Details" onClose={onClose}>
       <div style={S.col}>
@@ -17,8 +26,15 @@ export function JobDetailModal({ job, equipment, onClose, onEdit }) {
           <span style={S.badge("gray")}>{job.shootTime}</span>
         </div>
         <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text,#16324A)" }}>{job.name}</h2>
-          <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-muted,#4E6B84)" }}>{job.production}</p>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "var(--text,#16324A)" }}>{production || job.name}</h2>
+          {production && <p style={{ margin: "4px 0 0", fontSize: 15, fontWeight: 600, color: "var(--text,#16324A)" }}>{job.name}</p>}
+          {contact && (
+            <p title={t("contactPersonField")} style={{ margin: "6px 0 0", fontSize: 13, color: "var(--text-muted,#4E6B84)", display: "flex", alignItems: "center", gap: 5 }}>
+              <Icon d={icons.user} size={13} />
+              <span style={{ fontWeight: 600, color: "var(--text,#16324A)" }}>{contact}</span>
+              {filled(job.contactPlatform) && <span>· {job.contactPlatform}</span>}
+            </p>
+          )}
         </div>
         <div style={S.divider} />
         <div>
@@ -237,22 +253,34 @@ export function DashboardCalendar({ jobs, equipment, onEdit }) {
 
                   const borderRadius = `${info.isStart ? 6 : 0}px ${info.isEnd || !continuesRight ? 6 : 0}px ${info.isEnd || !continuesRight ? 6 : 0}px ${info.isStart ? 6 : 0}px`;
 
+                  // The label sits on the bar's first cell in this row (also when the
+                  // bar wraps from the week above) and runs the bar's full length, so
+                  // "production · job · contact" is not cut to one day's width.
+                  const showLabel = info.isStart || ci === 0;
+                  let run = 1;
+                  if (showLabel) {
+                    for (let k = ci; k + 1 < rowCells.length && rowCells[k + 1] && !getJobDayInfo(job, rowCells[k]).isEnd && getJobDayInfo(job, rowCells[k + 1]); k++) run++;
+                  }
+                  const parts = barParts(job);
+
                   return (
                     <div key={d}
                       onClick={() => setDetailJob(job)}
+                      title={parts.join(" · ")}
                       style={{
                         height: 18, background: col.bg, borderTop: `1.5px solid ${col.border}`, borderBottom: `1.5px solid ${col.border}`,
                         borderLeft: info.isStart ? `1.5px solid ${col.border}` : "none",
                         borderRight: info.isEnd || !continuesRight ? `1.5px solid ${col.border}` : "none",
                         borderRadius,
                         cursor: "pointer",
-                        overflow: "hidden",
-                        display: "flex", alignItems: "center",
-                        paddingLeft: info.isStart ? 4 : 0,
+                        position: showLabel ? "relative" : undefined,
+                        overflow: showLabel ? "visible" : "hidden",
                       }}>
-                      {info.isStart && (
-                        <span style={{ fontSize: 9, fontWeight: 700, color: col.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1 }}>
-                          {job.name}
+                      {showLabel && (
+                        <span style={{ position: "absolute", left: 4, top: 0, bottom: 0, width: `calc(${run * 100}% - 8px)`, display: "block", fontSize: 9, fontWeight: 600, color: col.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: "15px" }}>
+                          {parts.length ? parts.map((p, i) => (
+                            <span key={i} style={{ fontWeight: i === 0 ? 800 : 600 }}>{i ? " · " : ""}{p}</span>
+                          )) : "TBA"}
                         </span>
                       )}
                     </div>
