@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   availability, availabilitySpan, stillOutUnits, stillOutList, jobConflicts, jobHoldDates, jobHoldsOn,
   effPickupDate, effReturnDate, addDays, daysBetween, unitsOutForEquipment, unitsOutForJob, buildReceiveEvents,
-  lostUnitsByEquipment, unreconciledLost, reconcileLost,
+  lostUnitsByEquipment, unreconciledLost, reconcileLost, isUpcomingJob,
 } from "./availability.js";
 
 // Mirrors tests/seed.mjs (default profile) with a fixed "today" so the numbers are stable.
@@ -52,6 +52,20 @@ describe("date helpers", () => {
     expect(jobHoldDates({ ...j, checkoutMode: "daily" })).toEqual([day(0), day(3)]);
     expect(jobHoldsOn({ ...j, checkoutMode: "daily" }, day(2))).toBe(false);
     expect(jobHoldDates(j, { pickupBuffer: 1, returnBuffer: 1 })[0]).toBe(day(-2));
+  });
+});
+
+describe("isUpcomingJob", () => {
+  it("is true while a shoot day is still to come, today included", () => {
+    expect(isUpcomingJob({ dates: [T] }, T)).toBe(true);
+    expect(isUpcomingJob({ dates: [day(-3), day(2)] }, T)).toBe(true);
+    expect(isUpcomingJob({ dates: [day(-1)] }, T)).toBe(false);
+  });
+  it("is false with no dates, whatever the record looks like", () => {
+    expect(isUpcomingJob({ dates: [] }, T)).toBe(false);
+    expect(isUpcomingJob({ dates: [null, ""] }, T)).toBe(false);
+    expect(isUpcomingJob({}, T)).toBe(false);
+    expect(isUpcomingJob(null, T)).toBe(false);
   });
 });
 

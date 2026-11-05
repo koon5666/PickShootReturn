@@ -2,7 +2,7 @@
 // Reports, damage reports. Lazy chunk loaded after admin login; App.jsx prefetches
 // it when idle so navigation (and the offline path) never waits.
 import { useState, useEffect, useRef, useContext } from "react";
-import { stillOutList, jobConflicts, unitsOutForEquipment, unitsOutForJob, jobLastDate, effPickupDate, effReturnDate, isOpenReport, unreconciledLost, reconcileLost } from "../logic/availability.js";
+import { stillOutList, jobConflicts, unitsOutForEquipment, unitsOutForJob, jobLastDate, isUpcomingJob, effPickupDate, effReturnDate, isOpenReport, unreconciledLost, reconcileLost } from "../logic/availability.js";
 import { filterHistory, historyCsv, downloadText } from "../logic/history.js";
 import { isPickEvt, isReturnEvt, isLostEvt, isVoidEvt, jobCheckoutState, outstandingQty, laneDone, conditionKey, DEFAULT_DAY_START_HOUR } from "../logic/checkoutState.js";
 import { formatDate, formatDateTime, tCount, statusLabel } from "../i18n/format.js";
@@ -13,6 +13,7 @@ import { utilisation, utilisationCsv, overdueCsv, customerHistory, customerHisto
 import { JOB_STATUSES, JOB_STATUS_BADGE, SHOOT_TIMES, LOCATIONS, j, api, actorName, Icon, icons, APP_TZ, today, addDaysStr, kpiPeriod, kpiScore, kpiEventsInPeriod, StarRating, compressImage, S, useMinWidth, Modal, LazyPhoto, AvailBar, usePhotoCapture, GeoPhoto, ReturnDetailsFields, QRScanner, LangCtx, useRoleList, useT, calcAvailable, jobHoldDatesOf, calcAvailableSpan, describeReasons, AvChip, AvReasons, printQRForItems, EQ_SORT_OPTIONS } from "../ui/shared.jsx";
 import { DashboardCalendar } from "./calendar.jsx";
 import { isAutoDeclined } from "../logic/pencilExpiry.js";
+import { useToast } from "../components/toast.jsx";
 
 export function EquipmentPage({ equipment, setEquipment, jobs, checkouts, reports, setReports, equipmentRequests, productionCompanies, initialTab, onConsumeInitialTab }) {
   const t = useT();
@@ -1049,15 +1050,56 @@ export function JobsPage({ jobs, setJobs, equipment, checkouts, productionCompan
 }
 
 // ─── DASHBOARD PAGE ───────────────────────────────────────────────────────────
+// Dashboard "Push to LINE group" (2026-11-05, admin only): shows the exact post and
+// what it costs before anything leaves. The server side is /api/daily-summary manual.
+function LinePushDialog({ onClose }) {
+  const t = useT();
+  const toast = useToast();
+  const [preview, setPreview] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState(null);
+  useEffect(() => { api.linePushPreview().then(setPreview); }, []);
+  const b = preview?.budget;
+  const warn = !!(b?.blocked || b?.daysLost);
+  const cost = (b?.members == null ? t("linePushCostPlain") : b.blocked ? t("linePushShort") : b.daysLost ? t("linePushEatsDaily") : b.left == null ? t("linePushCost") : t("linePushCostLeft"))
+    .replace("{n}", b?.members).replace("{left}", b?.left).replace("{d}", b?.daysLost);
+  const push = async () => {
+    setSending(true);
+    setError(null);
+    const r = await api.linePush();
+    setSending(false);
+    if (r.ok && r.posted) { toast(t("lineSummaryPosted")); onClose(); return; }
+    setError(t("lineSummarySkipped").replace("{reason}", r.lineReason || r.error || "-"));
+  };
+  return (
+    <Modal title={t("linePushTitle")} onClose={onClose} wide>
+      {!preview ? <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("loading")}</p>
+        : !preview.text ? <p data-testid="line-push-text" style={{ margin: 0, fontSize: 13, color: "var(--text-muted,#5F7A91)" }}>{t("lineSummarySkipped").replace("{reason}", preview.skipped || preview.error || "-")}</p>
+        : (<>
+          <p style={{ margin: "0 0 8px", fontSize: 13, color: "var(--text-muted,#4E6B84)" }}>{t("linePushIntro")}</p>
+          <pre data-testid="line-push-text" style={{ margin: 0, padding: 10, borderRadius: 8, background: "var(--surface-2,#F4F7FB)", border: "1px solid var(--divider-color,#D8E1EC)", fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: "45vh", overflow: "auto", fontFamily: "inherit" }}>{preview.text}</pre>
+          <p data-testid="line-push-cost" style={{ margin: "10px 0 0", fontSize: 12, fontWeight: warn ? 600 : 400, color: warn ? "#C53030" : "var(--text-muted,#4E6B84)" }}>{cost}</p>
+          {preview.last && <p data-testid="line-push-last" style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted,#4E6B84)" }}>{t("linePushLast").replace("{when}", formatDateTime(preview.last.at)).replace("{who}", preview.last.by)}</p>}
+        </>)}
+      {error && <p data-testid="line-push-error" style={{ margin: "10px 0 0", fontSize: 12, color: "#C53030" }}>{error}</p>}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <button style={S.btn("ghost")} onClick={onClose}>{t("cancel")}</button>
+        {preview?.text && <button data-testid="line-push-send" style={{ ...S.btn("primary"), opacity: b?.blocked ? 0.5 : 1 }} disabled={sending || b?.blocked} onClick={push}><Icon d={icons.send} size={15} /> {sending ? t("linePushSending") : t("linePushSend")}</button>}
+      </div>
+    </Modal>
+  );
+}
+
 export function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckouts, productionCompanies, employees, equipmentRequests, setEquipmentRequests, adminRequests, approveAdminRequest, rejectAdminRequest, pendingAdminCount, lineGroupId, deleteRecord, reports, onReceive, onOpenReports }) {
   const t = useT();
   const wide = useMinWidth(1024);   // 2-column layout (P2-11)
   const phone = !useMinWidth(768);  // FAB + jump banner only here
+  const [linePushOpen, setLinePushOpen] = useState(false);
   const openReports = (reports || []).filter(isOpenReport).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const todayStr = today();
   const todayJobs = jobs.filter(j => j.dates.includes(todayStr));
-  const confirmedJobs = jobs.filter(j => j.status === "Confirmed");
-  const pencilJobs = jobs.filter(j => j.status === "Pencil");
+  const confirmedJobs = jobs.filter(j => j.status === "Confirmed" && isUpcomingJob(j, todayStr));
+  const pencilJobs = jobs.filter(j => j.status === "Pencil" && isUpcomingJob(j, todayStr));
   const avList = calcAvailable(equipment, todayStr, { jobs, checkouts, equipmentRequests, reports });
   const pendingRequests = (equipmentRequests || []).filter(r => r.status === "pending");
   const needsActionTotal = (adminRequests || []).filter(r => r.status === "pending").length + pendingRequests.length + openReports.length; // + overdue / due today once stillOutItems exists
@@ -1134,8 +1176,8 @@ export function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckout
 
   const statSections = {
     today:     { jobs: todayJobs,     label: t("dashTodayJobsLabel"),    color: "var(--accent,#2563EB)", badge: "amber" },
-    confirmed: { jobs: confirmedJobs, label: t("dashConfirmedLabel"),  color: "#2F855A", badge: "green" },
-    pencil:    { jobs: pencilJobs,    label: t("dashPencilLabel"),     color: "var(--accent,#2563EB)", badge: "amber" },
+    confirmed: { jobs: confirmedJobs, label: t("dashUpcomingConfirmed"), color: "#2F855A", badge: "green" },
+    pencil:    { jobs: pencilJobs,    label: t("dashUpcomingPencil"),  color: "var(--accent,#2563EB)", badge: "amber" },
   };
 
   return (
@@ -1145,10 +1187,14 @@ export function DashboardPage({ jobs, setJobs, equipment, checkouts, setCheckout
           <h1 style={{ ...S.pageTitle, marginBottom: 2 }}>{t("dashOverview")}</h1>
           <p style={{ ...S.pageSubtitle, marginBottom: 0 }}>{new Date().toLocaleDateString("en-GB", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })}</p>
         </div>
-        {!phone && (
-          <button data-testid="dash-new-job" style={S.btn("primary")} onClick={() => setDashJobModal("new")}><Icon d={icons.plus} size={15} /> {t("jobNewJob")}</button>
-        )}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {lineGroupId && <button data-testid="dash-line-push" style={S.btn("ghost")} onClick={() => setLinePushOpen(true)}><Icon d={icons.send} size={15} /> {t("linePushBtn")}</button>}
+          {!phone && (
+            <button data-testid="dash-new-job" style={S.btn("primary")} onClick={() => setDashJobModal("new")}><Icon d={icons.plus} size={15} /> {t("jobNewJob")}</button>
+          )}
+        </div>
       </div>
+      {linePushOpen && <LinePushDialog onClose={() => setLinePushOpen(false)} />}
 
       {/* Calendar first (2026-10-20): the house lands on the dashboard and wants the
           schedule before anything else, so it sits full width above both columns. */}

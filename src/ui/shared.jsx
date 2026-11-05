@@ -71,7 +71,8 @@ export const api = {
   setAdminEmail: (adminEmail) => fetch("/api/email", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminEmail }) }).then(j),
   testEmail: () => post("/api/email", { test: true }).then(j).catch(() => ({ ok: false, error: "offline" })),
   dailySummary: () => fetch("/api/daily-summary", { cache: "no-store" }).then(j).catch(() => null),
-  postDailySummary: () => post("/api/daily-summary", { force: true }).then(j).catch(() => ({ ok: false, error: "offline" })),
+  linePushPreview: () => fetch("/api/daily-summary?manual=1", { cache: "no-store" }).then(j).catch(() => ({ ok: false, error: "offline" })),
+  linePush: () => post("/api/daily-summary", { manual: true }).then(j).catch(() => ({ ok: false, error: "offline" })),
   setDailySummary: (enabled) => fetch("/api/daily-summary", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }) }).then(j),
   shareInvoice: (html) => fetch("/api/invoice-share", { method: "POST", headers: { "Content-Type": "text/html" }, body: html }).then(r => { if (!r.ok) throw new Error("share failed"); return r.json(); }),
   // Owner-only share status / revoke (needs the token returned by shareInvoice).

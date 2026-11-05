@@ -3,6 +3,7 @@
 // keep behaving as before (every crew member sees it). Once a roster exists the job
 // is "mine" for the people on it and "other" for everyone else. Pure functions,
 // unit-tested in roster.test.js.
+import { isUpcomingJob } from "./availability.js";
 
 export const EMPTY_CREW_ROW = { employeeId: "", role: "", callTime: "", pickupTime: "" };
 
@@ -213,7 +214,7 @@ export function jobSummaryBlocks(jobs, { today: todayStr, starId = null } = {}) 
     if (!job || !STATUS_MARK[job.status]) continue;
     const dates = [...(job.dates || [])].filter(Boolean).sort();
     if (!dates.length) continue;
-    if (dates[dates.length - 1] < todayStr) continue; // every day has passed
+    if (!isUpcomingJob(job, todayStr)) continue; // every day has passed
     const byMonth = new Map();
     for (const d of dates) {
       const ym = d.slice(0, 7);

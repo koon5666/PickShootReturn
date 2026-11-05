@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildDailySummary, jobEventsOn, overdueEmailMessage, summaryAlreadySent, LINE_MAX } from "./dailySummary.js";
+import { buildDailySummary, buildManualPush, pushBudget, bookingStats, jobEventsOn, overdueEmailMessage, summaryAlreadySent, LINE_MAX } from "./dailySummary.js";
 import { addDays } from "../../src/logic/availability.js";
 
 const T = "2026-10-01";
@@ -66,5 +66,82 @@ describe("daily LINE summary (2026-10-01)", () => {
     expect(summaryAlreadySent({ day: T }, T)).toBe(true);
     expect(summaryAlreadySent({ day: day(-1) }, T)).toBe(false);
     expect(summaryAlreadySent(null, T)).toBe(false);
+  });
+});
+
+describe("manual push from the Dashboard (2026-11-05)", () => {
+  const later = { id: "j1", name: "Later", production: "P", status: "Confirmed", dates: [day(5), day(6)] };
+  const push = (jobs) => buildManualPush({ jobs, today: T, companyName: "Lucky Cam" });
+  it("still posts the calendar on a quiet day the 08:00 post skips", () => {
+    expect(buildDailySummary({ ...base, jobs: [later] }).text).toBeNull();
+    const text = push([later]).text;
+    expect(text).toContain("📣 Schedule update");
+    expect(text).toContain("Job summary");
+    expect(text.endsWith("🔗 https://pickshootreturn.pages.dev")).toBe(true);
+  });
+  it("carries stats and the calendar only: no today, tomorrow or overdue names", () => {
+    const today = { id: "j2", name: "Now", production: "P", status: "Confirmed", dates: [T], crew: [{ employeeId: "e_nong", role: "1st AC" }] };
+    const text = push([today, later]).text;
+    expect(text).not.toContain("TODAY / วันนี้");
+    expect(text).not.toContain("TOMORROW");
+    expect(text).not.toContain("OVERDUE");
+    expect(text).not.toContain("e_nong");
+  });
+  it("has nothing to push when no job is upcoming", () => {
+    expect(push([])).toEqual({ text: null, skipped: "no upcoming jobs" });
+    expect(push([{ id: "j", name: "Shot", status: "Confirmed", dates: [day(-1)] }]).text).toBeNull();
+  });
+  it("heads the post with upcoming stats, past days and dead jobs left out", () => {
+    const jobs = [
+      later,
+      { id: "j2", name: "Half gone", status: "Confirmed", dates: [day(-2), T, day(1)] },
+      { id: "j3", name: "Shot", status: "Confirmed", dates: [day(-5)] },
+      { id: "j4", name: "Hold", status: "Pencil", dates: [day(3)] },
+      { id: "j5", name: "No", status: "Declined", dates: [day(4)] },
+    ];
+    expect(bookingStats(jobs, T)).toEqual({ Confirmed: { jobs: 2, days: 4 }, Pencil: { jobs: 1, days: 1 } });
+    const text = push(jobs).text;
+    expect(text).toContain("✅ Confirmed / งานยืนยัน: 2 jobs · 4 shoot days");
+    expect(text).toContain("✏️ Pencil / งานดินสอ: 1 job · 1 shoot day");
+    expect(text.indexOf("UPCOMING BOOKINGS")).toBeLessThan(text.indexOf("Job summary"));
+  });
+  it("leaves the 08:00 post exactly as it was", () => {
+    const text = buildDailySummary({ ...base, jobs: [{ id: "j1", name: "On", production: "P", status: "Confirmed", dates: [T] }] }).text;
+    expect(text.startsWith("☀️ Daily summary")).toBe(true);
+    expect(text).not.toContain("UPCOMING BOOKINGS");
+  });
+  it("never crosses LINE's limit however big the book is", () => {
+    const jobs = Array.from({ length: 400 }, (_, i) => ({ id: "j" + i, name: "Job number " + i, production: "Production house " + i, status: "Confirmed", dates: [day(i % 60)] }));
+    expect(push(jobs).text.length).toBeLessThanOrEqual(LINE_MAX);
+  });
+});
+
+describe("pushBudget: a push against the 08:00 posts still to come", () => {
+  const nov5 = { today: "2026-11-05", dailySentToday: true }; // 25 posts to come
+  it("warns about nothing when the month has room", () => {
+    expect(pushBudget({ members: 6, left: 180, ...nov5 })).toEqual({ members: 6, left: 180, blocked: false, daysLost: 0 });
+    expect(pushBudget({ members: 6, left: 156, ...nov5 }).daysLost).toBe(0); // 150 after the push = exactly 25 posts
+  });
+  it("counts the 08:00 posts a push would crowd out", () => {
+    expect(pushBudget({ members: 6, left: 155, ...nov5 }).daysLost).toBe(1);
+    expect(pushBudget({ members: 6, left: 30, ...nov5 }).daysLost).toBe(21);
+  });
+  it("counts today's post until it has run", () => {
+    expect(pushBudget({ members: 6, left: 156, today: "2026-11-05", dailySentToday: false }).daysLost).toBe(1);
+  });
+  it("the last evening of the month has no post left to protect", () => {
+    expect(pushBudget({ members: 6, left: 6, today: "2026-11-30", dailySentToday: true })).toMatchObject({ blocked: false, daysLost: 0 });
+  });
+  it("has nothing to protect with the 08:00 post switched off", () => {
+    expect(pushBudget({ members: 6, left: 12, ...nov5, dailyEnabled: false }).daysLost).toBe(0);
+  });
+  it("blocks only when LINE would refuse", () => {
+    expect(pushBudget({ members: 6, left: 5, ...nov5 }).blocked).toBe(true);
+    expect(pushBudget({ members: 6, left: 6, ...nov5 }).blocked).toBe(false);
+  });
+  it("stays quiet when LINE gave no numbers or the plan is unlimited", () => {
+    expect(pushBudget({ members: null, left: null, ...nov5 })).toMatchObject({ blocked: false, daysLost: 0 });
+    expect(pushBudget({ members: 6, left: null, ...nov5 })).toMatchObject({ blocked: false, daysLost: 0 });
+    expect(pushBudget({ members: 0, left: 10, ...nov5 })).toMatchObject({ blocked: false, daysLost: 0 });
   });
 });

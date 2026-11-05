@@ -30,7 +30,6 @@ export function SettingsPage({ companyName, setCompanyName, roleList, setRoleLis
   const [emailBusy, setEmailBusy] = useState(false);
   const [dailySum, setDailySum] = useState(null); // GET /api/daily-summary
   const [sumPreviewOpen, setSumPreviewOpen] = useState(false);
-  const [sumPost, setSumPost] = useState(null);
   useEffect(() => {
     api.emailStatus().then(st => { if (st && st.ok) { setEmailStatus(st); setHouseEmail(st.adminEmail || ""); } });
     api.dailySummary().then(d => { if (d && d.ok) setDailySum(d); });
@@ -374,17 +373,7 @@ export function SettingsPage({ companyName, setCompanyName, roleList, setRoleLis
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
             <button data-testid="line-summary-preview" style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} onClick={() => { if (sumPreviewOpen) { setSumPreviewOpen(false); return; } api.dailySummary().then(d => { if (d && d.ok) setDailySum(d); setSumPreviewOpen(true); }); }}>{t("lineSummaryPreview")}</button>
-            {lineGroupId && dailySum?.enabled !== false && (
-              <button style={{ ...S.btn("ghost"), padding: "5px 10px", fontSize: 11 }} disabled={sumPost === "sending"} onClick={async () => {
-                if (!window.confirm(t("lineSummaryPostConfirm"))) return;
-                setSumPost("sending");
-                const r = await api.postDailySummary();
-                setSumPost(r && r.ok ? { ok: !!r.posted, text: r.posted ? t("lineSummaryPosted") : t("lineSummarySkipped").replace("{reason}", r.lineReason || r.skipped || "-") } : { ok: false, text: (r && r.error) || "Failed" });
-                api.dailySummary().then(d => { if (d && d.ok) setDailySum(d); });
-              }}>{sumPost === "sending" ? "Sending…" : t("lineSummaryPostNow")}</button>
-            )}
           </div>
-          {sumPost && sumPost !== "sending" && <p style={{ margin: "8px 0 0", fontSize: 12, color: sumPost.ok ? "#2F855A" : "#C53030" }}>{sumPost.text}</p>}
           {sumPreviewOpen && dailySum && (
             dailySum.text
               ? <pre data-testid="line-summary-text" style={{ margin: "10px 0 0", padding: 10, borderRadius: 8, background: "var(--surface-2,#F4F7FB)", border: "1px solid var(--divider-color,#D8E1EC)", fontSize: 11, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 320, overflow: "auto", fontFamily: "inherit" }}>{dailySum.text}</pre>

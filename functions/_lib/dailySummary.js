@@ -7,10 +7,11 @@
 // returns), overdue gear and gear due back today, then Koon's job summary
 // calendar (src/logic/roster.js jobSummaryBlocks, same format as before).
 // Skipped when nothing happens today or tomorrow and nothing is overdue or due.
-// Pure composer, unit-tested in dailySummary.test.js.
+// Dashboard "Push to LINE group" (2026-11-05) is the one other LINE post, see
+// buildManualPush. Pure composers, unit-tested in dailySummary.test.js.
 import { buildOverdueDigest } from "./digest.js";
 import { jobSummaryBlocks, fitRecapBlocks, normalizeCrew } from "../../src/logic/roster.js";
-import { addDays, effPickupDate, effReturnDate } from "../../src/logic/availability.js";
+import { addDays, effPickupDate, effReturnDate, isUpcomingJob } from "../../src/logic/availability.js";
 
 const LIVE = new Set(["Confirmed", "Pencil"]);
 const MARK = { Confirmed: "✅", Pencil: "✏️" };
@@ -53,6 +54,46 @@ function dayLines(jobs, ds, employees) {
     rows.push({ first: (job.dates || []).slice().sort()[0] || "", lines: [head, `   ${detail}`, ...(crew.length ? [`   👥 ${crew.join(", ")}`] : [])] });
   }
   return rows.sort((a, b) => a.first.localeCompare(b.first)).flatMap(r => r.lines);
+}
+
+// Booking stats for the manual push: upcoming jobs and the shoot days they have
+// left, the same rule as the calendar under them and the Dashboard cards.
+export function bookingStats(jobs, today) {
+  const out = { Confirmed: { jobs: 0, days: 0 }, Pencil: { jobs: 0, days: 0 } };
+  for (const job of jobs || []) {
+    if (!job || !LIVE.has(job.status) || !isUpcomingJob(job, today)) continue;
+    out[job.status].jobs++;
+    out[job.status].days += new Set(job.dates.filter(d => d && d >= today)).size;
+  }
+  return out;
+}
+
+const many = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const statLine = (label, s) => `${label}: ${many(s.jobs, "job")} · ${many(s.days, "shoot day")}`;
+
+// Dashboard "Push to LINE group": booking stats and the job calendar, nothing else.
+// Today, tomorrow and overdue gear stay with the 08:00 post, so a push in the
+// afternoon never lists who is late. Only an empty book stops it.
+export function buildManualPush({ jobs, today, companyName, appUrl = "https://pickshootreturn.pages.dev" } = {}) {
+  const blocks = jobSummaryBlocks(jobs, { today });
+  if (!blocks.length) return { text: null, skipped: "no upcoming jobs" };
+  const stats = bookingStats(jobs, today);
+  const head = [`📣 Schedule update · ${fmtDay(today)}`, companyName || "Pick Shoot Return", "", "📊 UPCOMING BOOKINGS / งานที่จะถึง", statLine("✅ Confirmed / งานยืนยัน", stats.Confirmed), statLine("✏️ Pencil / งานดินสอ", stats.Pencil)].join("\n");
+  const footer = `\n\n🔗 ${appUrl}`;
+  const recap = fitRecapBlocks(blocks, LINE_MAX - head.length - footer.length - "\n\nJob summary\n".length);
+  return { text: `${head}\n\nJob summary\n${recap.join("\n")}${footer}`, skipped: null };
+}
+
+// What a push does to the month's LINE messages. An 08:00 post costs the same as a
+// push, so daysLost = how many of the 08:00 posts still to come would not fit after
+// this push. A worst case: quiet days skip. No numbers from LINE, nothing to warn about.
+export function pushBudget({ members = null, left = null, today, dailySentToday = false, dailyEnabled = true } = {}) {
+  if (!members || left == null) return { members, left, blocked: false, daysLost: 0 };
+  const [y, m, d] = today.split("-").map(Number);
+  const monthDays = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const dailyToCome = dailyEnabled ? monthDays - d + (dailySentToday ? 0 : 1) : 0;
+  const fitAfter = Math.floor((left - members) / members);
+  return { members, left, blocked: left < members, daysLost: Math.min(dailyToCome, Math.max(0, dailyToCome - fitAfter)) };
 }
 
 // { text|null, skipped: reason|null, today, counts, overdueByEmployee: { empId: rows[] } }

@@ -28,6 +28,9 @@ export { isPickEvt, isReturnEvt, isVoidEvt, isLostEvt };
 
 export const jobFirstDate = (j) => [...((j && j.dates) || [])].sort()[0] || null;
 export const jobLastDate = (j) => [...((j && j.dates) || [])].sort().slice(-1)[0] || null;
+// A job with a shoot day still to come, today included. The one rule behind the job
+// calendar, the Dashboard cards and the booking stats in the LINE push.
+export const isUpcomingJob = (j, today) => ((j && j.dates) || []).some(d => d && d >= today);
 // Effective pickup/return window of a job: admin may open pickup before the
 // first shoot day and allow returns after the last shoot day.
 export const effPickupDate = (j) => (j.pickupDate && jobFirstDate(j) && j.pickupDate < jobFirstDate(j)) ? j.pickupDate : jobFirstDate(j);
